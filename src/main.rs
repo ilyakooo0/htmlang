@@ -3,10 +3,6 @@ use std::fs;
 use std::path::Path;
 use std::process;
 
-mod ast;
-mod codegen;
-mod parser;
-
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -23,7 +19,7 @@ fn main() {
         }
     };
 
-    let doc = match parser::parse(&input) {
+    let doc = match htmlang::parser::parse(&input) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("parse error: {}", e);
@@ -31,7 +27,7 @@ fn main() {
         }
     };
 
-    let html = codegen::generate(&doc);
+    let html = htmlang::codegen::generate(&doc);
 
     let out_path = Path::new(input_path).with_extension("html");
     match fs::write(&out_path, &html) {
