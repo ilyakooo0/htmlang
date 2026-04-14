@@ -1,0 +1,97 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: htmlang-linux-x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: htmlang-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: htmlang-macos-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: htmlang-windows-x86_64.exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          if [ -f target/${{ matrix.target }}/release/htmlang ]; then
+            strip target/${{ matrix.target }}/release/htmlang
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: target/${{ matrix.target }}/release/htmlang${{ runner.os == 'Windows' && '.exe' || '' }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Calculate version
+        id: version
+        run: |
+          VERSION=$(date -u +'%Y.%m.%d.%H%M%S')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/*/; do
+            filename=$(basename "$dir")
+            binary=$(find "$dir" -type f -executable | head -1)
+            if [ -z "$binary" ] && [ -f "$dir/htmlang.exe" ]; then
+              binary="$dir/htmlang.exe"
+            fi
+            if [ -n "$binary" ]; then
+              cp "$binary" "release/$filename"
+              chmod +x "release/$filename"
+            fi
+          done
+          ls -la release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          files: release/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
