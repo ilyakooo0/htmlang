@@ -59,16 +59,16 @@ impl StyleCollector {
         let mut css = String::new();
         for e in &self.entries {
             if !e.base.is_empty() {
-                css.push_str(&format!(".{}{{{}}}\n", e.class_name, e.base));
+                css.push_str(&format!(".{}{{{}}}", e.class_name, e.base));
             }
             if !e.hover.is_empty() {
-                css.push_str(&format!(".{}:hover{{{}}}\n", e.class_name, e.hover));
+                css.push_str(&format!(".{}:hover{{{}}}", e.class_name, e.hover));
             }
             if !e.active.is_empty() {
-                css.push_str(&format!(".{}:active{{{}}}\n", e.class_name, e.active));
+                css.push_str(&format!(".{}:active{{{}}}", e.class_name, e.active));
             }
             if !e.focus.is_empty() {
-                css.push_str(&format!(".{}:focus{{{}}}\n", e.class_name, e.focus));
+                css.push_str(&format!(".{}:focus{{{}}}", e.class_name, e.focus));
             }
         }
         css
@@ -91,25 +91,7 @@ pub fn generate(doc: &Document) -> String {
 
     match &doc.page_title {
         Some(title) => format!(
-            "\
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset=\"utf-8\">
-<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-<title>{title}</title>
-<style>
-*, *::before, *::after {{ box-sizing: border-box; }}
-body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
-img {{ display: block; }}
-{element_css}\
-</style>
-</head>
-<body>
-{body}\
-</body>
-</html>
-",
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title><style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
             title = html_escape(title),
             element_css = element_css,
             body = body,
@@ -118,7 +100,7 @@ img {{ display: block; }}
             if element_css.is_empty() {
                 body
             } else {
-                format!("<style>\n{}</style>\n{}", element_css, body)
+                format!("<style>{}</style>{}", element_css, body)
             }
         }
     }
@@ -151,7 +133,6 @@ fn generate_node(
         }
         Node::Raw(content) => {
             out.push_str(content);
-            out.push('\n');
         }
     }
 }
@@ -214,13 +195,13 @@ fn generate_element(
     for (i, child) in elem.children.iter().enumerate() {
         generate_node(child, Some(&elem.kind), out, styles);
         if is_paragraph && i < elem.children.len() - 1 {
-            out.push('\n');
+            out.push(' ');
         }
     }
 
     out.push_str("</");
     out.push_str(tag);
-    out.push_str(">\n");
+    out.push('>');
 }
 
 fn generate_image(
@@ -244,7 +225,7 @@ fn generate_image(
         out.push_str(&html_escape(&id));
         out.push('"');
     }
-    out.push_str(">\n");
+    out.push('>');
 }
 
 fn generate_text_segments(
