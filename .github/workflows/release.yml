@@ -15,15 +15,19 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: htmlang-linux-x86_64
+            lsp_name: htmlang-lsp-linux-x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
             name: htmlang-macos-x86_64
+            lsp_name: htmlang-lsp-macos-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
             name: htmlang-macos-aarch64
+            lsp_name: htmlang-lsp-macos-aarch64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: htmlang-windows-x86_64.exe
+            lsp_name: htmlang-lsp-windows-x86_64.exe
     steps:
       - uses: actions/checkout@v4
 
@@ -31,21 +35,29 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Build binary
+      - name: Build binaries
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Strip binary (Unix)
+      - name: Strip binaries (Unix)
         if: runner.os != 'Windows'
         run: |
-          if [ -f target/${{ matrix.target }}/release/htmlang ]; then
-            strip target/${{ matrix.target }}/release/htmlang
-          fi
+          for bin in htmlang htmlang-lsp; do
+            if [ -f target/${{ matrix.target }}/release/$bin ]; then
+              strip target/${{ matrix.target }}/release/$bin
+            fi
+          done
 
-      - name: Upload artifact
+      - name: Upload htmlang
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: target/${{ matrix.target }}/release/htmlang${{ runner.os == 'Windows' && '.exe' || '' }}
+
+      - name: Upload htmlang-lsp
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.lsp_name }}
+          path: target/${{ matrix.target }}/release/htmlang-lsp${{ runner.os == 'Windows' && '.exe' || '' }}
 
   release:
     name: Create Release
@@ -74,8 +86,8 @@ jobs:
           for dir in artifacts/*/; do
             filename=$(basename "$dir")
             binary=$(find "$dir" -type f -executable | head -1)
-            if [ -z "$binary" ] && [ -f "$dir/htmlang.exe" ]; then
-              binary="$dir/htmlang.exe"
+            if [ -z "$binary" ]; then
+              binary=$(find "$dir" -type f -name "*.exe" | head -1)
             fi
             if [ -n "$binary" ]; then
               cp "$binary" "release/$filename"
