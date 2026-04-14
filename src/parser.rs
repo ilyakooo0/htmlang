@@ -19,6 +19,7 @@ pub struct Diagnostic {
     pub line: usize,
     pub message: String,
     pub severity: Severity,
+    pub source_line: Option<String>,
 }
 
 pub struct ParseResult {
@@ -73,6 +74,8 @@ struct ParseContext {
     base_path: Option<PathBuf>,
     included_files: Vec<PathBuf>,
     include_stack: Vec<PathBuf>,
+    fn_call_stack: Vec<String>,
+    file_cache: HashMap<PathBuf, String>,
 }
 
 struct Parser {
@@ -98,8 +101,11 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
         base_path: base_path.map(|p| p.to_path_buf()),
         included_files: Vec::new(),
         include_stack: Vec::new(),
+        fn_call_stack: Vec::new(),
+        file_cache: HashMap::new(),
     };
     let nodes = parser.parse_children(0, &mut ctx);
+    validate_tree(&nodes, None, &mut ctx.diagnostics);
     ParseResult {
         document: Document {
             page_title: ctx.page_title,
@@ -234,6 +240,7 @@ impl Parser {
                         line: e.line,
                         message: e.message,
                         severity: Severity::Error,
+                        source_line: None,
                     });
                     // Skip forward past any deeper-indented children of the errored line
                     while self.pos < self.lines.len()
@@ -313,37 +320,164 @@ impl Parser {
                     line: line_num,
                     message: format!("circular include '{}'", filename),
                     severity: Severity::Error,
+                    source_line: Some(content.clone()),
                 });
                 return Ok(None);
             }
 
-            match std::fs::read_to_string(&resolved) {
-                Ok(included_text) => {
-                    ctx.included_files.push(resolved.clone());
-                    ctx.include_stack.push(resolved.clone());
-                    let saved_base = ctx.base_path.clone();
-                    ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
-
-                    let included_lines = preprocess(&included_text);
-                    let mut included_parser = Parser {
-                        lines: included_lines,
-                        pos: 0,
-                    };
-                    let nodes = included_parser.parse_children(0, ctx);
-
-                    ctx.base_path = saved_base;
-                    ctx.include_stack.pop();
-                    return Ok(Some(nodes));
+            // Use file cache to avoid redundant reads
+            let included_text = if let Some(cached) = ctx.file_cache.get(&resolved) {
+                cached.clone()
+            } else {
+                match std::fs::read_to_string(&resolved) {
+                    Ok(text) => {
+                        ctx.file_cache.insert(resolved.clone(), text.clone());
+                        text
+                    }
+                    Err(e) => {
+                        ctx.diagnostics.push(Diagnostic {
+                            line: line_num,
+                            message: format!("cannot include '{}': {}", filename, e),
+                            severity: Severity::Error,
+                            source_line: Some(content.clone()),
+                        });
+                        return Ok(None);
+                    }
                 }
-                Err(e) => {
-                    ctx.diagnostics.push(Diagnostic {
-                        line: line_num,
-                        message: format!("cannot include '{}': {}", filename, e),
-                        severity: Severity::Error,
-                    });
-                    return Ok(None);
+            };
+
+            ctx.included_files.push(resolved.clone());
+            ctx.include_stack.push(resolved.clone());
+            let saved_base = ctx.base_path.clone();
+            ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
+
+            let included_lines = preprocess(&included_text);
+            let mut included_parser = Parser {
+                lines: included_lines,
+                pos: 0,
+            };
+            let nodes = included_parser.parse_children(0, ctx);
+
+            ctx.base_path = saved_base;
+            ctx.include_stack.pop();
+            return Ok(Some(nodes));
+        }
+
+        // --- @if / @else ---
+
+        if let Some(rest) = content.strip_prefix("@if ") {
+            let rest = rest.trim();
+            let condition = substitute_vars(rest, &ctx.variables);
+            let result = evaluate_condition(&condition);
+
+            // Collect then-body lines
+            let mut then_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                then_lines.push(self.lines[self.pos].clone());
+                self.pos += 1;
+            }
+
+            // Check for @else at same indent
+            let mut else_lines = Vec::new();
+            if self.pos < self.lines.len() && self.lines[self.pos].indent == current_indent {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    if s.trim() == "@else" {
+                        self.pos += 1; // consume @else
+                        while self.pos < self.lines.len()
+                            && self.lines[self.pos].indent > current_indent
+                        {
+                            else_lines.push(self.lines[self.pos].clone());
+                            self.pos += 1;
+                        }
+                    }
                 }
             }
+
+            let body_lines = if result { then_lines } else { else_lines };
+            if body_lines.is_empty() {
+                return Ok(None);
+            }
+
+            let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
+            let adjusted: Vec<Line> = body_lines
+                .iter()
+                .map(|l| Line {
+                    indent: l.indent - min_indent,
+                    content: l.content.clone(),
+                    line_num: l.line_num,
+                })
+                .collect();
+
+            let mut body_parser = Parser {
+                lines: adjusted,
+                pos: 0,
+            };
+            let nodes = body_parser.parse_children(0, ctx);
+            return Ok(Some(nodes));
+        }
+
+        if content.trim() == "@else" {
+            return Err(ParseError {
+                line: line_num,
+                message: "@else without matching @if".to_string(),
+            });
+        }
+
+        // --- @each loop ---
+
+        if let Some(rest) = content.strip_prefix("@each ") {
+            let rest = rest.trim();
+            let parts: Vec<&str> = rest.splitn(3, ' ').collect();
+            if parts.len() < 3 || parts[1] != "in" {
+                return Err(ParseError {
+                    line: line_num,
+                    message: "@each requires: @each $var in list".to_string(),
+                });
+            }
+            let var_name = parts[0].strip_prefix('$').unwrap_or(parts[0]).to_string();
+            let list_str = substitute_vars(parts[2], &ctx.variables);
+            let items: Vec<String> = list_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            // Collect body lines
+            let mut body_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                body_lines.push(self.lines[self.pos].clone());
+                self.pos += 1;
+            }
+
+            if body_lines.is_empty() || items.is_empty() {
+                return Ok(None);
+            }
+
+            let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
+            let adjusted: Vec<Line> = body_lines
+                .iter()
+                .map(|l| Line {
+                    indent: l.indent - min_indent,
+                    content: l.content.clone(),
+                    line_num: l.line_num,
+                })
+                .collect();
+
+            let saved_vars = ctx.variables.clone();
+            let mut all_nodes = Vec::new();
+
+            for item in &items {
+                ctx.variables.insert(var_name.clone(), item.clone());
+                let mut body_parser = Parser {
+                    lines: adjusted.clone(),
+                    pos: 0,
+                };
+                let nodes = body_parser.parse_children(0, ctx);
+                all_nodes.extend(nodes);
+            }
+
+            ctx.variables = saved_vars;
+            return Ok(Some(all_nodes));
         }
 
         // --- @keyframes directive ---
@@ -428,6 +562,19 @@ impl Parser {
         line_num: usize,
         ctx: &mut ParseContext,
     ) -> Result<Vec<Node>, ParseError> {
+        // Recursive function cycle detection
+        if ctx.fn_call_stack.contains(&name.to_string()) {
+            return Err(ParseError {
+                line: line_num,
+                message: format!(
+                    "recursive function call to @{} (call stack: {})",
+                    name,
+                    ctx.fn_call_stack.join(" -> ")
+                ),
+            });
+        }
+        ctx.fn_call_stack.push(name.to_string());
+
         // Parse [param value, ...] arguments
         let rest = &content[1 + name.len()..];
         let rest = rest.trim_start();
@@ -481,8 +628,9 @@ impl Parser {
         };
         let body_nodes = body_parser.parse_children(0, ctx);
 
-        // Restore variables
+        // Restore variables and call stack
         ctx.variables = saved_vars;
+        ctx.fn_call_stack.pop();
 
         // Replace @children with caller's children
         Ok(replace_children_nodes(body_nodes, &caller_children))
@@ -613,14 +761,18 @@ fn parse_single_element(
         attrs,
         argument,
         children,
+        line_num,
     })
 }
 
 const KNOWN_ELEMENTS: &[&str] = &[
     "row", "column", "col", "el", "text", "paragraph", "p", "image", "img", "link", "children",
+    "input", "button", "select", "textarea", "option", "label",
 ];
 
-const KNOWN_DIRECTIVES: &[&str] = &["page", "let", "define", "fn", "include", "raw", "keyframes"];
+const KNOWN_DIRECTIVES: &[&str] = &[
+    "page", "let", "define", "fn", "include", "raw", "keyframes", "if", "else", "each",
+];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
     match s {
@@ -632,6 +784,12 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "image" | "img" => Ok(ElementKind::Image),
         "link" => Ok(ElementKind::Link),
         "children" => Ok(ElementKind::Children),
+        "input" => Ok(ElementKind::Input),
+        "button" | "btn" => Ok(ElementKind::Button),
+        "select" => Ok(ElementKind::Select),
+        "textarea" => Ok(ElementKind::Textarea),
+        "option" | "opt" => Ok(ElementKind::Option),
+        "label" => Ok(ElementKind::Label),
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
                 .iter()
@@ -690,16 +848,26 @@ fn suggest_closest<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
 // ---------------------------------------------------------------------------
 
 const KNOWN_ATTRS: &[&str] = &[
+    // Layout
     "spacing", "padding", "padding-x", "padding-y",
     "width", "height", "min-width", "max-width", "min-height", "max-height",
     "center-x", "center-y", "align-left", "align-right", "align-top", "align-bottom",
+    // Style
     "background", "color", "border", "rounded",
     "bold", "italic", "underline",
     "size", "font", "transition", "cursor", "opacity",
     "text-align", "line-height", "overflow", "position", "z-index", "shadow",
     "wrap", "gap-x", "gap-y",
+    // Identity
     "id", "class",
+    // Animation
     "animation",
+    // Form
+    "type", "placeholder", "name", "value", "disabled", "required", "checked",
+    "for", "action", "method", "autocomplete",
+    "min", "max", "step", "pattern", "maxlength", "rows", "cols", "multiple",
+    // Accessibility
+    "alt", "role", "tabindex", "title",
 ];
 
 /// Attributes that expect purely numeric values (px-based).
@@ -739,6 +907,7 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                             attr.key, val
                         ),
                         severity: Severity::Warning,
+                        source_line: None,
                     });
                     return;
                 }
@@ -756,6 +925,7 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                         val
                     ),
                     severity: Severity::Warning,
+                    source_line: None,
                 });
             }
         } else if base_key == "opacity" {
@@ -765,6 +935,7 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                         line: line_num,
                         message: format!("'opacity' should be between 0 and 1, got '{}'", val),
                         severity: Severity::Warning,
+                        source_line: None,
                     });
                 }
             } else {
@@ -772,6 +943,7 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                     line: line_num,
                     message: format!("'opacity' expects a numeric value, got '{}'", val),
                     severity: Severity::Warning,
+                    source_line: None,
                 });
             }
         } else if base_key == "z-index" {
@@ -780,6 +952,7 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                     line: line_num,
                     message: format!("'z-index' expects an integer, got '{}'", val),
                     severity: Severity::Warning,
+                    source_line: None,
                 });
             }
         }
@@ -888,7 +1061,10 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
                 .or_else(|| base_key.strip_prefix("lg:"))
                 .or_else(|| base_key.strip_prefix("xl:"))
                 .unwrap_or(base_key);
-            if !KNOWN_ATTRS.contains(&base_key) {
+            if !KNOWN_ATTRS.contains(&base_key)
+                && !base_key.starts_with("aria-")
+                && !base_key.starts_with("data-")
+            {
                 let suggestion = suggest_closest(base_key, KNOWN_ATTRS);
                 let msg = match suggestion {
                     Some(closest) => {
@@ -900,6 +1076,7 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
                     line: line_num,
                     message: msg,
                     severity: Severity::Warning,
+                    source_line: None,
                 });
             } else {
                 validate_attr_value(&attr, line_num, ctx);
@@ -1043,6 +1220,81 @@ fn parse_text_segments(input: &str, ctx: &mut ParseContext) -> Vec<TextSegment> 
     }
 
     segments
+}
+
+// ---------------------------------------------------------------------------
+// Variable substitution
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Condition evaluation for @if
+// ---------------------------------------------------------------------------
+
+fn evaluate_condition(condition: &str) -> bool {
+    if let Some((left, right)) = condition.split_once("!=") {
+        left.trim() != right.trim()
+    } else if let Some((left, right)) = condition.split_once("==") {
+        left.trim() == right.trim()
+    } else {
+        // Truthy check: non-empty, not "false", not "0"
+        let trimmed = condition.trim();
+        !trimmed.is_empty() && trimmed != "false" && trimmed != "0"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Post-parse validation (context-dependent warnings)
+// ---------------------------------------------------------------------------
+
+fn strip_all_prefixes(key: &str) -> &str {
+    let key = key
+        .strip_prefix("hover:")
+        .or_else(|| key.strip_prefix("active:"))
+        .or_else(|| key.strip_prefix("focus:"))
+        .unwrap_or(key);
+    key.strip_prefix("sm:")
+        .or_else(|| key.strip_prefix("md:"))
+        .or_else(|| key.strip_prefix("lg:"))
+        .or_else(|| key.strip_prefix("xl:"))
+        .unwrap_or(key)
+}
+
+fn validate_tree(
+    nodes: &[Node],
+    parent_kind: Option<&ElementKind>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for node in nodes {
+        if let Node::Element(elem) = node {
+            for attr in &elem.attrs {
+                let base = strip_all_prefixes(&attr.key);
+                if base == "width" && attr.value.as_deref() == Some("fill") {
+                    if !matches!(parent_kind, Some(ElementKind::Row)) {
+                        diagnostics.push(Diagnostic {
+                            line: elem.line_num,
+                            message: "'width fill' works best inside @row; using 100% as fallback"
+                                .to_string(),
+                            severity: Severity::Warning,
+                            source_line: None,
+                        });
+                    }
+                }
+                if base == "height" && attr.value.as_deref() == Some("fill") {
+                    if !matches!(parent_kind, Some(ElementKind::Column)) {
+                        diagnostics.push(Diagnostic {
+                            line: elem.line_num,
+                            message:
+                                "'height fill' works best inside @column; using 100% as fallback"
+                                    .to_string(),
+                            severity: Severity::Warning,
+                            source_line: None,
+                        });
+                    }
+                }
+            }
+            validate_tree(&elem.children, Some(&elem.kind), diagnostics);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

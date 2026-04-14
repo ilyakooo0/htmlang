@@ -1,0 +1,8 @@
+@page Loops
+@let colors red,green,blue
+@row [spacing 10]
+  @each $color in $colors
+    @el [background $color, width 50, height 50]
+
+@each $item in apple,banana,cherry
+  @text $item

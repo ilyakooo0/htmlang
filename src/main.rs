@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -21,6 +23,9 @@ fn compile(input_path: &str, dev: bool) -> (bool, Vec<PathBuf>) {
             htmlang::parser::Severity::Warning => "warning",
         };
         eprintln!("{}: line {}: {}", prefix, d.line, d.message);
+        if let Some(ref src) = d.source_line {
+            eprintln!("  | {}", src);
+        }
     }
 
     let has_errors = result
@@ -143,17 +148,67 @@ fn main() {
 
     eprintln!("watching for changes...");
 
+    // Track content hashes for incremental rebuilds
+    let mut content_hashes: HashMap<PathBuf, u64> = HashMap::new();
+
+    fn hash_file(path: &Path) -> Option<u64> {
+        let content = fs::read(path).ok()?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        content.hash(&mut hasher);
+        Some(hasher.finish())
+    }
+
+    // Seed initial hashes
+    if let Some(h) = hash_file(&input_canonical) {
+        content_hashes.insert(input_canonical.clone(), h);
+    }
+    for inc in &included_files {
+        if let Some(h) = hash_file(inc) {
+            content_hashes.insert(inc.clone(), h);
+        }
+    }
+
     loop {
         match rx.recv() {
             Ok(_) => {
                 // Drain additional events (debounce)
                 while rx.try_recv().is_ok() {}
 
+                // Check if any file content actually changed
+                let mut any_changed = false;
+                let check_path = |path: &Path,
+                                   hashes: &mut HashMap<PathBuf, u64>|
+                 -> bool {
+                    if let Some(h) = hash_file(path) {
+                        if hashes.get(path) != Some(&h) {
+                            hashes.insert(path.to_path_buf(), h);
+                            return true;
+                        }
+                    }
+                    false
+                };
+
+                if check_path(&input_canonical, &mut content_hashes) {
+                    any_changed = true;
+                }
+                for inc in &included_files {
+                    if check_path(inc, &mut content_hashes) {
+                        any_changed = true;
+                    }
+                }
+
+                if !any_changed {
+                    continue;
+                }
+
                 eprintln!("\nrecompiling...");
                 let (_, new_includes) = compile(&input_path, dev);
 
                 for inc in &new_includes {
                     let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
+                    if let Some(h) = hash_file(inc) {
+                        content_hashes.insert(inc.clone(), h);
+                    }
                 }
 
                 if let Some(ref tx) = reload_tx {

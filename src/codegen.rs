@@ -289,6 +289,39 @@ fn generate_node(
     }
 }
 
+/// HTML attributes that are passed through to the HTML tag rather than converted to CSS.
+const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
+    "type", "placeholder", "name", "value", "disabled", "required", "checked",
+    "for", "action", "method", "autocomplete",
+    "min", "max", "step", "pattern", "maxlength", "rows", "cols", "multiple",
+    "alt", "role", "tabindex", "title",
+];
+
+/// Boolean HTML attributes (rendered without a value, e.g., `<input disabled>`).
+const BOOLEAN_HTML_ATTRS: &[&str] = &["disabled", "required", "checked", "multiple"];
+
+fn emit_html_passthrough_attrs(out: &mut String, attrs: &[Attribute]) {
+    for attr in attrs {
+        let key = attr.key.as_str();
+        let is_passthrough = HTML_PASSTHROUGH_ATTRS.contains(&key)
+            || key.starts_with("aria-")
+            || key.starts_with("data-");
+        if !is_passthrough {
+            continue;
+        }
+        if BOOLEAN_HTML_ATTRS.contains(&key) && attr.value.is_none() {
+            out.push(' ');
+            out.push_str(key);
+        } else if let Some(val) = &attr.value {
+            out.push(' ');
+            out.push_str(key);
+            out.push_str("=\"");
+            out.push_str(&html_escape(val));
+            out.push('"');
+        }
+    }
+}
+
 fn generate_element(
     elem: &Element,
     parent_kind: Option<&ElementKind>,
@@ -296,8 +329,9 @@ fn generate_element(
     styles: &mut StyleCollector,
     ctx: &mut GenContext,
 ) {
-    if elem.kind == ElementKind::Image {
-        generate_image(elem, parent_kind, out, styles, ctx);
+    // Self-closing elements
+    if matches!(elem.kind, ElementKind::Image | ElementKind::Input) {
+        generate_self_closing(elem, parent_kind, out, styles, ctx);
         return;
     }
     if elem.kind == ElementKind::Children {
@@ -309,7 +343,12 @@ fn generate_element(
         ElementKind::Text => "span",
         ElementKind::Paragraph => "p",
         ElementKind::Link => "a",
-        ElementKind::Image | ElementKind::Children => unreachable!(),
+        ElementKind::Button => "button",
+        ElementKind::Select => "select",
+        ElementKind::Textarea => "textarea",
+        ElementKind::Option => "option",
+        ElementKind::Label => "label",
+        ElementKind::Image | ElementKind::Input | ElementKind::Children => unreachable!(),
     };
 
     let kind_label = match elem.kind {
@@ -319,6 +358,11 @@ fn generate_element(
         ElementKind::Text => "text",
         ElementKind::Paragraph => "paragraph",
         ElementKind::Link => "link",
+        ElementKind::Button => "button",
+        ElementKind::Select => "select",
+        ElementKind::Textarea => "textarea",
+        ElementKind::Option => "option",
+        ElementKind::Label => "label",
         _ => "",
     };
 
@@ -326,9 +370,9 @@ fn generate_element(
     let gen_class = compute_class(&elem.attrs, &elem.kind, parent_kind, styles);
     let (id, user_class) = extract_id_class(&elem.attrs);
 
-    if ctx.dev {
+    if ctx.dev && elem.line_num > 0 {
         out.push_str(&ctx.indent());
-        out.push_str(&format!("<!-- @{} -->\n", kind_label));
+        out.push_str(&format!("<!-- @{} line {} -->\n", kind_label, elem.line_num));
     }
     out.push_str(&ctx.indent());
     out.push('<');
@@ -349,11 +393,21 @@ fn generate_element(
         out.push_str(&html_escape(&id));
         out.push('"');
     }
+
+    emit_html_passthrough_attrs(out, &elem.attrs);
+
     out.push('>');
     out.push_str(ctx.nl());
 
-    // Inline text argument (@text content)
-    if elem.kind == ElementKind::Text {
+    // Inline text argument
+    if matches!(
+        elem.kind,
+        ElementKind::Text
+            | ElementKind::Button
+            | ElementKind::Label
+            | ElementKind::Option
+            | ElementKind::Textarea
+    ) {
         if let Some(text) = &elem.argument {
             out.push_str(&html_escape(text));
         }
@@ -377,25 +431,37 @@ fn generate_element(
     out.push_str(ctx.nl());
 }
 
-fn generate_image(
+fn generate_self_closing(
     elem: &Element,
     parent_kind: Option<&ElementKind>,
     out: &mut String,
     styles: &mut StyleCollector,
     ctx: &GenContext,
 ) {
-    let src = elem.argument.as_deref().unwrap_or("");
     let gen_class = compute_class(&elem.attrs, &elem.kind, parent_kind, styles);
     let (id, user_class) = extract_id_class(&elem.attrs);
 
-    if ctx.dev {
+    let (tag, kind_label) = match elem.kind {
+        ElementKind::Image => ("img", "image"),
+        ElementKind::Input => ("input", "input"),
+        _ => unreachable!(),
+    };
+
+    if ctx.dev && elem.line_num > 0 {
         out.push_str(&ctx.indent());
-        out.push_str("<!-- @image -->\n");
+        out.push_str(&format!("<!-- @{} line {} -->\n", kind_label, elem.line_num));
     }
     out.push_str(&ctx.indent());
-    out.push_str("<img src=\"");
-    out.push_str(&html_escape(src));
-    out.push('"');
+    out.push('<');
+    out.push_str(tag);
+
+    // Image src
+    if elem.kind == ElementKind::Image {
+        let src = elem.argument.as_deref().unwrap_or("");
+        out.push_str(" src=\"");
+        out.push_str(&html_escape(src));
+        out.push('"');
+    }
 
     emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
 
@@ -404,6 +470,9 @@ fn generate_image(
         out.push_str(&html_escape(&id));
         out.push('"');
     }
+
+    emit_html_passthrough_attrs(out, &elem.attrs);
+
     out.push('>');
     out.push_str(ctx.nl());
 }
@@ -783,8 +852,12 @@ fn attrs_to_css(
                 }
             }
 
-            // Identity — not CSS
+            // Identity and HTML passthrough — not CSS
             "id" | "class" => {}
+            "type" | "placeholder" | "name" | "value" | "disabled" | "required"
+            | "checked" | "for" | "action" | "method" | "autocomplete" | "min"
+            | "max" | "step" | "pattern" | "maxlength" | "rows" | "cols"
+            | "multiple" | "alt" | "role" | "tabindex" | "title" => {}
 
             _ => {}
         }

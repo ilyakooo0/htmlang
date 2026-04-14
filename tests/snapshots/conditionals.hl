@@ -1,0 +1,21 @@
+@page Conditionals
+@let theme dark
+@if $theme == dark
+  @el [background #333, color white, padding 20]
+    @text Dark mode
+@else
+  @el [background white, color #333, padding 20]
+    @text Light mode
+
+@let show true
+@if $show
+  @text Visible
+
+@let hidden false
+@if $hidden
+  @text Should not appear
+
+@let a hello
+@let b world
+@if $a != $b
+  @text They differ

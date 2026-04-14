@@ -14,6 +14,10 @@ fn compile(input: &str) -> String {
     htmlang::codegen::generate(&result.document)
 }
 
+fn parse_diagnostics(input: &str) -> Vec<htmlang::parser::Diagnostic> {
+    htmlang::parser::parse(input).diagnostics
+}
+
 fn snapshot_test(name: &str) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
     let hl_path = dir.join(format!("{}.hl", name));
@@ -111,4 +115,187 @@ fn snapshot_animations() {
 #[test]
 fn snapshot_css_vars() {
     snapshot_test("css_vars");
+}
+
+#[test]
+fn snapshot_form_elements() {
+    snapshot_test("form_elements");
+}
+
+#[test]
+fn snapshot_conditionals() {
+    snapshot_test("conditionals");
+}
+
+#[test]
+fn snapshot_loops() {
+    snapshot_test("loops");
+}
+
+#[test]
+fn snapshot_accessibility() {
+    snapshot_test("accessibility");
+}
+
+// ---------------------------------------------------------------------------
+// Error case tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn error_unknown_element() {
+    let diags = parse_diagnostics("@unknown");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("unknown element @unknown")),
+        "expected unknown element error, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn error_unknown_element_suggestion() {
+    let diags = parse_diagnostics("@ro");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("did you mean @row")),
+        "expected suggestion, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn error_unknown_attribute() {
+    let diags = parse_diagnostics("@el [bakground red]");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute") && d.message.contains("background")),
+        "expected unknown attribute with suggestion, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn error_unclosed_bracket() {
+    let diags = parse_diagnostics("@el [padding 10");
+    assert!(
+        diags.iter().any(|d| d.message.contains("unclosed")),
+        "expected unclosed bracket error, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn error_recursive_function() {
+    let input = "@fn loop\n  @loop\n@loop";
+    let diags = parse_diagnostics(input);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("recursive function call")),
+        "expected recursive function error, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn error_else_without_if() {
+    let diags = parse_diagnostics("@else");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("@else without matching @if")),
+        "expected @else error, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn error_each_bad_syntax() {
+    let diags = parse_diagnostics("@each $x");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("@each requires")),
+        "expected @each syntax error, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn error_numeric_validation() {
+    let diags = parse_diagnostics("@el [padding abc]");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("expects a numeric value")),
+        "expected numeric validation warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn error_opacity_range() {
+    let diags = parse_diagnostics("@el [opacity 2.0]");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("between 0 and 1")),
+        "expected opacity range warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_fill_outside_row() {
+    let diags = parse_diagnostics("@column\n  @el [width fill]");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("width fill") && d.message.contains("@row")),
+        "expected fill context warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_fill_inside_row_ok() {
+    let diags = parse_diagnostics("@row\n  @el [width fill]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("width fill")),
+        "should not warn about width fill inside @row, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn if_condition_truthy() {
+    let output = compile("@let x hello\n@if $x\n  @text visible");
+    assert!(output.contains("visible"));
+}
+
+#[test]
+fn if_condition_falsy() {
+    let output = compile("@let x false\n@if $x\n  @text hidden");
+    assert!(!output.contains("hidden"));
+}
+
+#[test]
+fn each_loop_expansion() {
+    let output = compile("@each $n in a,b,c\n  @text $n");
+    assert!(output.contains("a"));
+    assert!(output.contains("b"));
+    assert!(output.contains("c"));
+}
+
+#[test]
+fn aria_data_attrs_accepted() {
+    let diags = parse_diagnostics("@el [aria-label Test, data-id 42]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "aria-*/data-* should not produce warnings, got: {:?}",
+        diags
+    );
 }

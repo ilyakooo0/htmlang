@@ -30,6 +30,7 @@ pub struct Element {
     pub attrs: Vec<Attribute>,
     pub argument: Option<String>,
     pub children: Vec<Node>,
+    pub line_num: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -42,6 +43,13 @@ pub enum ElementKind {
     Image,
     Link,
     Children,
+    // Form elements
+    Input,
+    Button,
+    Select,
+    Textarea,
+    Option,
+    Label,
 }
 
 #[derive(Debug, Clone)]
