@@ -178,7 +178,11 @@ fn main() {
         let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
     }
 
-    eprintln!("watching for changes...");
+    if serve {
+        eprintln!("watching for changes at http://127.0.0.1:{port}");
+    } else {
+        eprintln!("watching for changes...");
+    }
 
     // Track content hashes for incremental rebuilds
     let mut content_hashes: HashMap<PathBuf, u64> = HashMap::new();

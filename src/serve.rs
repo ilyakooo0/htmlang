@@ -16,8 +16,6 @@ pub async fn run(port: u16, html_path: PathBuf, reload: broadcast::Sender<()>) {
         }
     };
 
-    eprintln!("serving at http://127.0.0.1:{}", port);
-
     loop {
         if let Ok((stream, _)) = listener.accept().await {
             let path = html_path.clone();
