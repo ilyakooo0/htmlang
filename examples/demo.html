@@ -8,29 +8,49 @@
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
 img { display: block; }
+._0{display:flex;flex-direction:column;max-width:800px;margin-left:auto;margin-right:auto;padding:40px;gap:20px;}
+._1{display:flex;flex-direction:row;gap:20px;}
+._2{display:flex;flex-direction:column;flex:1;min-width:0;gap:10px;}
+._3{font-weight:bold;font-size:32px;}
+._4{margin:0;}
+._5{font-weight:bold;color:#3b82f6;}
+._6{width:80px;height:80px;border-radius:40px;}
+._7{display:flex;flex-direction:column;gap:10px;}
+._8{font-weight:bold;font-size:24px;color:#333;}
+._9{display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;}
+._10{display:flex;flex-direction:column;padding:20px;background:white;border-radius:8px;border:1px solid #e5e7eb;transition:all 0.15s ease;cursor:pointer;}
+._10:hover{border:1px solid #3b82f6;}
+._11{font-weight:bold;}
+._12{display:flex;flex-direction:row;gap:10px;}
+._13{display:flex;flex-direction:column;padding:16px;background:#3b82f6;border-radius:8px;transition:all 0.15s ease;cursor:pointer;}
+._13:hover{background:#2563eb;}
+._13:active{background:#1d4ed8;}
+._14{color:white;font-weight:bold;}
+._15{display:flex;flex-direction:column;flex:1;min-width:0;}
+._16{color:#888;}
 </style>
 </head>
 <body>
-<div style="display:flex;flex-direction:column;max-width:800px;margin-left:auto;margin-right:auto;padding:40px;gap:20px;"><div style="display:flex;flex-direction:row;gap:20px;"><div style="display:flex;flex-direction:column;flex:1;min-width:0;gap:10px;"><span style="font-weight:bold;font-size:32px;">Welcome to htmlang</span>
-<p style="margin:0;">A minimalist layout language that compiles to
-<span style="font-weight:bold;color:#3b82f6;">static HTML</span>.</p>
+<div class="_0"><div class="_1"><div class="_2"><span class="_3">Welcome to htmlang</span>
+<p class="_4">A minimalist layout language that compiles to
+<span class="_5">static HTML</span>.</p>
 </div>
-<img src="https://picsum.photos/80" style="width:80px;height:80px;border-radius:40px;">
+<img src="https://picsum.photos/80" class="_6">
 </div>
-<div style="display:flex;flex-direction:column;gap:10px;"><span style="font-weight:bold;font-size:24px;color:#333;">Features</span>
-<div style="display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;"><div style="display:flex;flex-direction:column;padding:20px;background:white;border-radius:8px;border:1px solid #e5e7eb;"><span style="font-weight:bold;">Simple</span>
+<div class="_7"><span class="_8">Features</span>
+<div class="_9"><div class="_10"><span class="_11">Simple</span>
 <span>Write layouts without CSS</span></div>
-<div style="display:flex;flex-direction:column;padding:20px;background:white;border-radius:8px;border:1px solid #e5e7eb;"><span style="font-weight:bold;">Fast</span>
+<div class="_10"><span class="_11">Fast</span>
 <span>Compiles to a single HTML file</span></div>
-<div style="display:flex;flex-direction:column;padding:20px;background:white;border-radius:8px;border:1px solid #e5e7eb;"><span style="font-weight:bold;">Minimal</span>
+<div class="_10"><span class="_11">Minimal</span>
 <span>No JavaScript required</span></div>
 </div>
 </div>
-<div style="display:flex;flex-direction:row;gap:10px;"><div style="display:flex;flex-direction:column;padding:16px;background:#3b82f6;border-radius:8px;"><a href="https://github.com"><span style="color:white;font-weight:bold;">Get Started</span>
+<div class="_12"><div class="_13"><a href="https://github.com"><span class="_14">Get Started</span>
 </a>
 </div>
-<div style="display:flex;flex-direction:column;flex:1;min-width:0;"></div>
-<span style="color:#888;">© 2026</span>
+<div class="_15"></div>
+<span class="_16">© 2026</span>
 </div>
 </div>
 </body>

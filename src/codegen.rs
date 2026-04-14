@@ -1,10 +1,93 @@
+use std::collections::HashMap;
+
 use crate::ast::*;
 
-pub fn generate(doc: &Document) -> String {
-    let mut body = String::new();
-    for node in &doc.nodes {
-        generate_node(node, None, &mut body);
+// ---------------------------------------------------------------------------
+// Style collector: deduplicates CSS and assigns class names
+// ---------------------------------------------------------------------------
+
+struct StyleEntry {
+    class_name: String,
+    base: String,
+    hover: String,
+    active: String,
+    focus: String,
+}
+
+struct StyleCollector {
+    entries: Vec<StyleEntry>,
+    index: HashMap<String, usize>,
+}
+
+impl StyleCollector {
+    fn new() -> Self {
+        StyleCollector {
+            entries: Vec::new(),
+            index: HashMap::new(),
+        }
     }
+
+    /// Returns a class name for this style combination, or None if all empty.
+    fn get_class(
+        &mut self,
+        base: String,
+        hover: String,
+        active: String,
+        focus: String,
+    ) -> Option<String> {
+        if base.is_empty() && hover.is_empty() && active.is_empty() && focus.is_empty() {
+            return None;
+        }
+        let key = format!("{}|{}|{}|{}", base, hover, active, focus);
+        if let Some(&idx) = self.index.get(&key) {
+            return Some(self.entries[idx].class_name.clone());
+        }
+        let name = format!("_{}", self.entries.len());
+        let idx = self.entries.len();
+        self.entries.push(StyleEntry {
+            class_name: name.clone(),
+            base,
+            hover,
+            active,
+            focus,
+        });
+        self.index.insert(key, idx);
+        Some(name)
+    }
+
+    fn to_css(&self) -> String {
+        let mut css = String::new();
+        for e in &self.entries {
+            if !e.base.is_empty() {
+                css.push_str(&format!(".{}{{{}}}\n", e.class_name, e.base));
+            }
+            if !e.hover.is_empty() {
+                css.push_str(&format!(".{}:hover{{{}}}\n", e.class_name, e.hover));
+            }
+            if !e.active.is_empty() {
+                css.push_str(&format!(".{}:active{{{}}}\n", e.class_name, e.active));
+            }
+            if !e.focus.is_empty() {
+                css.push_str(&format!(".{}:focus{{{}}}\n", e.class_name, e.focus));
+            }
+        }
+        css
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+pub fn generate(doc: &Document) -> String {
+    let mut styles = StyleCollector::new();
+    let mut body = String::new();
+
+    for node in &doc.nodes {
+        generate_node(node, None, &mut body, &mut styles);
+    }
+
+    let element_css = styles.to_css();
 
     match &doc.page_title {
         Some(title) => format!(
@@ -19,6 +102,7 @@ pub fn generate(doc: &Document) -> String {
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
 img {{ display: block; }}
+{element_css}\
 </style>
 </head>
 <body>
@@ -27,15 +111,31 @@ img {{ display: block; }}
 </html>
 ",
             title = html_escape(title),
+            element_css = element_css,
             body = body,
         ),
-        None => body,
+        None => {
+            if element_css.is_empty() {
+                body
+            } else {
+                format!("<style>\n{}</style>\n{}", element_css, body)
+            }
+        }
     }
 }
 
-fn generate_node(node: &Node, parent_kind: Option<&ElementKind>, out: &mut String) {
+// ---------------------------------------------------------------------------
+// Node generation
+// ---------------------------------------------------------------------------
+
+fn generate_node(
+    node: &Node,
+    parent_kind: Option<&ElementKind>,
+    out: &mut String,
+    styles: &mut StyleCollector,
+) {
     match node {
-        Node::Element(elem) => generate_element(elem, parent_kind, out),
+        Node::Element(elem) => generate_element(elem, parent_kind, out, styles),
         Node::Text(segments) => {
             let needs_wrap = matches!(
                 parent_kind,
@@ -44,7 +144,7 @@ fn generate_node(node: &Node, parent_kind: Option<&ElementKind>, out: &mut Strin
             if needs_wrap {
                 out.push_str("<span>");
             }
-            generate_text_segments(segments, out);
+            generate_text_segments(segments, out, styles);
             if needs_wrap {
                 out.push_str("</span>");
             }
@@ -56,14 +156,16 @@ fn generate_node(node: &Node, parent_kind: Option<&ElementKind>, out: &mut Strin
     }
 }
 
-fn generate_element(elem: &Element, parent_kind: Option<&ElementKind>, out: &mut String) {
-    // Image is a void element
+fn generate_element(
+    elem: &Element,
+    parent_kind: Option<&ElementKind>,
+    out: &mut String,
+    styles: &mut StyleCollector,
+) {
     if elem.kind == ElementKind::Image {
-        generate_image(elem, parent_kind, out);
+        generate_image(elem, parent_kind, out, styles);
         return;
     }
-
-    // @children should be replaced during function expansion; skip if it leaks through
     if elem.kind == ElementKind::Children {
         return;
     }
@@ -76,8 +178,9 @@ fn generate_element(elem: &Element, parent_kind: Option<&ElementKind>, out: &mut
         ElementKind::Image | ElementKind::Children => unreachable!(),
     };
 
-    let styles = attrs_to_css(&elem.attrs, &elem.kind, parent_kind);
-    let (id, class) = extract_id_class(&elem.attrs);
+    // Compute CSS for each state and get a class name
+    let gen_class = compute_class(&elem.attrs, &elem.kind, parent_kind, styles);
+    let (id, user_class) = extract_id_class(&elem.attrs);
 
     out.push('<');
     out.push_str(tag);
@@ -90,19 +193,11 @@ fn generate_element(elem: &Element, parent_kind: Option<&ElementKind>, out: &mut
         }
     }
 
-    if !styles.is_empty() {
-        out.push_str(" style=\"");
-        out.push_str(&styles);
-        out.push('"');
-    }
+    emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
+
     if let Some(id) = id {
         out.push_str(" id=\"");
         out.push_str(&html_escape(&id));
-        out.push('"');
-    }
-    if let Some(class) = class {
-        out.push_str(" class=\"");
-        out.push_str(&html_escape(&class));
         out.push('"');
     }
     out.push('>');
@@ -117,8 +212,7 @@ fn generate_element(elem: &Element, parent_kind: Option<&ElementKind>, out: &mut
     // Children
     let is_paragraph = elem.kind == ElementKind::Paragraph;
     for (i, child) in elem.children.iter().enumerate() {
-        generate_node(child, Some(&elem.kind), out);
-        // In paragraphs, add newline between children so HTML renders a space
+        generate_node(child, Some(&elem.kind), out, styles);
         if is_paragraph && i < elem.children.len() - 1 {
             out.push('\n');
         }
@@ -129,41 +223,41 @@ fn generate_element(elem: &Element, parent_kind: Option<&ElementKind>, out: &mut
     out.push_str(">\n");
 }
 
-fn generate_image(elem: &Element, parent_kind: Option<&ElementKind>, out: &mut String) {
+fn generate_image(
+    elem: &Element,
+    parent_kind: Option<&ElementKind>,
+    out: &mut String,
+    styles: &mut StyleCollector,
+) {
     let src = elem.argument.as_deref().unwrap_or("");
-    let styles = attrs_to_css(&elem.attrs, &elem.kind, parent_kind);
-    let (id, class) = extract_id_class(&elem.attrs);
+    let gen_class = compute_class(&elem.attrs, &elem.kind, parent_kind, styles);
+    let (id, user_class) = extract_id_class(&elem.attrs);
 
     out.push_str("<img src=\"");
     out.push_str(&html_escape(src));
     out.push('"');
 
-    if !styles.is_empty() {
-        out.push_str(" style=\"");
-        out.push_str(&styles);
-        out.push('"');
-    }
+    emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
+
     if let Some(id) = id {
         out.push_str(" id=\"");
         out.push_str(&html_escape(&id));
         out.push('"');
     }
-    if let Some(class) = class {
-        out.push_str(" class=\"");
-        out.push_str(&html_escape(&class));
-        out.push('"');
-    }
     out.push_str(">\n");
 }
 
-fn generate_text_segments(segments: &[TextSegment], out: &mut String) {
+fn generate_text_segments(
+    segments: &[TextSegment],
+    out: &mut String,
+    styles: &mut StyleCollector,
+) {
     for segment in segments {
         match segment {
             TextSegment::Plain(text) => out.push_str(&html_escape(text)),
             TextSegment::Inline(elem) => {
-                // Render to buffer and trim trailing newlines for inline context
                 let mut buf = String::new();
-                generate_element(elem, None, &mut buf);
+                generate_element(elem, None, &mut buf, styles);
                 out.push_str(buf.trim_end());
             }
         }
@@ -171,29 +265,91 @@ fn generate_text_segments(segments: &[TextSegment], out: &mut String) {
 }
 
 // ---------------------------------------------------------------------------
+// Style helpers
+// ---------------------------------------------------------------------------
+
+fn compute_class(
+    attrs: &[Attribute],
+    kind: &ElementKind,
+    parent_kind: Option<&ElementKind>,
+    styles: &mut StyleCollector,
+) -> Option<String> {
+    let base = attrs_to_css(attrs, "", kind, parent_kind);
+    let hover = attrs_to_css(attrs, "hover:", kind, parent_kind);
+    let active = attrs_to_css(attrs, "active:", kind, parent_kind);
+    let focus = attrs_to_css(attrs, "focus:", kind, parent_kind);
+    styles.get_class(base, hover, active, focus)
+}
+
+fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option<&str>) {
+    match (gen_class, user_class) {
+        (Some(g), Some(u)) => {
+            out.push_str(" class=\"");
+            out.push_str(g);
+            out.push(' ');
+            out.push_str(&html_escape(u));
+            out.push('"');
+        }
+        (Some(g), None) => {
+            out.push_str(" class=\"");
+            out.push_str(g);
+            out.push('"');
+        }
+        (None, Some(u)) => {
+            out.push_str(" class=\"");
+            out.push_str(&html_escape(u));
+            out.push('"');
+        }
+        (None, None) => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Attribute → CSS mapping
 // ---------------------------------------------------------------------------
 
+const STATE_PREFIXES: &[&str] = &["hover:", "active:", "focus:"];
+
+fn is_state_attr(key: &str) -> bool {
+    STATE_PREFIXES.iter().any(|p| key.starts_with(p))
+}
+
 fn attrs_to_css(
     attrs: &[Attribute],
+    state_prefix: &str,
     kind: &ElementKind,
     parent_kind: Option<&ElementKind>,
 ) -> String {
     let mut css = String::new();
 
-    // Base styles from element kind
-    match kind {
-        ElementKind::Row => css.push_str("display:flex;flex-direction:row;"),
-        ElementKind::Column => css.push_str("display:flex;flex-direction:column;"),
-        ElementKind::El => css.push_str("display:flex;flex-direction:column;"),
-        ElementKind::Paragraph => css.push_str("margin:0;"),
-        _ => {}
+    // Base element styles only for the default (non-state) pass
+    if state_prefix.is_empty() {
+        match kind {
+            ElementKind::Row => css.push_str("display:flex;flex-direction:row;"),
+            ElementKind::Column => css.push_str("display:flex;flex-direction:column;"),
+            ElementKind::El => css.push_str("display:flex;flex-direction:column;"),
+            ElementKind::Paragraph => css.push_str("margin:0;"),
+            _ => {}
+        }
     }
 
     for attr in attrs {
+        // Determine the effective key for this pass
+        let effective_key = if state_prefix.is_empty() {
+            if is_state_attr(&attr.key) {
+                continue;
+            }
+            attr.key.as_str()
+        } else {
+            match attr.key.strip_prefix(state_prefix) {
+                Some(k) => k,
+                None => continue,
+            }
+        };
+
         let val = attr.value.as_deref();
 
-        match attr.key.as_str() {
+        match effective_key {
             // Layout
             "spacing" => {
                 if let Some(v) = val {
@@ -246,9 +402,7 @@ fn attrs_to_css(
                             }
                             _ => push_css(&mut css, "width", "100%"),
                         },
-                        "shrink" => {
-                            push_css(&mut css, "flex-shrink", "0");
-                        }
+                        "shrink" => push_css(&mut css, "flex-shrink", "0"),
                         _ => push_css(&mut css, "width", &format!("{}px", v)),
                     }
                 }
@@ -263,9 +417,7 @@ fn attrs_to_css(
                             }
                             _ => push_css(&mut css, "height", "100%"),
                         },
-                        "shrink" => {
-                            push_css(&mut css, "flex-shrink", "0");
-                        }
+                        "shrink" => push_css(&mut css, "flex-shrink", "0"),
                         _ => push_css(&mut css, "height", &format!("{}px", v)),
                     }
                 }
@@ -302,9 +454,7 @@ fn attrs_to_css(
                 }
             },
             "center-y" => match parent_kind {
-                Some(ElementKind::Row) => {
-                    push_css(&mut css, "align-self", "center");
-                }
+                Some(ElementKind::Row) => push_css(&mut css, "align-self", "center"),
                 _ => {
                     push_css(&mut css, "margin-top", "auto");
                     push_css(&mut css, "margin-bottom", "auto");
@@ -314,33 +464,21 @@ fn attrs_to_css(
                 Some(ElementKind::Column) | Some(ElementKind::El) => {
                     push_css(&mut css, "align-self", "flex-start");
                 }
-                _ => {
-                    push_css(&mut css, "margin-right", "auto");
-                }
+                _ => push_css(&mut css, "margin-right", "auto"),
             },
             "align-right" => match parent_kind {
                 Some(ElementKind::Column) | Some(ElementKind::El) => {
                     push_css(&mut css, "align-self", "flex-end");
                 }
-                _ => {
-                    push_css(&mut css, "margin-left", "auto");
-                }
+                _ => push_css(&mut css, "margin-left", "auto"),
             },
             "align-top" => match parent_kind {
-                Some(ElementKind::Row) => {
-                    push_css(&mut css, "align-self", "flex-start");
-                }
-                _ => {
-                    push_css(&mut css, "margin-bottom", "auto");
-                }
+                Some(ElementKind::Row) => push_css(&mut css, "align-self", "flex-start"),
+                _ => push_css(&mut css, "margin-bottom", "auto"),
             },
             "align-bottom" => match parent_kind {
-                Some(ElementKind::Row) => {
-                    push_css(&mut css, "align-self", "flex-end");
-                }
-                _ => {
-                    push_css(&mut css, "margin-top", "auto");
-                }
+                Some(ElementKind::Row) => push_css(&mut css, "align-self", "flex-end"),
+                _ => push_css(&mut css, "margin-top", "auto"),
             },
 
             // Style
@@ -390,14 +528,28 @@ fn attrs_to_css(
                     push_css(&mut css, "font-family", v);
                 }
             }
+            "transition" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "transition", v);
+                }
+            }
+            "cursor" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "cursor", v);
+                }
+            }
+            "opacity" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "opacity", v);
+                }
+            }
 
             // Flow
             "wrap" => push_css(&mut css, "flex-wrap", "wrap"),
 
-            // Identity — handled separately, not CSS
+            // Identity — not CSS
             "id" | "class" => {}
 
-            // Unknown — ignore
             _ => {}
         }
     }

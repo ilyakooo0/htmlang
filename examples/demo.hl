@@ -2,9 +2,9 @@
 @let primary #3b82f6
 @let gap 20
 
--- reusable card component
+-- reusable card with hover effect
 @fn card $title
-  @el [padding 20, background white, rounded 8, border 1 #e5e7eb]
+  @el [padding 20, background white, rounded 8, border 1 #e5e7eb, hover:border 1 $primary, transition all 0.15s ease, cursor pointer]
     @text [bold] $title
     @children
 
@@ -23,7 +23,7 @@
         {@text [bold, color $primary] static HTML}.
     @image [width 80, height 80, rounded 40] https://picsum.photos/80
 
-  -- cards using @fn
+  -- cards using @fn with hover
   @page-section [title Features]
     @row [wrap, spacing 10]
       @card [title Simple]
@@ -33,9 +33,9 @@
       @card [title Minimal]
         No JavaScript required
 
-  -- footer
+  -- footer with hover button
   @row [spacing 10]
-    @el [padding 16, background $primary, rounded 8] > @link https://github.com
+    @el [padding 16, background $primary, hover:background #2563eb, active:background #1d4ed8, rounded 8, transition all 0.15s ease, cursor pointer] > @link https://github.com
       @text [color white, bold] Get Started
     @el [width fill]
     @text [color #888] © 2026

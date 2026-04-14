@@ -284,6 +284,20 @@ Triple-quoted block pasted verbatim into output. Use for arbitrary HTML, CSS, or
 | `underline`            | Underlined text                  |
 | `size N`               | Font size in px                  |
 | `font NAME`            | Font family                      |
+| `transition VALUE`     | CSS transition                   |
+| `cursor VALUE`         | Cursor style                     |
+| `opacity VALUE`        | Opacity (0–1)                    |
+
+### Pseudo-states
+
+Prefix any style attribute with `hover:`, `active:`, or `focus:` to apply it on that state.
+
+```
+@el [padding 16, background #3b82f6, hover:background #2563eb, active:background #1d4ed8, rounded 8, transition all 0.15s ease]
+  @text [color white] Click me
+```
+
+All style attributes support state prefixes: `hover:color`, `active:rounded`, `focus:border`, etc.
 
 ### Flow
 
