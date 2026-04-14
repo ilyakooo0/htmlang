@@ -111,7 +111,7 @@
     },
     "attribute-name": {
       "name": "support.type.property-name.htmlang",
-      "match": "\\b(?:spacing|padding|padding-x|padding-y|width|height|min-width|max-width|min-height|max-height|center-x|center-y|align-left|align-right|align-top|align-bottom|background|color|border|rounded|bold|italic|underline|size|font|transition|cursor|opacity|wrap|id|class)\\b"
+      "match": "\\b(?:spacing|padding|padding-x|padding-y|width|height|min-width|max-width|min-height|max-height|center-x|center-y|align-left|align-right|align-top|align-bottom|background|color|border|rounded|bold|italic|underline|size|font|transition|cursor|opacity|text-align|line-height|overflow|position|z-index|shadow|wrap|gap-x|gap-y|id|class)\\b"
     },
     "inline-element": {
       "name": "meta.inline-element.htmlang",

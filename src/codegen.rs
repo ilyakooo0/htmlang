@@ -366,6 +366,14 @@ fn attrs_to_css(
                             "padding",
                             &format!("{}px {}px", parts[0], parts[1]),
                         ),
+                        3 => push_css(
+                            &mut css,
+                            "padding",
+                            &format!(
+                                "{}px {}px {}px",
+                                parts[0], parts[1], parts[2]
+                            ),
+                        ),
                         4 => push_css(
                             &mut css,
                             "padding",
@@ -544,8 +552,54 @@ fn attrs_to_css(
                 }
             }
 
+            // Typography
+            "text-align" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "text-align", v);
+                }
+            }
+            "line-height" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "line-height", v);
+                }
+            }
+
+            // Overflow & positioning
+            "overflow" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "overflow", v);
+                }
+            }
+            "position" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "position", v);
+                }
+            }
+            "z-index" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "z-index", v);
+                }
+            }
+
+            // Effects
+            "shadow" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "box-shadow", v);
+                }
+            }
+
             // Flow
             "wrap" => push_css(&mut css, "flex-wrap", "wrap"),
+            "gap-x" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "column-gap", &format!("{}px", v));
+                }
+            }
+            "gap-y" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "row-gap", &format!("{}px", v));
+                }
+            }
 
             // Identity — not CSS
             "id" | "class" => {}

@@ -39,8 +39,13 @@ cargo install --path .
 ## Usage
 
 ```
-htmlang page.hl          # writes page.html
+htmlang page.hl              # writes page.html
+htmlang --watch page.hl      # recompile on change
 ```
+
+## Editor support
+
+A VS Code extension with syntax highlighting and LSP integration is available in [`editors/vscode`](editors/vscode). The language server (`htmlang-lsp`) provides diagnostics, completions, and hover documentation.
 
 ## Language overview
 
@@ -61,9 +66,11 @@ htmlang page.hl          # writes page.html
 
 ```
 @row [spacing 20]                  -- gap between children
+@row [gap-x 10, gap-y 20]         -- separate horizontal/vertical gaps
 @el [padding 20]                   -- uniform padding (also padding-x, padding-y)
 @el [width fill]                   -- take remaining space (also width 200, width shrink)
 @el [center-x]                     -- center horizontally (also align-left, align-right)
+@el [overflow hidden]              -- overflow behavior (hidden, scroll, auto)
 ```
 
 ### Style attributes
@@ -72,6 +79,16 @@ htmlang page.hl          # writes page.html
 @el [background #3b82f6, color white, rounded 8, border 1 #e5e7eb]
 @text [bold, italic, underline, size 18, font Inter]
 @el [opacity 0.5, cursor pointer, transition all 0.15s ease]
+@el [shadow 0 2px 4px rgba(0,0,0,0.1)]
+@paragraph [text-align center, line-height 1.5]
+```
+
+### Positioning
+
+```
+@el [position relative]
+  @el [position absolute, z-index 10]
+    Overlay content
 ```
 
 ### Pseudo-states
@@ -98,6 +115,26 @@ Prefix any style attribute with `hover:`, `active:`, or `focus:`:
     @children                      -- slot for caller's children
 
 @button [label Click me]
+```
+
+### File includes
+
+```
+@include header.hl                -- inline another .hl file
+```
+
+### Multi-line attributes
+
+Attribute lists can span multiple lines:
+
+```
+@el [
+  padding 20,
+  background white,
+  rounded 8,
+  shadow 0 2px 4px rgba(0,0,0,0.1)
+]
+  Content here
 ```
 
 ### Other features

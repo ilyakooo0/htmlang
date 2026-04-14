@@ -33,7 +33,17 @@ Bare lines (not starting with `@` or `[`) are text nodes.
   children
 ```
 
-Children are indented under their parent. Attributes are optional, comma-separated inside `[...]`.
+Children are indented under their parent. Attributes are optional, comma-separated inside `[...]`. Attribute lists can span multiple lines:
+
+```
+@el [
+  padding 20,
+  background white,
+  rounded 8,
+  shadow 0 2px 4px rgba(0,0,0,0.1)
+]
+  Content
+```
 
 ### Full example
 
@@ -42,13 +52,21 @@ Children are indented under their parent. Attributes are optional, comma-separat
 @page My Site
 @let primary #3b82f6
 @let gap 20
-@define card [padding 20, background white, rounded 8, border 1 #e5e7eb]
+@define card [
+  padding 20,
+  background white,
+  rounded 8,
+  border 1 #e5e7eb,
+  shadow 0 2px 4px rgba(0,0,0,0.05)
+]
+
+@include header.hl
 
 @column [max-width 800, center-x, padding 40, spacing $gap]
   @row [spacing $gap]
     @column [width fill, spacing 10]
       @text [bold, size 32] Welcome
-      @paragraph
+      @paragraph [line-height 1.6]
         This is a page built with {@text [bold, color $primary] htmlang}.
         Read the {@link https://docs.example.com docs} to learn more.
     @image [width 80, height 80, rounded 40] avatar.png
@@ -65,7 +83,7 @@ Children are indented under their parent. Attributes are optional, comma-separat
     @el [padding 16, background $primary, rounded 8] > @link https://example.com
       @text [color white] Get Started
     @el [width fill]
-    @text [color #888] © 2026
+    @text [color #888, text-align right] © 2026
 
   @raw """
   <canvas id="chart"></canvas>
@@ -95,11 +113,21 @@ Defines a variable. Referenced with `$name`.
 
 ### `@include`
 
-Inlines another `.hl` file.
+Inlines another `.hl` file. The path is resolved relative to the current file. Variables defined with `@let`, attribute bundles from `@define`, and functions from `@fn` in the included file are available after the `@include` line.
 
 ```
 @include header.hl
+@include components/card.hl
 ```
+
+Variables can be used in the filename:
+
+```
+@let component card
+@include $component.hl
+```
+
+Circular includes are detected and reported as errors. Nested includes are supported.
 
 ### `@define`
 
@@ -240,10 +268,14 @@ Triple-quoted block pasted verbatim into output. Use for arbitrary HTML, CSS, or
 | Attribute              | Effect                           |
 |------------------------|----------------------------------|
 | `spacing N`            | Gap between children             |
+| `gap-x N`             | Horizontal gap (column-gap)      |
+| `gap-y N`             | Vertical gap (row-gap)           |
 | `padding N`            | Uniform padding                  |
+| `padding Y X`         | Vertical + horizontal padding    |
+| `padding T H B`       | Top + horizontal + bottom        |
+| `padding T R B L`     | Per-side padding                 |
 | `padding-x N`         | Horizontal padding               |
 | `padding-y N`         | Vertical padding                 |
-| `padding T R B L`     | Per-side padding                 |
 
 ### Sizing (set on child)
 
@@ -279,14 +311,20 @@ Triple-quoted block pasted verbatim into output. Use for arbitrary HTML, CSS, or
 | `color COLOR`          | Text color                       |
 | `border N COLOR`       | Border width and color           |
 | `rounded N`            | Border radius                    |
+| `shadow VALUE`         | Box shadow (CSS value)           |
 | `bold`                 | Bold text                        |
 | `italic`               | Italic text                      |
 | `underline`            | Underlined text                  |
 | `size N`               | Font size in px                  |
 | `font NAME`            | Font family                      |
+| `text-align VALUE`     | Text alignment (left/center/right/justify) |
+| `line-height VALUE`    | Line height (unitless or px)     |
 | `transition VALUE`     | CSS transition                   |
 | `cursor VALUE`         | Cursor style                     |
 | `opacity VALUE`        | Opacity (0–1)                    |
+| `overflow VALUE`       | Overflow (hidden/scroll/auto/visible) |
+| `position VALUE`       | Position (relative/absolute/fixed/sticky) |
+| `z-index N`            | Stack order                      |
 
 ### Pseudo-states
 
@@ -312,6 +350,16 @@ All style attributes support state prefixes: `hover:color`, `active:rounded`, `f
 | `id NAME`              | HTML id attribute                |
 | `class NAME`           | HTML class attribute             |
 
+## CLI
+
+```
+htmlang page.hl              # compile page.hl → page.html
+htmlang --watch page.hl      # compile and watch for changes
+htmlang -w page.hl           # short form
+```
+
+Watch mode recompiles automatically when the source file or any `@include`d files change.
+
 ## Compilation target
 
 Each `.hl` file compiles to a single self-contained `.html` file:
@@ -321,3 +369,12 @@ Each `.hl` file compiles to a single self-contained `.html` file:
 - Styles are scoped via generated class names in an embedded `<style>` block
 - No external CSS, no JavaScript (unless injected via `@raw`)
 - `@page` generates the HTML boilerplate; without it, output is an HTML fragment
+
+## Editor support
+
+A VS Code extension is available in `editors/vscode/` with:
+
+- Syntax highlighting via TextMate grammar
+- LSP integration via `htmlang-lsp` for diagnostics, completions, and hover documentation
+
+The language server reports parse errors and warnings for unknown attributes as you type.

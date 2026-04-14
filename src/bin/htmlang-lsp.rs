@@ -17,19 +17,25 @@ struct Backend {
 
 impl Backend {
     async fn on_change(&self, uri: Url, text: String) {
-        let diags = match htmlang::parser::parse(&text) {
-            Ok(_) => vec![],
-            Err(e) => {
-                let line = e.line.saturating_sub(1) as u32;
-                vec![Diagnostic {
+        let result = htmlang::parser::parse(&text);
+        let diags: Vec<Diagnostic> = result
+            .diagnostics
+            .iter()
+            .map(|d| {
+                let severity = match d.severity {
+                    htmlang::parser::Severity::Error => DiagnosticSeverity::ERROR,
+                    htmlang::parser::Severity::Warning => DiagnosticSeverity::WARNING,
+                };
+                let line = d.line.saturating_sub(1) as u32;
+                Diagnostic {
                     range: Range::new(Position::new(line, 0), Position::new(line, 1000)),
-                    severity: Some(DiagnosticSeverity::ERROR),
+                    severity: Some(severity),
                     source: Some("htmlang".into()),
-                    message: e.message,
+                    message: d.message.clone(),
                     ..Default::default()
-                }]
-            }
-        };
+                }
+            })
+            .collect();
         self.client
             .publish_diagnostics(uri.clone(), diags, None)
             .await;
@@ -270,7 +276,7 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
     [
         // Layout
         ("spacing", "Gap between children (px)", true),
-        ("padding", "Inner padding (1/2/4 values, px)", true),
+        ("padding", "Inner padding (1/2/3/4 values, px)", true),
         ("padding-x", "Horizontal padding (px)", true),
         ("padding-y", "Vertical padding (px)", true),
         // Sizing
@@ -300,8 +306,19 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("transition", "CSS transition", true),
         ("cursor", "CSS cursor type", true),
         ("opacity", "Opacity (0-1)", true),
+        // Typography
+        ("text-align", "Text alignment (left/center/right/justify)", true),
+        ("line-height", "Line height (unitless or px)", true),
+        // Overflow & positioning
+        ("overflow", "Overflow behavior (hidden/scroll/auto)", true),
+        ("position", "Position type (relative/absolute/fixed/sticky)", true),
+        ("z-index", "Stack order (integer)", true),
+        // Effects
+        ("shadow", "Box shadow (CSS value)", true),
         // Flow
         ("wrap", "Enable flex-wrap", false),
+        ("gap-x", "Horizontal gap between children (px)", true),
+        ("gap-y", "Vertical gap between children (px)", true),
         // Identity
         ("id", "HTML id attribute", true),
         ("class", "HTML class attribute", true),
@@ -334,6 +351,7 @@ fn state_attr_completions(prefix: &str, range: Range) -> Vec<CompletionItem> {
         ("size", "Font size (px)", true),
         ("opacity", "Opacity (0-1)", true),
         ("cursor", "CSS cursor type", true),
+        ("shadow", "Box shadow (CSS value)", true),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -554,7 +572,7 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@children" => "**@children** \u{2014} Children slot\n\nPlaceholder inside `@fn` body replaced with the caller's children.",
         // Attributes
         "spacing" => "**spacing** `<value>`\n\nGap between children in pixels. Maps to CSS `gap`.",
-        "padding" => "**padding** `<value>` | `<y> <x>` | `<t> <r> <b> <l>`\n\nInner padding in pixels. Accepts 1, 2, or 4 values.",
+        "padding" => "**padding** `<value>` | `<y> <x>` | `<t> <h> <b>` | `<t> <r> <b> <l>`\n\nInner padding in pixels. Accepts 1, 2, 3, or 4 values.",
         "padding-x" => "**padding-x** `<value>`\n\nHorizontal padding (left + right) in pixels.",
         "padding-y" => "**padding-y** `<value>`\n\nVertical padding (top + bottom) in pixels.",
         "width" => "**width** `<px>` | `fill` | `shrink`\n\n- Number: fixed width in pixels\n- `fill`: expand to fill parent\n- `shrink`: prevent flex shrinking",
@@ -581,6 +599,14 @@ fn hover_builtin(word: &str) -> Option<String> {
         "transition" => "**transition** `<value>` \u{2014} CSS transition (e.g., `all 0.15s ease`).",
         "cursor" => "**cursor** `<value>` \u{2014} CSS cursor (e.g., `pointer`).",
         "opacity" => "**opacity** `<value>` \u{2014} Opacity from 0 to 1.",
+        "text-align" => "**text-align** `<value>` \u{2014} Text alignment (`left`, `center`, `right`, `justify`).",
+        "line-height" => "**line-height** `<value>` \u{2014} Line height. Unitless (e.g., `1.5`) or pixels.",
+        "overflow" => "**overflow** `<value>` \u{2014} Overflow behavior (`hidden`, `scroll`, `auto`, `visible`).",
+        "position" => "**position** `<value>` \u{2014} Position type (`relative`, `absolute`, `fixed`, `sticky`).",
+        "z-index" => "**z-index** `<value>` \u{2014} Stack order (integer).",
+        "shadow" => "**shadow** `<value>` \u{2014} Box shadow. Raw CSS value (e.g., `0 2px 4px rgba(0,0,0,0.1)`).",
+        "gap-x" => "**gap-x** `<value>` \u{2014} Horizontal gap between children in pixels. Maps to `column-gap`.",
+        "gap-y" => "**gap-y** `<value>` \u{2014} Vertical gap between children in pixels. Maps to `row-gap`.",
         "wrap" => "**wrap** \u{2014} Enable flex-wrap for children.",
         "id" => "**id** `<value>` \u{2014} HTML id attribute.",
         "class" => "**class** `<value>` \u{2014} HTML class attribute.",

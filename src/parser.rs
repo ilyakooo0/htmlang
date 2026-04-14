@@ -1,12 +1,36 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::path::{Path, PathBuf};
 
 use crate::ast::*;
 
-#[derive(Debug)]
-pub struct ParseError {
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
     pub line: usize,
     pub message: String,
+    pub severity: Severity,
+}
+
+pub struct ParseResult {
+    pub document: Document,
+    pub diagnostics: Vec<Diagnostic>,
+    pub included_files: Vec<PathBuf>,
+}
+
+#[derive(Debug)]
+struct ParseError {
+    line: usize,
+    message: String,
 }
 
 impl fmt::Display for ParseError {
@@ -14,6 +38,10 @@ impl fmt::Display for ParseError {
         write!(f, "line {}: {}", self.line, self.message)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
 
 #[derive(Clone)]
 enum LineContent {
@@ -39,6 +67,10 @@ struct ParseContext {
     variables: HashMap<String, String>,
     defines: HashMap<String, Vec<Attribute>>,
     functions: HashMap<String, FnDef>,
+    diagnostics: Vec<Diagnostic>,
+    base_path: Option<PathBuf>,
+    included_files: Vec<PathBuf>,
+    include_stack: Vec<PathBuf>,
 }
 
 struct Parser {
@@ -46,7 +78,11 @@ struct Parser {
     pos: usize,
 }
 
-pub fn parse(input: &str) -> Result<Document, ParseError> {
+pub fn parse(input: &str) -> ParseResult {
+    parse_with_base(input, None)
+}
+
+pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
     let lines = preprocess(input);
     let mut parser = Parser { lines, pos: 0 };
     let mut ctx = ParseContext {
@@ -54,14 +90,22 @@ pub fn parse(input: &str) -> Result<Document, ParseError> {
         variables: HashMap::new(),
         defines: HashMap::new(),
         functions: HashMap::new(),
+        diagnostics: Vec::new(),
+        base_path: base_path.map(|p| p.to_path_buf()),
+        included_files: Vec::new(),
+        include_stack: Vec::new(),
     };
-    let nodes = parser.parse_children(0, &mut ctx)?;
-    Ok(Document {
-        page_title: ctx.page_title,
-        variables: ctx.variables,
-        defines: ctx.defines,
-        nodes,
-    })
+    let nodes = parser.parse_children(0, &mut ctx);
+    ParseResult {
+        document: Document {
+            page_title: ctx.page_title,
+            variables: ctx.variables,
+            defines: ctx.defines,
+            nodes,
+        },
+        diagnostics: ctx.diagnostics,
+        included_files: ctx.included_files,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -130,10 +174,27 @@ fn preprocess(input: &str) -> Vec<Line> {
             }
         }
 
+        // Join continuation lines for multi-line attribute brackets
+        let first_line_num = i + 1;
+        let mut full = trimmed.to_string();
+        let mut depth: i32 = full.chars().filter(|&c| c == '[').count() as i32
+            - full.chars().filter(|&c| c == ']').count() as i32;
+        while depth > 0 && i + 1 < raw_lines.len() {
+            i += 1;
+            let next = raw_lines[i].trim();
+            if next.is_empty() || next.starts_with("--") {
+                continue;
+            }
+            full.push(' ');
+            full.push_str(next);
+            depth += next.chars().filter(|&c| c == '[').count() as i32;
+            depth -= next.chars().filter(|&c| c == ']').count() as i32;
+        }
+
         lines.push(Line {
             indent,
-            content: LineContent::Normal(trimmed.to_string()),
-            line_num: i + 1,
+            content: LineContent::Normal(full),
+            line_num: first_line_num,
         });
         i += 1;
     }
@@ -150,7 +211,7 @@ impl Parser {
         &mut self,
         min_indent: usize,
         ctx: &mut ParseContext,
-    ) -> Result<Vec<Node>, ParseError> {
+    ) -> Vec<Node> {
         let mut nodes = Vec::new();
 
         while self.pos < self.lines.len() {
@@ -159,13 +220,26 @@ impl Parser {
                 break;
             }
 
-            match self.parse_line(ctx)? {
-                Some(new_nodes) => nodes.extend(new_nodes),
-                None => {}
+            match self.parse_line(ctx) {
+                Ok(Some(new_nodes)) => nodes.extend(new_nodes),
+                Ok(None) => {}
+                Err(e) => {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: e.line,
+                        message: e.message,
+                        severity: Severity::Error,
+                    });
+                    // Skip forward past any deeper-indented children of the errored line
+                    while self.pos < self.lines.len()
+                        && self.lines[self.pos].indent > indent
+                    {
+                        self.pos += 1;
+                    }
+                }
             }
         }
 
-        Ok(nodes)
+        nodes
     }
 
     fn parse_line(
@@ -216,9 +290,50 @@ impl Parser {
             return Ok(None);
         }
 
-        if content.starts_with("@include ") {
-            // TODO: implement file includes
-            return Ok(None);
+        if let Some(rest) = content.strip_prefix("@include ") {
+            let filename = substitute_vars(rest.trim(), &ctx.variables);
+            let resolved = match &ctx.base_path {
+                Some(base) => base.join(&filename),
+                None => PathBuf::from(&filename),
+            };
+
+            // Circular include check
+            if ctx.include_stack.contains(&resolved) {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("circular include '{}'", filename),
+                    severity: Severity::Error,
+                });
+                return Ok(None);
+            }
+
+            match std::fs::read_to_string(&resolved) {
+                Ok(included_text) => {
+                    ctx.included_files.push(resolved.clone());
+                    ctx.include_stack.push(resolved.clone());
+                    let saved_base = ctx.base_path.clone();
+                    ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
+
+                    let included_lines = preprocess(&included_text);
+                    let mut included_parser = Parser {
+                        lines: included_lines,
+                        pos: 0,
+                    };
+                    let nodes = included_parser.parse_children(0, ctx);
+
+                    ctx.base_path = saved_base;
+                    ctx.include_stack.pop();
+                    return Ok(Some(nodes));
+                }
+                Err(e) => {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!("cannot include '{}': {}", filename, e),
+                        severity: Severity::Error,
+                    });
+                    return Ok(None);
+                }
+            }
         }
 
         // --- Function definition ---
@@ -285,7 +400,7 @@ impl Parser {
         let rest = rest.trim_start();
 
         let args = if rest.starts_with('[') {
-            let (attrs, _) = parse_attr_brackets(rest, line_num, ctx)?;
+            let (attrs, _) = parse_attr_brackets_no_validate(rest, line_num, ctx)?;
             attrs
         } else {
             Vec::new()
@@ -295,7 +410,7 @@ impl Parser {
         let fn_def = ctx.functions.get(name).unwrap().clone();
 
         // Parse caller's children
-        let caller_children = self.parse_children(current_indent + 1, ctx)?;
+        let caller_children = self.parse_children(current_indent + 1, ctx);
 
         // Save variable state, inject function parameters
         let saved_vars = ctx.variables.clone();
@@ -331,7 +446,7 @@ impl Parser {
             lines: adjusted,
             pos: 0,
         };
-        let body_nodes = body_parser.parse_children(0, ctx)?;
+        let body_nodes = body_parser.parse_children(0, ctx);
 
         // Restore variables
         ctx.variables = saved_vars;
@@ -357,7 +472,7 @@ impl Parser {
         }
 
         // Parse indented children (belong to the innermost element)
-        let children = self.parse_children(current_indent + 1, ctx)?;
+        let children = self.parse_children(current_indent + 1, ctx);
 
         // Build chain right-to-left: rightmost gets children, each wraps the next
         let mut current_children = children;
@@ -406,7 +521,7 @@ fn extract_element_name(content: &str) -> &str {
 fn parse_single_element(
     content: &str,
     line_num: usize,
-    ctx: &ParseContext,
+    ctx: &mut ParseContext,
 ) -> Result<Element, ParseError> {
     let (kind, rest) = if content.starts_with('[') {
         // Implicit @el
@@ -489,10 +604,39 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
 // Attribute parsing
 // ---------------------------------------------------------------------------
 
+const KNOWN_ATTRS: &[&str] = &[
+    "spacing", "padding", "padding-x", "padding-y",
+    "width", "height", "min-width", "max-width", "min-height", "max-height",
+    "center-x", "center-y", "align-left", "align-right", "align-top", "align-bottom",
+    "background", "color", "border", "rounded",
+    "bold", "italic", "underline",
+    "size", "font", "transition", "cursor", "opacity",
+    "text-align", "line-height", "overflow", "position", "z-index", "shadow",
+    "wrap", "gap-x", "gap-y",
+    "id", "class",
+];
+
 fn parse_attr_brackets(
     input: &str,
     line_num: usize,
-    ctx: &ParseContext,
+    ctx: &mut ParseContext,
+) -> Result<(Vec<Attribute>, String), ParseError> {
+    parse_attr_brackets_inner(input, line_num, ctx, true)
+}
+
+fn parse_attr_brackets_no_validate(
+    input: &str,
+    line_num: usize,
+    ctx: &mut ParseContext,
+) -> Result<(Vec<Attribute>, String), ParseError> {
+    parse_attr_brackets_inner(input, line_num, ctx, false)
+}
+
+fn parse_attr_brackets_inner(
+    input: &str,
+    line_num: usize,
+    ctx: &mut ParseContext,
+    validate: bool,
 ) -> Result<(Vec<Attribute>, String), ParseError> {
     let mut depth = 0;
     let mut end_pos = 0;
@@ -520,12 +664,12 @@ fn parse_attr_brackets(
 
     let attrs_inner = &input[1..end_pos];
     let remaining = input[end_pos + 1..].trim().to_string();
-    let attrs = parse_attr_list(attrs_inner, ctx);
+    let attrs = parse_attr_list(attrs_inner, line_num, ctx, validate);
 
     Ok((attrs, remaining))
 }
 
-fn parse_attr_list(input: &str, ctx: &ParseContext) -> Vec<Attribute> {
+fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validate: bool) -> Vec<Attribute> {
     let mut attrs = Vec::new();
 
     for part in split_commas(input) {
@@ -546,17 +690,36 @@ fn parse_attr_list(input: &str, ctx: &ParseContext) -> Vec<Attribute> {
         // Substitute variables in value
         let part = substitute_vars(part, &ctx.variables);
 
-        if let Some((key, value)) = part.split_once(' ') {
-            attrs.push(Attribute {
+        let attr = if let Some((key, value)) = part.split_once(' ') {
+            Attribute {
                 key: key.trim().to_string(),
                 value: Some(value.trim().to_string()),
-            });
+            }
         } else {
-            attrs.push(Attribute {
+            Attribute {
                 key: part.to_string(),
                 value: None,
-            });
+            }
+        };
+
+        // Warn on unknown attributes
+        if validate {
+            let base_key = attr.key.as_str();
+            let base_key = base_key
+                .strip_prefix("hover:")
+                .or_else(|| base_key.strip_prefix("active:"))
+                .or_else(|| base_key.strip_prefix("focus:"))
+                .unwrap_or(base_key);
+            if !KNOWN_ATTRS.contains(&base_key) {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("unknown attribute '{}'", attr.key),
+                    severity: Severity::Warning,
+                });
+            }
         }
+
+        attrs.push(attr);
     }
 
     attrs
@@ -569,8 +732,8 @@ fn split_commas(input: &str) -> Vec<&str> {
 
     for (i, c) in input.char_indices() {
         match c {
-            '[' => depth += 1,
-            ']' => depth -= 1,
+            '[' | '(' => depth += 1,
+            ']' | ')' => depth -= 1,
             ',' if depth == 0 => {
                 parts.push(&input[start..i]);
                 start = i + 1;
@@ -630,7 +793,7 @@ fn split_chain(content: &str) -> Vec<String> {
 // Text segment parsing (inline {...} elements)
 // ---------------------------------------------------------------------------
 
-fn parse_text_segments(input: &str, ctx: &ParseContext) -> Vec<TextSegment> {
+fn parse_text_segments(input: &str, ctx: &mut ParseContext) -> Vec<TextSegment> {
     let mut segments = Vec::new();
     let mut current_text = String::new();
     let chars: Vec<char> = input.chars().collect();
