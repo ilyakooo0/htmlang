@@ -59,9 +59,32 @@ jobs:
           name: ${{ matrix.lsp_name }}
           path: target/${{ matrix.target }}/release/htmlang-lsp${{ runner.os == 'Windows' && '.exe' || '' }}
 
+  vscode:
+    name: Build VS Code extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build extension
+        working-directory: editors/vscode
+        run: |
+          npm ci
+          npm run build
+          npx @vscode/vsce package -o htmlang.vsix
+
+      - name: Upload extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: htmlang.vsix
+          path: editors/vscode/htmlang.vsix
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, vscode]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -85,15 +108,12 @@ jobs:
           mkdir -p release
           for dir in artifacts/*/; do
             filename=$(basename "$dir")
-            binary=$(find "$dir" -type f -executable | head -1)
-            if [ -z "$binary" ]; then
-              binary=$(find "$dir" -type f -name "*.exe" | head -1)
-            fi
-            if [ -n "$binary" ]; then
-              cp "$binary" "release/$filename"
-              chmod +x "release/$filename"
+            file=$(find "$dir" -type f | head -1)
+            if [ -n "$file" ]; then
+              cp "$file" "release/$filename"
             fi
           done
+          chmod +x release/htmlang-* 2>/dev/null || true
           ls -la release/
 
       - name: Create Release
