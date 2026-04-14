@@ -1,0 +1,32 @@
+@page htmlang Demo
+@let primary #3b82f6
+@let gap 20
+@define card [padding 20, background white, rounded 8, border 1 #e5e7eb]
+
+@column [max-width 800, center-x, padding 40, spacing $gap]
+  @row [spacing $gap]
+    @column [width fill, spacing 10]
+      @text [bold, size 32] Welcome to htmlang
+      @paragraph
+        A minimalist layout language that compiles to
+        {@text [bold, color $primary] static HTML}.
+    @image [width 80, height 80, rounded 40] https://picsum.photos/80
+
+  -- cards
+  @row [wrap, spacing 10]
+    [$card]
+      @text [bold] Simple
+      Write layouts without CSS
+    [$card]
+      @text [bold] Fast
+      Compiles to a single HTML file
+    [$card]
+      @text [bold] Minimal
+      No JavaScript required
+
+  -- footer
+  @row [spacing 10]
+    @el [padding 16, background $primary, rounded 8] > @link https://github.com
+      @text [color white, bold] Get Started
+    @el [width fill]
+    @text [color #888] © 2026
