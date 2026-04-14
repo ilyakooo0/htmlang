@@ -6,12 +6,22 @@ use crate::ast::*;
 // Style collector: deduplicates CSS and assigns class names
 // ---------------------------------------------------------------------------
 
+/// (min-width breakpoint, prefix)
+const BREAKPOINTS: &[(&str, &str)] = &[
+    ("sm", "640px"),
+    ("md", "768px"),
+    ("lg", "1024px"),
+    ("xl", "1280px"),
+];
+
 struct StyleEntry {
     class_name: String,
     base: String,
     hover: String,
     active: String,
     focus: String,
+    /// Responsive overrides: (breakpoint_prefix, css)
+    responsive: Vec<(String, String)>,
 }
 
 struct StyleCollector {
@@ -34,11 +44,22 @@ impl StyleCollector {
         hover: String,
         active: String,
         focus: String,
+        responsive: Vec<(String, String)>,
     ) -> Option<String> {
-        if base.is_empty() && hover.is_empty() && active.is_empty() && focus.is_empty() {
+        if base.is_empty()
+            && hover.is_empty()
+            && active.is_empty()
+            && focus.is_empty()
+            && responsive.is_empty()
+        {
             return None;
         }
-        let key = format!("{}|{}|{}|{}", base, hover, active, focus);
+        let resp_key: String = responsive
+            .iter()
+            .map(|(bp, css)| format!("{}={}", bp, css))
+            .collect::<Vec<_>>()
+            .join("|");
+        let key = format!("{}|{}|{}|{}|{}", base, hover, active, focus, resp_key);
         if let Some(&idx) = self.index.get(&key) {
             return Some(self.entries[idx].class_name.clone());
         }
@@ -50,28 +71,81 @@ impl StyleCollector {
             hover,
             active,
             focus,
+            responsive,
         });
         self.index.insert(key, idx);
         Some(name)
     }
 
-    fn to_css(&self) -> String {
+    fn to_css_formatted(&self, dev: bool) -> String {
         let mut css = String::new();
+        let (sp, nl) = if dev { (" ", "\n") } else { ("", "") };
+
+        // Non-responsive rules
         for e in &self.entries {
             if !e.base.is_empty() {
-                css.push_str(&format!(".{}{{{}}}", e.class_name, e.base));
+                css.push_str(&format!(".{}{sp}{{{}}}{nl}", e.class_name, e.base));
             }
             if !e.hover.is_empty() {
-                css.push_str(&format!(".{}:hover{{{}}}", e.class_name, e.hover));
+                css.push_str(&format!(".{}:hover{sp}{{{}}}{nl}", e.class_name, e.hover));
             }
             if !e.active.is_empty() {
-                css.push_str(&format!(".{}:active{{{}}}", e.class_name, e.active));
+                css.push_str(&format!(".{}:active{sp}{{{}}}{nl}", e.class_name, e.active));
             }
             if !e.focus.is_empty() {
-                css.push_str(&format!(".{}:focus{{{}}}", e.class_name, e.focus));
+                css.push_str(&format!(".{}:focus{sp}{{{}}}{nl}", e.class_name, e.focus));
             }
         }
+
+        // Responsive rules grouped by breakpoint
+        for &(bp_name, bp_width) in BREAKPOINTS {
+            let mut bp_css = String::new();
+            for e in &self.entries {
+                for (bp, rule_css) in &e.responsive {
+                    if bp == bp_name && !rule_css.is_empty() {
+                        if dev {
+                            bp_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, rule_css));
+                        } else {
+                            bp_css.push_str(&format!(".{}{{{}}}", e.class_name, rule_css));
+                        }
+                    }
+                }
+            }
+            if !bp_css.is_empty() {
+                if dev {
+                    css.push_str(&format!(
+                        "@media (min-width: {}) {{\n{}}}\n",
+                        bp_width, bp_css
+                    ));
+                } else {
+                    css.push_str(&format!(
+                        "@media(min-width:{}){{{}}}",
+                        bp_width, bp_css
+                    ));
+                }
+            }
+        }
+
         css
+    }
+}
+
+struct GenContext {
+    dev: bool,
+    depth: usize,
+}
+
+impl GenContext {
+    fn indent(&self) -> String {
+        if self.dev {
+            "  ".repeat(self.depth)
+        } else {
+            String::new()
+        }
+    }
+
+    fn nl(&self) -> &str {
+        if self.dev { "\n" } else { "" }
     }
 }
 
@@ -80,27 +154,100 @@ impl StyleCollector {
 // ---------------------------------------------------------------------------
 
 pub fn generate(doc: &Document) -> String {
+    generate_with_options(doc, false)
+}
+
+pub fn generate_dev(doc: &Document) -> String {
+    generate_with_options(doc, true)
+}
+
+fn generate_with_options(doc: &Document, dev: bool) -> String {
     let mut styles = StyleCollector::new();
+    let mut ctx = GenContext { dev, depth: 0 };
     let mut body = String::new();
 
     for node in &doc.nodes {
-        generate_node(node, None, &mut body, &mut styles);
+        generate_node(node, None, &mut body, &mut styles, &mut ctx);
     }
 
-    let element_css = styles.to_css();
+    let mut element_css = String::new();
+
+    // CSS custom properties
+    if !doc.css_vars.is_empty() {
+        if dev {
+            element_css.push_str(":root {\n");
+            for (name, value) in &doc.css_vars {
+                element_css.push_str(&format!("  {}: {};\n", name, value));
+            }
+            element_css.push_str("}\n");
+        } else {
+            element_css.push_str(":root{");
+            for (name, value) in &doc.css_vars {
+                element_css.push_str(name);
+                element_css.push(':');
+                element_css.push_str(value);
+                element_css.push(';');
+            }
+            element_css.push('}');
+        }
+    }
+
+    element_css.push_str(&styles.to_css_formatted(dev));
+
+    // @keyframes
+    for (name, kf_body) in &doc.keyframes {
+        if dev {
+            element_css.push_str(&format!("@keyframes {} {{\n{}\n}}\n", name, kf_body));
+        } else {
+            element_css.push_str(&format!("@keyframes {}{{{}}}", name, kf_body));
+        }
+    }
 
     match &doc.page_title {
-        Some(title) => format!(
-            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title><style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
-            title = html_escape(title),
-            element_css = element_css,
-            body = body,
-        ),
+        Some(title) => {
+            if dev {
+                format!(
+                    "\
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset=\"utf-8\">
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+<title>{title}</title>
+<style>
+*, *::before, *::after {{ box-sizing: border-box; }}
+body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
+img {{ display: block; }}
+{element_css}\
+</style>
+</head>
+<body>
+{body}\
+</body>
+</html>
+",
+                    title = html_escape(title),
+                    element_css = element_css,
+                    body = body,
+                )
+            } else {
+                format!(
+                    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title><style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
+                    title = html_escape(title),
+                    element_css = element_css,
+                    body = body,
+                )
+            }
+        }
         None => {
             if element_css.is_empty() {
                 body
             } else {
-                format!("<style>{}</style>{}", element_css, body)
+                if dev {
+                    format!("<style>\n{}</style>\n{}", element_css, body)
+                } else {
+                    format!("<style>{}</style>{}", element_css, body)
+                }
             }
         }
     }
@@ -115,24 +262,29 @@ fn generate_node(
     parent_kind: Option<&ElementKind>,
     out: &mut String,
     styles: &mut StyleCollector,
+    ctx: &mut GenContext,
 ) {
     match node {
-        Node::Element(elem) => generate_element(elem, parent_kind, out, styles),
+        Node::Element(elem) => generate_element(elem, parent_kind, out, styles, ctx),
         Node::Text(segments) => {
             let needs_wrap = matches!(
                 parent_kind,
                 Some(ElementKind::Row) | Some(ElementKind::Column) | Some(ElementKind::El)
             );
             if needs_wrap {
+                out.push_str(&ctx.indent());
                 out.push_str("<span>");
             }
-            generate_text_segments(segments, out, styles);
+            generate_text_segments(segments, out, styles, ctx);
             if needs_wrap {
                 out.push_str("</span>");
+                out.push_str(ctx.nl());
             }
         }
         Node::Raw(content) => {
+            out.push_str(&ctx.indent());
             out.push_str(content);
+            out.push_str(ctx.nl());
         }
     }
 }
@@ -142,9 +294,10 @@ fn generate_element(
     parent_kind: Option<&ElementKind>,
     out: &mut String,
     styles: &mut StyleCollector,
+    ctx: &mut GenContext,
 ) {
     if elem.kind == ElementKind::Image {
-        generate_image(elem, parent_kind, out, styles);
+        generate_image(elem, parent_kind, out, styles, ctx);
         return;
     }
     if elem.kind == ElementKind::Children {
@@ -159,10 +312,25 @@ fn generate_element(
         ElementKind::Image | ElementKind::Children => unreachable!(),
     };
 
+    let kind_label = match elem.kind {
+        ElementKind::Row => "row",
+        ElementKind::Column => "column",
+        ElementKind::El => "el",
+        ElementKind::Text => "text",
+        ElementKind::Paragraph => "paragraph",
+        ElementKind::Link => "link",
+        _ => "",
+    };
+
     // Compute CSS for each state and get a class name
     let gen_class = compute_class(&elem.attrs, &elem.kind, parent_kind, styles);
     let (id, user_class) = extract_id_class(&elem.attrs);
 
+    if ctx.dev {
+        out.push_str(&ctx.indent());
+        out.push_str(&format!("<!-- @{} -->\n", kind_label));
+    }
+    out.push_str(&ctx.indent());
     out.push('<');
     out.push_str(tag);
 
@@ -182,6 +350,7 @@ fn generate_element(
         out.push('"');
     }
     out.push('>');
+    out.push_str(ctx.nl());
 
     // Inline text argument (@text content)
     if elem.kind == ElementKind::Text {
@@ -191,17 +360,21 @@ fn generate_element(
     }
 
     // Children
+    ctx.depth += 1;
     let is_paragraph = elem.kind == ElementKind::Paragraph;
     for (i, child) in elem.children.iter().enumerate() {
-        generate_node(child, Some(&elem.kind), out, styles);
+        generate_node(child, Some(&elem.kind), out, styles, ctx);
         if is_paragraph && i < elem.children.len() - 1 {
             out.push(' ');
         }
     }
+    ctx.depth -= 1;
 
+    out.push_str(&ctx.indent());
     out.push_str("</");
     out.push_str(tag);
     out.push('>');
+    out.push_str(ctx.nl());
 }
 
 fn generate_image(
@@ -209,11 +382,17 @@ fn generate_image(
     parent_kind: Option<&ElementKind>,
     out: &mut String,
     styles: &mut StyleCollector,
+    ctx: &GenContext,
 ) {
     let src = elem.argument.as_deref().unwrap_or("");
     let gen_class = compute_class(&elem.attrs, &elem.kind, parent_kind, styles);
     let (id, user_class) = extract_id_class(&elem.attrs);
 
+    if ctx.dev {
+        out.push_str(&ctx.indent());
+        out.push_str("<!-- @image -->\n");
+    }
+    out.push_str(&ctx.indent());
     out.push_str("<img src=\"");
     out.push_str(&html_escape(src));
     out.push('"');
@@ -226,19 +405,21 @@ fn generate_image(
         out.push('"');
     }
     out.push('>');
+    out.push_str(ctx.nl());
 }
 
 fn generate_text_segments(
     segments: &[TextSegment],
     out: &mut String,
     styles: &mut StyleCollector,
+    ctx: &mut GenContext,
 ) {
     for segment in segments {
         match segment {
             TextSegment::Plain(text) => out.push_str(&html_escape(text)),
             TextSegment::Inline(elem) => {
                 let mut buf = String::new();
-                generate_element(elem, None, &mut buf, styles);
+                generate_element(elem, None, &mut buf, styles, ctx);
                 out.push_str(buf.trim_end());
             }
         }
@@ -259,7 +440,18 @@ fn compute_class(
     let hover = attrs_to_css(attrs, "hover:", kind, parent_kind);
     let active = attrs_to_css(attrs, "active:", kind, parent_kind);
     let focus = attrs_to_css(attrs, "focus:", kind, parent_kind);
-    styles.get_class(base, hover, active, focus)
+
+    // Collect responsive overrides
+    let mut responsive = Vec::new();
+    for &(bp_name, _) in BREAKPOINTS {
+        let prefix = format!("{}:", bp_name);
+        let css = attrs_to_css(attrs, &prefix, kind, parent_kind);
+        if !css.is_empty() {
+            responsive.push((bp_name.to_string(), css));
+        }
+    }
+
+    styles.get_class(base, hover, active, focus, responsive)
 }
 
 fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option<&str>) {
@@ -290,9 +482,11 @@ fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option
 // ---------------------------------------------------------------------------
 
 const STATE_PREFIXES: &[&str] = &["hover:", "active:", "focus:"];
+const RESPONSIVE_PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:"];
 
-fn is_state_attr(key: &str) -> bool {
+fn is_prefixed_attr(key: &str) -> bool {
     STATE_PREFIXES.iter().any(|p| key.starts_with(p))
+        || RESPONSIVE_PREFIXES.iter().any(|p| key.starts_with(p))
 }
 
 fn attrs_to_css(
@@ -317,7 +511,7 @@ fn attrs_to_css(
     for attr in attrs {
         // Determine the effective key for this pass
         let effective_key = if state_prefix.is_empty() {
-            if is_state_attr(&attr.key) {
+            if is_prefixed_attr(&attr.key) {
                 continue;
             }
             attr.key.as_str()
@@ -579,6 +773,13 @@ fn attrs_to_css(
             "gap-y" => {
                 if let Some(v) = val {
                     push_css(&mut css, "row-gap", &format!("{}px", v));
+                }
+            }
+
+            // Animation
+            "animation" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "animation", v);
                 }
             }
 

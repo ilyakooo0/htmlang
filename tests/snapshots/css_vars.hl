@@ -1,0 +1,10 @@
+@page CSS Variables
+@let --primary #3b82f6
+@let --spacing 20
+@let --radius 8
+
+@column [spacing $--spacing]
+  @el [background var(--primary), rounded $--radius, padding $--spacing]
+    @text [color white] Using CSS vars
+  @el [border 1 var(--primary), rounded $--radius, padding $--spacing]
+    @text [color var(--primary)] Border with var

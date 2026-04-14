@@ -1,0 +1,3 @@
+@page Pseudo States
+@el [background white, hover:background #eee, active:background #ddd, focus:background #ccc, transition all 0.2s]
+  @text [color black, hover:color blue] Hover me

@@ -61,6 +61,11 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 ..Default::default()
             },
             ..Default::default()
@@ -126,6 +131,52 @@ impl LanguageServer for Backend {
         drop(docs);
 
         Ok(hover_at(&text, pos))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri.clone();
+        let pos = params.text_document_position_params.position;
+        let docs = self.documents.read().await;
+        let text = match docs.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        Ok(definition_at(&text, pos, &uri))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = &params.text_document.uri;
+        let pos = params.position;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        Ok(prepare_rename_at(&text, pos))
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri.clone();
+        let pos = params.text_document_position.position;
+        let new_name = params.new_name;
+        let docs = self.documents.read().await;
+        let text = match docs.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        Ok(rename_at(&text, pos, &new_name, &uri))
     }
 }
 
@@ -264,6 +315,7 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@let", "Define a variable", "@let "),
         ("@define", "Define an attribute bundle", "@define "),
         ("@fn", "Define a reusable function", "@fn "),
+        ("@keyframes", "Define a CSS animation", "@keyframes "),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -322,10 +374,17 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         // Identity
         ("id", "HTML id attribute", true),
         ("class", "HTML class attribute", true),
+        // Animation
+        ("animation", "CSS animation (e.g., name 0.3s ease)", true),
         // State prefixes
         ("hover:", "Style on hover", false),
         ("active:", "Style on active/click", false),
         ("focus:", "Style on focus", false),
+        // Responsive prefixes
+        ("sm:", "Style at 640px+ (small)", false),
+        ("md:", "Style at 768px+ (medium)", false),
+        ("lg:", "Style at 1024px+ (large)", false),
+        ("xl:", "Style at 1280px+ (extra large)", false),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -569,6 +628,7 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@let" => "**@let** \u{2014} Variable\n\nDefines a variable for `$name` substitution.\n\nUsage: `@let primary #3b82f6`",
         "@define" => "**@define** \u{2014} Attribute bundle\n\nDefines a reusable set of attributes.\n\nUsage: `@define card-style [padding 20, rounded 8]`\n\nApply with `$card-style` in attribute lists.",
         "@fn" => "**@fn** \u{2014} Function\n\nDefines a reusable component.\n\n```\n@fn card $title\n  @el [padding 20]\n    @text [bold] $title\n    @children\n```",
+        "@keyframes" => "**@keyframes** \u{2014} CSS Animation\n\nDefines keyframes for CSS animations.\n\n```\n@keyframes fade-in\n  from{opacity:0}to{opacity:1}\n```\n\nUse with `animation` attribute: `[animation fade-in 0.3s ease]`",
         "@children" => "**@children** \u{2014} Children slot\n\nPlaceholder inside `@fn` body replaced with the caller's children.",
         // Attributes
         "spacing" => "**spacing** `<value>`\n\nGap between children in pixels. Maps to CSS `gap`.",
@@ -610,6 +670,7 @@ fn hover_builtin(word: &str) -> Option<String> {
         "wrap" => "**wrap** \u{2014} Enable flex-wrap for children.",
         "id" => "**id** `<value>` \u{2014} HTML id attribute.",
         "class" => "**class** `<value>` \u{2014} HTML class attribute.",
+        "animation" => "**animation** `<value>` \u{2014} CSS animation shorthand (e.g., `fade-in 0.3s ease`).\n\nDefine animations with `@keyframes`.",
         _ => return None,
     };
 
@@ -617,6 +678,300 @@ fn hover_builtin(word: &str) -> Option<String> {
         format!("*({} state)* {}", state, doc)
     } else {
         doc.to_string()
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Go to definition
+// ---------------------------------------------------------------------------
+
+fn definition_at(text: &str, position: Position, uri: &Url) -> Option<GotoDefinitionResponse> {
+    let lines: Vec<&str> = text.lines().collect();
+    let line = lines.get(position.line as usize)?;
+    let col = (position.character as usize).min(line.len());
+    let word = word_at(line, col)?;
+
+    // Find definition location
+    let (def_line, def_col, def_len) = if word.starts_with('$') {
+        let name = &word[1..];
+        find_definition(text, name)?
+    } else if word.starts_with('@') {
+        let name = &word[1..];
+        find_fn_definition(text, name)?
+    } else {
+        return None;
+    };
+
+    Some(GotoDefinitionResponse::Scalar(Location {
+        uri: uri.clone(),
+        range: Range::new(
+            Position::new(def_line, def_col),
+            Position::new(def_line, def_col + def_len),
+        ),
+    }))
+}
+
+/// Find @let, @define, or @fn parameter definition for a $name reference.
+fn find_definition(text: &str, name: &str) -> Option<(u32, u32, u32)> {
+    for (i, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        let offset = (line.len() - trimmed.len()) as u32;
+
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
+            if let Some((n, _)) = rest.trim().split_once(' ') {
+                if n == name {
+                    let col = offset + "@let ".len() as u32;
+                    return Some((i as u32, col, n.len() as u32));
+                }
+            }
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("@define ") {
+            let rest = rest.trim();
+            if let Some(bracket) = rest.find('[') {
+                let n = rest[..bracket].trim();
+                if n == name {
+                    let col = offset + "@define ".len() as u32;
+                    return Some((i as u32, col, n.len() as u32));
+                }
+            }
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("@fn ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            for param in &parts[1..] {
+                let p = param.strip_prefix('$').unwrap_or(param);
+                if p == name {
+                    // Find the param position in the line
+                    if let Some(pos) = line.find(param) {
+                        return Some((i as u32, pos as u32, param.len() as u32));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Find @fn definition for an @name function call.
+fn find_fn_definition(text: &str, name: &str) -> Option<(u32, u32, u32)> {
+    for (i, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        let offset = (line.len() - trimmed.len()) as u32;
+
+        if let Some(rest) = trimmed.strip_prefix("@fn ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.first() == Some(&name) {
+                let col = offset + "@fn ".len() as u32;
+                return Some((i as u32, col, name.len() as u32));
+            }
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Rename
+// ---------------------------------------------------------------------------
+
+fn prepare_rename_at(text: &str, position: Position) -> Option<PrepareRenameResponse> {
+    let lines: Vec<&str> = text.lines().collect();
+    let line = lines.get(position.line as usize)?;
+    let col = (position.character as usize).min(line.len());
+    let word = word_at(line, col)?;
+
+    // Only allow renaming $variables and @function calls/definitions
+    if !word.starts_with('$') && !word.starts_with('@') {
+        return None;
+    }
+
+    let name = &word[1..];
+
+    // Check that the symbol actually has a definition
+    if word.starts_with('$') {
+        find_definition(text, name)?;
+    } else {
+        find_fn_definition(text, name)?;
+    }
+
+    // Find the range of the word in the line
+    let bytes = line.as_bytes();
+    let mut start = col;
+    while start > 0 && is_word_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    let mut end = col;
+    while end < bytes.len() && is_word_byte(bytes[end]) {
+        end += 1;
+    }
+
+    Some(PrepareRenameResponse::Range(Range::new(
+        Position::new(position.line, start as u32),
+        Position::new(position.line, end as u32),
+    )))
+}
+
+fn rename_at(text: &str, position: Position, new_name: &str, uri: &Url) -> Option<WorkspaceEdit> {
+    let lines: Vec<&str> = text.lines().collect();
+    let line = lines.get(position.line as usize)?;
+    let col = (position.character as usize).min(line.len());
+    let word = word_at(line, col)?;
+
+    let is_var = word.starts_with('$');
+    let name = &word[1..]; // strip $ or @
+
+    // Strip $ or @ from new_name if user included it
+    let new_base = new_name
+        .strip_prefix('$')
+        .or_else(|| new_name.strip_prefix('@'))
+        .unwrap_or(new_name);
+
+    let mut edits = Vec::new();
+
+    for (i, line) in text.lines().enumerate() {
+        let line_num = i as u32;
+        let trimmed = line.trim();
+
+        if is_var {
+            // Rename @let definition
+            if let Some(rest) = trimmed.strip_prefix("@let ") {
+                if let Some((n, _)) = rest.trim().split_once(' ') {
+                    if n == name {
+                        if let Some(pos) = line.find(n) {
+                            edits.push(TextEdit {
+                                range: Range::new(
+                                    Position::new(line_num, pos as u32),
+                                    Position::new(line_num, (pos + n.len()) as u32),
+                                ),
+                                new_text: new_base.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Rename @define definition
+            if let Some(rest) = trimmed.strip_prefix("@define ") {
+                let rest_trimmed = rest.trim();
+                if let Some(bracket) = rest_trimmed.find('[') {
+                    let n = rest_trimmed[..bracket].trim();
+                    if n == name {
+                        if let Some(pos) = line.find(n) {
+                            edits.push(TextEdit {
+                                range: Range::new(
+                                    Position::new(line_num, pos as u32),
+                                    Position::new(line_num, (pos + n.len()) as u32),
+                                ),
+                                new_text: new_base.to_string(),
+                            });
+                            continue; // Don't also match $ references on this line
+                        }
+                    }
+                }
+            }
+
+            // Rename @fn parameter definitions
+            if let Some(rest) = trimmed.strip_prefix("@fn ") {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                for param in &parts[1..] {
+                    let p = param.strip_prefix('$').unwrap_or(param);
+                    if p == name {
+                        if let Some(pos) = line.find(param) {
+                            let prefix = if param.starts_with('$') { "$" } else { "" };
+                            edits.push(TextEdit {
+                                range: Range::new(
+                                    Position::new(line_num, pos as u32),
+                                    Position::new(line_num, (pos + param.len()) as u32),
+                                ),
+                                new_text: format!("{}{}", prefix, new_base),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Rename all $name references
+            let search = format!("${}", name);
+            let replace = format!("${}", new_base);
+            let mut offset = 0;
+            while let Some(pos) = line[offset..].find(&search) {
+                let abs_pos = offset + pos;
+                // Check it's not part of a longer identifier
+                let after = abs_pos + search.len();
+                let is_end = after >= line.len()
+                    || !line.as_bytes()[after].is_ascii_alphanumeric()
+                        && line.as_bytes()[after] != b'-'
+                        && line.as_bytes()[after] != b'_';
+                if is_end {
+                    edits.push(TextEdit {
+                        range: Range::new(
+                            Position::new(line_num, abs_pos as u32),
+                            Position::new(line_num, (abs_pos + search.len()) as u32),
+                        ),
+                        new_text: replace.clone(),
+                    });
+                }
+                offset = abs_pos + search.len();
+            }
+        } else {
+            // Rename @fn definition
+            if let Some(rest) = trimmed.strip_prefix("@fn ") {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.first() == Some(&name) {
+                    if let Some(pos) = line.find(&format!("@fn {}", name)) {
+                        let start = pos + 4; // skip "@fn "
+                        edits.push(TextEdit {
+                            range: Range::new(
+                                Position::new(line_num, start as u32),
+                                Position::new(line_num, (start + name.len()) as u32),
+                            ),
+                            new_text: new_base.to_string(),
+                        });
+                    }
+                }
+            }
+
+            // Rename @name function calls
+            let search = format!("@{}", name);
+            let replace = format!("@{}", new_base);
+            let mut offset = 0;
+            while let Some(pos) = line[offset..].find(&search) {
+                let abs_pos = offset + pos;
+                // Don't match @fn definition (handled above)
+                if trimmed.starts_with("@fn ") {
+                    offset = abs_pos + search.len();
+                    continue;
+                }
+                // Check it's not part of a longer identifier
+                let after = abs_pos + search.len();
+                let is_end = after >= line.len()
+                    || !line.as_bytes()[after].is_ascii_alphanumeric()
+                        && line.as_bytes()[after] != b'-'
+                        && line.as_bytes()[after] != b'_';
+                if is_end {
+                    edits.push(TextEdit {
+                        range: Range::new(
+                            Position::new(line_num, abs_pos as u32),
+                            Position::new(line_num, (abs_pos + search.len()) as u32),
+                        ),
+                        new_text: replace.clone(),
+                    });
+                }
+                offset = abs_pos + search.len();
+            }
+        }
+    }
+
+    if edits.is_empty() {
+        return None;
+    }
+
+    let mut changes = HashMap::new();
+    changes.insert(uri.clone(), edits);
+
+    Some(WorkspaceEdit {
+        changes: Some(changes),
+        ..Default::default()
     })
 }
 

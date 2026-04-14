@@ -67,6 +67,8 @@ struct ParseContext {
     variables: HashMap<String, String>,
     defines: HashMap<String, Vec<Attribute>>,
     functions: HashMap<String, FnDef>,
+    keyframes: Vec<(String, String)>,
+    css_vars: Vec<(String, String)>,
     diagnostics: Vec<Diagnostic>,
     base_path: Option<PathBuf>,
     included_files: Vec<PathBuf>,
@@ -90,6 +92,8 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
         variables: HashMap::new(),
         defines: HashMap::new(),
         functions: HashMap::new(),
+        keyframes: Vec::new(),
+        css_vars: Vec::new(),
         diagnostics: Vec::new(),
         base_path: base_path.map(|p| p.to_path_buf()),
         included_files: Vec::new(),
@@ -101,6 +105,8 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
             page_title: ctx.page_title,
             variables: ctx.variables,
             defines: ctx.defines,
+            keyframes: ctx.keyframes,
+            css_vars: ctx.css_vars,
             nodes,
         },
         diagnostics: ctx.diagnostics,
@@ -273,8 +279,12 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@let ") {
             let rest = rest.trim();
             if let Some((name, value)) = rest.split_once(' ') {
-                ctx.variables
-                    .insert(name.to_string(), substitute_vars(value.trim(), &ctx.variables));
+                let value = substitute_vars(value.trim(), &ctx.variables);
+                if name.starts_with("--") {
+                    // CSS custom property
+                    ctx.css_vars.push((name.to_string(), value.clone()));
+                }
+                ctx.variables.insert(name.to_string(), value);
             }
             return Ok(None);
         }
@@ -334,6 +344,29 @@ impl Parser {
                     return Ok(None);
                 }
             }
+        }
+
+        // --- @keyframes directive ---
+
+        if let Some(rest) = content.strip_prefix("@keyframes ") {
+            let name = rest.trim().to_string();
+            if name.is_empty() {
+                return Err(ParseError {
+                    line: line_num,
+                    message: "@keyframes requires a name".to_string(),
+                });
+            }
+            // Collect body lines (indented deeper)
+            let mut body = String::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    let trimmed = s.trim();
+                    body.push_str(trimmed);
+                }
+                self.pos += 1;
+            }
+            ctx.keyframes.push((name, body));
+            return Ok(None);
         }
 
         // --- Function definition ---
@@ -583,6 +616,12 @@ fn parse_single_element(
     })
 }
 
+const KNOWN_ELEMENTS: &[&str] = &[
+    "row", "column", "col", "el", "text", "paragraph", "p", "image", "img", "link", "children",
+];
+
+const KNOWN_DIRECTIVES: &[&str] = &["page", "let", "define", "fn", "include", "raw", "keyframes"];
+
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
     match s {
         "row" => Ok(ElementKind::Row),
@@ -593,11 +632,57 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "image" | "img" => Ok(ElementKind::Image),
         "link" => Ok(ElementKind::Link),
         "children" => Ok(ElementKind::Children),
-        _ => Err(ParseError {
-            line: line_num,
-            message: format!("unknown element @{}", s),
-        }),
+        _ => {
+            let all_known: Vec<&str> = KNOWN_ELEMENTS
+                .iter()
+                .chain(KNOWN_DIRECTIVES.iter())
+                .copied()
+                .collect();
+            let suggestion = suggest_closest(s, &all_known);
+            let msg = match suggestion {
+                Some(closest) => format!("unknown element @{}, did you mean @{}?", s, closest),
+                None => format!("unknown element @{}", s),
+            };
+            Err(ParseError {
+                line: line_num,
+                message: msg,
+            })
+        }
     }
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut dp = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for i in 0..=a.len() {
+        dp[i][0] = i;
+    }
+    for j in 0..=b.len() {
+        dp[0][j] = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[a.len()][b.len()]
+}
+
+fn suggest_closest<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let mut best = None;
+    let mut best_dist = usize::MAX;
+    for &candidate in candidates {
+        let dist = levenshtein(input, candidate);
+        if dist < best_dist && dist <= 2 && dist < input.len() {
+            best_dist = dist;
+            best = Some(candidate);
+        }
+    }
+    best
 }
 
 // ---------------------------------------------------------------------------
@@ -614,7 +699,92 @@ const KNOWN_ATTRS: &[&str] = &[
     "text-align", "line-height", "overflow", "position", "z-index", "shadow",
     "wrap", "gap-x", "gap-y",
     "id", "class",
+    "animation",
 ];
+
+/// Attributes that expect purely numeric values (px-based).
+const NUMERIC_ATTRS: &[&str] = &[
+    "spacing", "padding", "padding-x", "padding-y",
+    "min-width", "max-width", "min-height", "max-height",
+    "rounded", "size", "gap-x", "gap-y",
+];
+
+/// Attributes that accept numeric OR keyword values.
+const NUMERIC_OR_KEYWORD_ATTRS: &[&str] = &["width", "height"];
+const SIZE_KEYWORDS: &[&str] = &["fill", "shrink"];
+
+fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext) {
+    let base_key = attr.key.as_str();
+    let base_key = base_key
+        .strip_prefix("hover:")
+        .or_else(|| base_key.strip_prefix("active:"))
+        .or_else(|| base_key.strip_prefix("focus:"))
+        .unwrap_or(base_key);
+    let base_key = base_key
+        .strip_prefix("sm:")
+        .or_else(|| base_key.strip_prefix("md:"))
+        .or_else(|| base_key.strip_prefix("lg:"))
+        .or_else(|| base_key.strip_prefix("xl:"))
+        .unwrap_or(base_key);
+
+    if let Some(val) = &attr.value {
+        if NUMERIC_ATTRS.contains(&base_key) {
+            // All space-separated parts must be numeric (for padding with multiple values)
+            for part in val.split_whitespace() {
+                if part.parse::<f64>().is_err() {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!(
+                            "'{}' expects a numeric value, got '{}'",
+                            attr.key, val
+                        ),
+                        severity: Severity::Warning,
+                    });
+                    return;
+                }
+            }
+        } else if NUMERIC_OR_KEYWORD_ATTRS.contains(&base_key) {
+            let is_keyword = SIZE_KEYWORDS.contains(&val.as_str());
+            let is_numeric = val.parse::<f64>().is_ok();
+            if !is_keyword && !is_numeric {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!(
+                        "'{}' expects a number or one of [{}], got '{}'",
+                        attr.key,
+                        SIZE_KEYWORDS.join(", "),
+                        val
+                    ),
+                    severity: Severity::Warning,
+                });
+            }
+        } else if base_key == "opacity" {
+            if let Ok(v) = val.parse::<f64>() {
+                if !(0.0..=1.0).contains(&v) {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!("'opacity' should be between 0 and 1, got '{}'", val),
+                        severity: Severity::Warning,
+                    });
+                }
+            } else {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("'opacity' expects a numeric value, got '{}'", val),
+                    severity: Severity::Warning,
+                });
+            }
+        } else if base_key == "z-index" {
+            if val.parse::<i32>().is_err() {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("'z-index' expects an integer, got '{}'", val),
+                    severity: Severity::Warning,
+                });
+            }
+        }
+    }
+}
 
 fn parse_attr_brackets(
     input: &str,
@@ -705,17 +875,34 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
         // Warn on unknown attributes
         if validate {
             let base_key = attr.key.as_str();
+            // Strip state prefix (hover:, active:, focus:)
             let base_key = base_key
                 .strip_prefix("hover:")
                 .or_else(|| base_key.strip_prefix("active:"))
                 .or_else(|| base_key.strip_prefix("focus:"))
                 .unwrap_or(base_key);
+            // Strip responsive prefix (sm:, md:, lg:, xl:)
+            let base_key = base_key
+                .strip_prefix("sm:")
+                .or_else(|| base_key.strip_prefix("md:"))
+                .or_else(|| base_key.strip_prefix("lg:"))
+                .or_else(|| base_key.strip_prefix("xl:"))
+                .unwrap_or(base_key);
             if !KNOWN_ATTRS.contains(&base_key) {
+                let suggestion = suggest_closest(base_key, KNOWN_ATTRS);
+                let msg = match suggestion {
+                    Some(closest) => {
+                        format!("unknown attribute '{}', did you mean '{}'?", attr.key, closest)
+                    }
+                    None => format!("unknown attribute '{}'", attr.key),
+                };
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
-                    message: format!("unknown attribute '{}'", attr.key),
+                    message: msg,
                     severity: Severity::Warning,
                 });
+            } else {
+                validate_attr_value(&attr, line_num, ctx);
             }
         }
 
@@ -874,7 +1061,7 @@ fn substitute_vars(input: &str, vars: &HashMap<String, String>) -> String {
     while i < chars.len() {
         if chars[i] == '$'
             && i + 1 < chars.len()
-            && (chars[i + 1].is_alphanumeric() || chars[i + 1] == '_')
+            && (chars[i + 1].is_alphanumeric() || chars[i + 1] == '_' || chars[i + 1] == '-')
         {
             let start = i + 1;
             let mut end = start;

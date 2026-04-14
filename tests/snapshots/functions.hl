@@ -1,0 +1,14 @@
+@page Functions
+@fn card $title
+  @el [padding 20, rounded 8]
+    @text [bold] $title
+    @children
+
+@fn wrapper
+  @column [spacing 10]
+    @children
+
+@wrapper
+  @card [title Hello]
+    @text Content inside card
+  @card [title World]

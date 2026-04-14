@@ -6,6 +6,8 @@ pub struct Document {
     pub page_title: Option<String>,
     pub variables: HashMap<String, String>,
     pub defines: HashMap<String, Vec<Attribute>>,
+    pub keyframes: Vec<(String, String)>,
+    pub css_vars: Vec<(String, String)>,
     pub nodes: Vec<Node>,
 }
 

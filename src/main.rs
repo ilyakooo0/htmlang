@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-fn compile(input_path: &str) -> (bool, Vec<PathBuf>) {
+fn compile(input_path: &str, dev: bool) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
@@ -29,7 +29,11 @@ fn compile(input_path: &str) -> (bool, Vec<PathBuf>) {
         .any(|d| d.severity == htmlang::parser::Severity::Error);
 
     if !has_errors {
-        let html = htmlang::codegen::generate(&result.document);
+        let html = if dev {
+            htmlang::codegen::generate_dev(&result.document)
+        } else {
+            htmlang::codegen::generate(&result.document)
+        };
         let out_path = Path::new(input_path).with_extension("html");
         match fs::write(&out_path, &html) {
             Ok(()) => eprintln!("wrote {}", out_path.display()),
@@ -44,6 +48,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let mut watch = false;
     let mut serve = false;
+    let mut dev = false;
     let mut port: u16 = 3000;
     let mut input_path = None;
 
@@ -51,6 +56,7 @@ fn main() {
     while i < args.len() {
         match args[i].as_str() {
             "--watch" | "-w" => watch = true,
+            "--dev" | "-d" => dev = true,
             "--serve" | "-s" => {
                 serve = true;
                 watch = true;
@@ -82,12 +88,12 @@ fn main() {
     let input_path = match input_path {
         Some(p) => p,
         None => {
-            eprintln!("Usage: htmlang [--watch] [--serve [--port N]] <file.hl>");
+            eprintln!("Usage: htmlang [--watch] [--serve [--port N]] [--dev] <file.hl>");
             process::exit(1);
         }
     };
 
-    let (has_errors, included_files) = compile(&input_path);
+    let (has_errors, included_files) = compile(&input_path, dev);
 
     if !watch {
         if has_errors {
@@ -144,7 +150,7 @@ fn main() {
                 while rx.try_recv().is_ok() {}
 
                 eprintln!("\nrecompiling...");
-                let (_, new_includes) = compile(&input_path);
+                let (_, new_includes) = compile(&input_path, dev);
 
                 for inc in &new_includes {
                     let _ = watcher.watch(inc, RecursiveMode::NonRecursive);

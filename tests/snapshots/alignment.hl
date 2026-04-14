@@ -1,0 +1,12 @@
+@page Alignment
+@column [height 400]
+  @el [center-x] Centered X
+  @el [center-y] Centered Y
+  @el [align-left] Left
+  @el [align-right] Right
+  @el [align-top] Top
+  @el [align-bottom] Bottom
+@row [height 200]
+  @el [center-y] In row
+  @el [align-top] Top in row
+  @el [align-bottom] Bottom in row
