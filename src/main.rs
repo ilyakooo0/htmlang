@@ -49,6 +49,30 @@ fn compile(input_path: &str, dev: bool) -> (bool, Vec<PathBuf>) {
     (has_errors, result.included_files)
 }
 
+fn print_help() {
+    eprintln!(
+        "\
+htmlang {} - a minimalist layout language that compiles to static HTML
+
+Usage: htmlang [options] <file.hl>
+
+Options:
+  -w, --watch       Watch for changes and recompile
+  -s, --serve       Start dev server with hot reload (implies --watch)
+  -p, --port <N>    Port for dev server (default: 3000)
+  -d, --dev         Development mode
+  -h, --help        Show this help
+  -V, --version     Show version
+
+Examples:
+  htmlang page.hl           Compile page.hl to page.html
+  htmlang -w page.hl        Recompile on file changes
+  htmlang -s page.hl        Start dev server with hot reload
+  htmlang -s -p 8080 page.hl",
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut watch = false;
@@ -60,6 +84,14 @@ fn main() {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--help" | "-h" => {
+                print_help();
+                process::exit(0);
+            }
+            "--version" | "-V" => {
+                println!("htmlang {}", env!("CARGO_PKG_VERSION"));
+                process::exit(0);
+            }
             "--watch" | "-w" => watch = true,
             "--dev" | "-d" => dev = true,
             "--serve" | "-s" => {
@@ -93,7 +125,7 @@ fn main() {
     let input_path = match input_path {
         Some(p) => p,
         None => {
-            eprintln!("Usage: htmlang [--watch] [--serve [--port N]] [--dev] <file.hl>");
+            print_help();
             process::exit(1);
         }
     };
