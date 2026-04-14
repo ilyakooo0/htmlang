@@ -1,0 +1,59 @@
+{
+  "name": "htmlang",
+  "displayName": "htmlang",
+  "description": "Language support for htmlang (.hl) files",
+  "version": "0.1.0",
+  "publisher": "htmlang",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "htmlang",
+        "aliases": [
+          "htmlang"
+        ],
+        "extensions": [
+          ".hl"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "htmlang",
+        "scopeName": "source.htmlang",
+        "path": "./syntaxes/htmlang.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "htmlang",
+      "properties": {
+        "htmlang.server.path": {
+          "type": "string",
+          "default": "htmlang-lsp",
+          "description": "Path to the htmlang-lsp binary"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  }
+}

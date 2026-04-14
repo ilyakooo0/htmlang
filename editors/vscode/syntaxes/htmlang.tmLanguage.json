@@ -1,0 +1,142 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "htmlang",
+  "scopeName": "source.htmlang",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#raw-block" },
+    { "include": "#page-directive" },
+    { "include": "#let-definition" },
+    { "include": "#define-definition" },
+    { "include": "#fn-definition" },
+    { "include": "#include-directive" },
+    { "include": "#element" },
+    { "include": "#function-call" },
+    { "include": "#variable" },
+    { "include": "#attributes" },
+    { "include": "#inline-element" },
+    { "include": "#color" },
+    { "include": "#number" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-dash.htmlang",
+      "match": "^\\s*--.*$"
+    },
+    "raw-block": {
+      "name": "meta.raw.htmlang",
+      "begin": "(@raw)\\s+(\"\"\")",
+      "end": "(\"\"\")",
+      "beginCaptures": {
+        "1": { "name": "entity.name.tag.htmlang" },
+        "2": { "name": "punctuation.definition.string.begin.htmlang" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.end.htmlang" }
+      },
+      "contentName": "string.unquoted.raw.htmlang"
+    },
+    "page-directive": {
+      "match": "(@page)\\s+(.*)",
+      "captures": {
+        "1": { "name": "keyword.control.directive.htmlang" },
+        "2": { "name": "string.unquoted.page-title.htmlang" }
+      }
+    },
+    "let-definition": {
+      "match": "(@let)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+      "captures": {
+        "1": { "name": "keyword.control.directive.htmlang" },
+        "2": { "name": "variable.other.htmlang" }
+      }
+    },
+    "define-definition": {
+      "match": "(@define)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+      "captures": {
+        "1": { "name": "keyword.control.directive.htmlang" },
+        "2": { "name": "variable.other.constant.htmlang" }
+      }
+    },
+    "fn-definition": {
+      "match": "(@fn)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+      "captures": {
+        "1": { "name": "keyword.control.directive.htmlang" },
+        "2": { "name": "entity.name.function.definition.htmlang" }
+      }
+    },
+    "include-directive": {
+      "match": "(@include)\\s+(.*)",
+      "captures": {
+        "1": { "name": "keyword.control.directive.htmlang" },
+        "2": { "name": "string.unquoted.filename.htmlang" }
+      }
+    },
+    "element": {
+      "name": "entity.name.tag.htmlang",
+      "match": "@(?:row|column|col|el|text|paragraph|p|image|img|link|raw|children)\\b"
+    },
+    "function-call": {
+      "name": "entity.name.function.htmlang",
+      "match": "@[a-zA-Z_][a-zA-Z0-9_-]*"
+    },
+    "variable": {
+      "name": "variable.other.htmlang",
+      "match": "\\$[a-zA-Z_][a-zA-Z0-9_-]*"
+    },
+    "attributes": {
+      "name": "meta.attribute-list.htmlang",
+      "begin": "\\[",
+      "end": "\\]",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.brackets.begin.htmlang" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.brackets.end.htmlang" }
+      },
+      "patterns": [
+        { "include": "#variable" },
+        { "include": "#color" },
+        { "include": "#number" },
+        { "include": "#state-prefix" },
+        { "include": "#attribute-name" },
+        {
+          "name": "punctuation.separator.comma.htmlang",
+          "match": ","
+        }
+      ]
+    },
+    "state-prefix": {
+      "name": "keyword.other.state.htmlang",
+      "match": "(?:hover|active|focus):"
+    },
+    "attribute-name": {
+      "name": "support.type.property-name.htmlang",
+      "match": "\\b(?:spacing|padding|padding-x|padding-y|width|height|min-width|max-width|min-height|max-height|center-x|center-y|align-left|align-right|align-top|align-bottom|background|color|border|rounded|bold|italic|underline|size|font|transition|cursor|opacity|wrap|id|class)\\b"
+    },
+    "inline-element": {
+      "name": "meta.inline-element.htmlang",
+      "begin": "(\\{)(?=@)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.braces.begin.htmlang" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.braces.end.htmlang" }
+      },
+      "patterns": [
+        { "include": "#element" },
+        { "include": "#function-call" },
+        { "include": "#attributes" },
+        { "include": "#variable" }
+      ]
+    },
+    "color": {
+      "name": "constant.other.color.htmlang",
+      "match": "#[0-9a-fA-F]{3,8}\\b"
+    },
+    "number": {
+      "name": "constant.numeric.htmlang",
+      "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+    }
+  }
+}
