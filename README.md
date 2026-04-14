@@ -1,0 +1,113 @@
+# htmlang
+
+A minimalist layout language inspired by [elm-ui](https://package.elm-lang.org/packages/mdgriffith/elm-ui/latest/) that compiles to static HTML.
+
+`@` means structure. Bare lines mean content. No CSS required.
+
+## Example
+
+```
+@page My Site
+@let primary #3b82f6
+
+@fn card $title
+  @el [padding 20, background white, rounded 8, border 1 #e5e7eb, hover:border 1 $primary, transition all 0.15s ease]
+    @text [bold] $title
+    @children
+
+@column [max-width 800, center-x, padding 40, spacing 20]
+  @text [bold, size 32] Hello
+
+  @paragraph
+    Built with {@text [bold, color $primary] htmlang}.
+
+  @row [wrap, spacing 10]
+    @card [title Simple]
+      Write layouts without CSS
+    @card [title Fast]
+      Compiles to a single HTML file
+```
+
+Compiles to a self-contained `.html` file with flexbox layout and generated CSS classes. No JavaScript, no external dependencies.
+
+## Install
+
+```
+cargo install --path .
+```
+
+## Usage
+
+```
+htmlang page.hl          # writes page.html
+```
+
+## Language overview
+
+### Elements
+
+| Element      | Purpose                      |
+|--------------|------------------------------|
+| `@row`       | Horizontal flex layout       |
+| `@column`    | Vertical flex layout         |
+| `@el`        | Generic container            |
+| `@text`      | Styled inline text           |
+| `@paragraph` | Flowing text with inline elements |
+| `@image`     | Image                        |
+| `@link`      | Anchor                       |
+| `@raw`       | Verbatim HTML escape hatch   |
+
+### Layout attributes
+
+```
+@row [spacing 20]                  -- gap between children
+@el [padding 20]                   -- uniform padding (also padding-x, padding-y)
+@el [width fill]                   -- take remaining space (also width 200, width shrink)
+@el [center-x]                     -- center horizontally (also align-left, align-right)
+```
+
+### Style attributes
+
+```
+@el [background #3b82f6, color white, rounded 8, border 1 #e5e7eb]
+@text [bold, italic, underline, size 18, font Inter]
+@el [opacity 0.5, cursor pointer, transition all 0.15s ease]
+```
+
+### Pseudo-states
+
+Prefix any style attribute with `hover:`, `active:`, or `focus:`:
+
+```
+@el [background #3b82f6, hover:background #2563eb, active:background #1d4ed8]
+```
+
+### Variables and defines
+
+```
+@let primary #3b82f6              -- simple variable, used as $primary
+@define card [padding 20, rounded 8]   -- attribute bundle, used as [$card]
+```
+
+### Functions
+
+```
+@fn button $label
+  @el [padding 12, background $primary, rounded 8]
+    @text [color white, bold] $label
+    @children                      -- slot for caller's children
+
+@button [label Click me]
+```
+
+### Other features
+
+- `--` comments
+- `{@text [bold] inline}` elements in text
+- `@el [attrs] > @link url` single-child chaining
+- `[padding 20]` bare attributes as implicit `@el`
+- `@raw """..."""` for embedding arbitrary HTML/CSS/JS
+
+## Documentation
+
+See [DESIGN.md](DESIGN.md) for the full language specification.
