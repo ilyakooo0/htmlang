@@ -39,6 +39,7 @@ pub enum ElementKind {
     Paragraph,
     Image,
     Link,
+    Children,
 }
 
 #[derive(Debug, Clone)]

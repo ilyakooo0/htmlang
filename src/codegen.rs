@@ -63,12 +63,17 @@ fn generate_element(elem: &Element, parent_kind: Option<&ElementKind>, out: &mut
         return;
     }
 
+    // @children should be replaced during function expansion; skip if it leaks through
+    if elem.kind == ElementKind::Children {
+        return;
+    }
+
     let tag = match elem.kind {
         ElementKind::Row | ElementKind::Column | ElementKind::El => "div",
         ElementKind::Text => "span",
         ElementKind::Paragraph => "p",
         ElementKind::Link => "a",
-        ElementKind::Image => unreachable!(),
+        ElementKind::Image | ElementKind::Children => unreachable!(),
     };
 
     let styles = attrs_to_css(&elem.attrs, &elem.kind, parent_kind);

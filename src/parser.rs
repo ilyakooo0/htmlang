@@ -15,21 +15,30 @@ impl fmt::Display for ParseError {
     }
 }
 
+#[derive(Clone)]
 enum LineContent {
     Normal(String),
     Raw(String),
 }
 
+#[derive(Clone)]
 struct Line {
     indent: usize,
     content: LineContent,
     line_num: usize,
 }
 
+#[derive(Clone)]
+struct FnDef {
+    params: Vec<String>,
+    body_lines: Vec<Line>,
+}
+
 struct ParseContext {
     page_title: Option<String>,
     variables: HashMap<String, String>,
     defines: HashMap<String, Vec<Attribute>>,
+    functions: HashMap<String, FnDef>,
 }
 
 struct Parser {
@@ -44,6 +53,7 @@ pub fn parse(input: &str) -> Result<Document, ParseError> {
         page_title: None,
         variables: HashMap::new(),
         defines: HashMap::new(),
+        functions: HashMap::new(),
     };
     let nodes = parser.parse_children(0, &mut ctx)?;
     Ok(Document {
@@ -150,15 +160,18 @@ impl Parser {
             }
 
             match self.parse_line(ctx)? {
-                Some(node) => nodes.push(node),
-                None => {} // directive consumed, no node
+                Some(new_nodes) => nodes.extend(new_nodes),
+                None => {}
             }
         }
 
         Ok(nodes)
     }
 
-    fn parse_line(&mut self, ctx: &mut ParseContext) -> Result<Option<Node>, ParseError> {
+    fn parse_line(
+        &mut self,
+        ctx: &mut ParseContext,
+    ) -> Result<Option<Vec<Node>>, ParseError> {
         let line_num = self.lines[self.pos].line_num;
         let current_indent = self.lines[self.pos].indent;
 
@@ -166,7 +179,7 @@ impl Parser {
         if let LineContent::Raw(s) = &self.lines[self.pos].content {
             let content = s.clone();
             self.pos += 1;
-            return Ok(Some(Node::Raw(content)));
+            return Ok(Some(vec![Node::Raw(content)]));
         }
 
         // Normal content — clone to release borrow
@@ -208,17 +221,123 @@ impl Parser {
             return Ok(None);
         }
 
+        // --- Function definition ---
+
+        if let Some(rest) = content.strip_prefix("@fn ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.is_empty() {
+                return Err(ParseError {
+                    line: line_num,
+                    message: "@fn requires a name".to_string(),
+                });
+            }
+            let name = parts[0].to_string();
+            let params: Vec<String> = parts[1..]
+                .iter()
+                .map(|p| p.strip_prefix('$').unwrap_or(p).to_string())
+                .collect();
+
+            // Collect body lines (all lines indented deeper than @fn)
+            let mut body_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                body_lines.push(self.lines[self.pos].clone());
+                self.pos += 1;
+            }
+
+            ctx.functions.insert(name, FnDef { params, body_lines });
+            return Ok(None);
+        }
+
+        // --- Function call ---
+
+        if content.starts_with('@') {
+            let name = extract_element_name(&content);
+            if ctx.functions.contains_key(name) {
+                let nodes =
+                    self.expand_fn_call(name, &content, current_indent, line_num, ctx)?;
+                return Ok(Some(nodes));
+            }
+        }
+
         // --- Elements ---
 
         if content.starts_with('@') || content.starts_with('[') {
             let node = self.parse_element_line(&content, current_indent, line_num, ctx)?;
-            return Ok(Some(node));
+            return Ok(Some(vec![node]));
         }
 
         // --- Bare text ---
 
         let segments = parse_text_segments(&content, ctx);
-        Ok(Some(Node::Text(segments)))
+        Ok(Some(vec![Node::Text(segments)]))
+    }
+
+    fn expand_fn_call(
+        &mut self,
+        name: &str,
+        content: &str,
+        current_indent: usize,
+        line_num: usize,
+        ctx: &mut ParseContext,
+    ) -> Result<Vec<Node>, ParseError> {
+        // Parse [param value, ...] arguments
+        let rest = &content[1 + name.len()..];
+        let rest = rest.trim_start();
+
+        let args = if rest.starts_with('[') {
+            let (attrs, _) = parse_attr_brackets(rest, line_num, ctx)?;
+            attrs
+        } else {
+            Vec::new()
+        };
+
+        // Clone function definition (releases borrow on ctx)
+        let fn_def = ctx.functions.get(name).unwrap().clone();
+
+        // Parse caller's children
+        let caller_children = self.parse_children(current_indent + 1, ctx)?;
+
+        // Save variable state, inject function parameters
+        let saved_vars = ctx.variables.clone();
+        for (i, param) in fn_def.params.iter().enumerate() {
+            let value = args
+                .iter()
+                .find(|a| a.key == *param)
+                .and_then(|a| a.value.clone())
+                .or_else(|| args.get(i).and_then(|a| a.value.clone()))
+                .unwrap_or_default();
+            ctx.variables.insert(param.clone(), value);
+        }
+
+        // Normalize body indentation so it parses from indent 0
+        let min_indent = fn_def
+            .body_lines
+            .iter()
+            .map(|l| l.indent)
+            .min()
+            .unwrap_or(0);
+        let adjusted: Vec<Line> = fn_def
+            .body_lines
+            .iter()
+            .map(|l| Line {
+                indent: l.indent - min_indent,
+                content: l.content.clone(),
+                line_num: l.line_num,
+            })
+            .collect();
+
+        // Parse body with params in scope
+        let mut body_parser = Parser {
+            lines: adjusted,
+            pos: 0,
+        };
+        let body_nodes = body_parser.parse_children(0, ctx)?;
+
+        // Restore variables
+        ctx.variables = saved_vars;
+
+        // Replace @children with caller's children
+        Ok(replace_children_nodes(body_nodes, &caller_children))
     }
 
     fn parse_element_line(
@@ -252,8 +371,37 @@ impl Parser {
 }
 
 // ---------------------------------------------------------------------------
+// @children replacement
+// ---------------------------------------------------------------------------
+
+fn replace_children_nodes(nodes: Vec<Node>, caller_children: &[Node]) -> Vec<Node> {
+    let mut result = Vec::new();
+    for node in nodes {
+        match node {
+            Node::Element(elem) if elem.kind == ElementKind::Children => {
+                result.extend(caller_children.iter().cloned());
+            }
+            Node::Element(mut elem) => {
+                elem.children = replace_children_nodes(elem.children, caller_children);
+                result.push(Node::Element(elem));
+            }
+            other => result.push(other),
+        }
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
 // Element parsing
 // ---------------------------------------------------------------------------
+
+fn extract_element_name(content: &str) -> &str {
+    let without_at = &content[1..];
+    match without_at.find(|c: char| c == ' ' || c == '[') {
+        Some(i) => &without_at[..i],
+        None => without_at,
+    }
+}
 
 fn parse_single_element(
     content: &str,
@@ -329,6 +477,7 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "paragraph" | "p" => Ok(ElementKind::Paragraph),
         "image" | "img" => Ok(ElementKind::Image),
         "link" => Ok(ElementKind::Link),
+        "children" => Ok(ElementKind::Children),
         _ => Err(ParseError {
             line: line_num,
             message: format!("unknown element @{}", s),
@@ -560,7 +709,9 @@ fn substitute_vars(input: &str, vars: &HashMap<String, String>) -> String {
     let mut i = 0;
 
     while i < chars.len() {
-        if chars[i] == '$' && i + 1 < chars.len() && (chars[i + 1].is_alphanumeric() || chars[i + 1] == '_')
+        if chars[i] == '$'
+            && i + 1 < chars.len()
+            && (chars[i + 1].is_alphanumeric() || chars[i + 1] == '_')
         {
             let start = i + 1;
             let mut end = start;

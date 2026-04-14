@@ -116,6 +116,42 @@ Creates a named attribute bundle. Referenced with `$name` inside attribute lists
 
 Attributes listed after `$name` override those in the definition.
 
+### `@fn`
+
+Defines a pure function (reusable component). Parameters are prefixed with `$`.
+
+```
+@fn card $title
+  @el [padding 20, background white, rounded 8, border 1 #e5e7eb]
+    @text [bold, size 18] $title
+    @children
+```
+
+Call it like any element, passing parameters in `[...]`:
+
+```
+@card [title Hello World]
+  This is the card body.
+  @text [italic] With styled text.
+```
+
+### `@children`
+
+A slot inside a function body that expands to the caller's indented children.
+
+```
+@fn layout $title
+  @column [max-width 800, center-x, padding 40]
+    @text [bold, size 32] $title
+    @children
+
+@layout [title My Page]
+  @row [spacing 10]
+    Content goes here
+```
+
+Functions can call other functions. `@let` and `@define` variables are available inside function bodies. Function parameters shadow `@let` variables of the same name within the body.
+
 ## Text
 
 ### Bare text

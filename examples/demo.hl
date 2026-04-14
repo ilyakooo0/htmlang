@@ -1,7 +1,18 @@
 @page htmlang Demo
 @let primary #3b82f6
 @let gap 20
-@define card [padding 20, background white, rounded 8, border 1 #e5e7eb]
+
+-- reusable card component
+@fn card $title
+  @el [padding 20, background white, rounded 8, border 1 #e5e7eb]
+    @text [bold] $title
+    @children
+
+-- page layout function
+@fn page-section $title
+  @column [spacing 10]
+    @text [bold, size 24, color #333] $title
+    @children
 
 @column [max-width 800, center-x, padding 40, spacing $gap]
   @row [spacing $gap]
@@ -12,17 +23,15 @@
         {@text [bold, color $primary] static HTML}.
     @image [width 80, height 80, rounded 40] https://picsum.photos/80
 
-  -- cards
-  @row [wrap, spacing 10]
-    [$card]
-      @text [bold] Simple
-      Write layouts without CSS
-    [$card]
-      @text [bold] Fast
-      Compiles to a single HTML file
-    [$card]
-      @text [bold] Minimal
-      No JavaScript required
+  -- cards using @fn
+  @page-section [title Features]
+    @row [wrap, spacing 10]
+      @card [title Simple]
+        Write layouts without CSS
+      @card [title Fast]
+        Compiles to a single HTML file
+      @card [title Minimal]
+        No JavaScript required
 
   -- footer
   @row [spacing 10]
