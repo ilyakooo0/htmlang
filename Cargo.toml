@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "crates/htmlang-core", "crates/htmlang-wasm"]
+
 [package]
 name = "htmlang"
 version = "0.1.0"
@@ -8,6 +11,12 @@ name = "htmlang-lsp"
 path = "src/bin/htmlang_lsp/main.rs"
 
 [dependencies]
+htmlang-core = { path = "crates/htmlang-core" }
 notify = "7"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "rt-multi-thread", "sync"] }
 tower-lsp = "0.20"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
