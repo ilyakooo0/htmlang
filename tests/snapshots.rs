@@ -877,7 +877,11 @@ fn warn_substitutes_variables() {
 
 #[test]
 fn image_auto_lazy_loading() {
-    let output = compile("@page T\n@image https://example.com/photo.jpg");
+    // First 3 images get fetchpriority="high" (above-the-fold), subsequent get loading="lazy"
+    let output = compile("@page T\n@image https://example.com/1.jpg\n@image https://example.com/2.jpg\n@image https://example.com/3.jpg\n@image https://example.com/4.jpg");
+    // First 3 images: fetchpriority="high", no lazy loading
+    assert!(output.contains("fetchpriority=\"high\""));
+    // 4th image: loading="lazy" + decoding="async"
     assert!(output.contains("loading=\"lazy\""));
     assert!(output.contains("decoding=\"async\""));
 }
@@ -887,6 +891,158 @@ fn image_explicit_loading_not_doubled() {
     let output = compile("@page T\n@image [loading eager] https://example.com/photo.jpg");
     assert!(output.contains("loading=\"eager\""));
     assert!(!output.contains("loading=\"lazy\""));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: new improvements
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ternary_expression_in_attrs() {
+    let output = compile("@page T\n@let active true\n@el [color $active ? green : gray]\n  test");
+    assert!(output.contains("color:green"));
+}
+
+#[test]
+fn ternary_expression_false() {
+    let output = compile("@page T\n@let active false\n@el [color $active ? green : gray]\n  test");
+    assert!(output.contains("color:gray"));
+}
+
+#[test]
+fn multiline_let_triple_quotes() {
+    let output = compile("@page T\n@let bio \"\"\"Hello World\"\"\"\n@text $bio");
+    assert!(output.contains("Hello World"));
+}
+
+#[test]
+fn comparison_operators_gt() {
+    let output = compile("@page T\n@let count 5\n@if $count > 3\n  @text big");
+    assert!(output.contains("big"));
+}
+
+#[test]
+fn comparison_operators_lt() {
+    let output = compile("@page T\n@let count 2\n@if $count < 3\n  @text small");
+    assert!(output.contains("small"));
+}
+
+#[test]
+fn comparison_operators_contains() {
+    let output = compile("@page T\n@let name hello world\n@if $name contains world\n  @text found");
+    assert!(output.contains("found"));
+}
+
+#[test]
+fn comparison_operators_starts_with() {
+    let output = compile("@page T\n@let url https://example.com\n@if $url starts-with https\n  @text secure");
+    assert!(output.contains("secure"));
+}
+
+#[test]
+fn string_concat_operator() {
+    let output = compile("@page T\n@let first Hello\n@let last World\n@let full $first ~ \" \" ~ $last\n@text $full");
+    assert!(output.contains("Hello World"), "got: {}", output);
+}
+
+#[test]
+fn css_contain_attribute() {
+    let output = compile("@page T\n@el [contain layout, width 200, height 100]\n  test");
+    assert!(output.contains("contain:layout"));
+}
+
+#[test]
+fn css_contain_default() {
+    let output = compile("@page T\n@el [contain, width 200]\n  test");
+    assert!(output.contains("contain:layout style paint"));
+}
+
+#[test]
+fn content_visibility_attribute() {
+    let output = compile("@page T\n@el [content-visibility auto]\n  test");
+    assert!(output.contains("content-visibility:auto"));
+}
+
+#[test]
+fn focus_visible_css_with_interactive() {
+    let output = compile("@page T\n@button Click");
+    assert!(output.contains("focus-visible"));
+}
+
+#[test]
+fn focus_visible_css_without_interactive() {
+    let output = compile("@page T\n@el\n  text");
+    assert!(!output.contains("focus-visible"));
+}
+
+#[test]
+fn skip_to_content_with_main() {
+    let output = compile("@page T\n@main\n  content");
+    assert!(output.contains("hl-skip"));
+    assert!(output.contains("hl-main"));
+    assert!(output.contains("Skip to content"));
+}
+
+#[test]
+fn no_skip_to_content_without_main() {
+    let output = compile("@page T\n@el\n  content");
+    assert!(!output.contains("hl-skip"));
+}
+
+#[test]
+fn external_link_noopener() {
+    let output = compile("@page T\n@link https://example.com\n  External");
+    assert!(output.contains("rel=\"noopener noreferrer\""));
+    assert!(output.contains("target=\"_blank\""));
+}
+
+#[test]
+fn internal_link_no_noopener() {
+    let output = compile("@page T\n@link /about\n  About");
+    assert!(!output.contains("noopener"));
+    assert!(!output.contains("target=\"_blank\""));
+}
+
+#[test]
+fn dns_prefetch_for_external_domains() {
+    let output = compile("@page T\n@link https://example.com\n  Link\n@image https://cdn.example.org/img.jpg");
+    assert!(output.contains("dns-prefetch"));
+    assert!(output.contains("example.com"));
+}
+
+#[test]
+fn theme_color_meta_from_theme() {
+    let output = compile("@page T\n@theme\n  primary #3b82f6\n@el\n  test");
+    assert!(output.contains("theme-color"));
+    assert!(output.contains("#3b82f6"));
+}
+
+#[test]
+fn aria_live_passthrough() {
+    let output = compile("@page T\n@el [aria-live polite]\n  updating");
+    assert!(output.contains("aria-live=\"polite\""));
+}
+
+#[test]
+fn defer_directive() {
+    let result = htmlang::parser::parse("@page T\n@defer\n  @el\n    Lazy content");
+    assert!(result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error));
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("data-hl-defer"));
+    assert!(html.contains("IntersectionObserver"));
+}
+
+#[test]
+fn comparison_gte_lte() {
+    let output = compile("@page T\n@let x 5\n@if $x >= 5\n  @text gte\n@if $x <= 5\n  @text lte");
+    assert!(output.contains("gte"));
+    assert!(output.contains("lte"));
+}
+
+#[test]
+fn comparison_ends_with() {
+    let output = compile("@page T\n@let file photo.jpg\n@if $file ends-with .jpg\n  @text image");
+    assert!(output.contains("image"));
 }
 
 // ---------------------------------------------------------------------------

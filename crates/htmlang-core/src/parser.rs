@@ -443,8 +443,44 @@ impl Parser {
                 } else {
                     value
                 };
-                // Support quoted string interpolation: @let greeting "Hello $name"
-                let value = if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+
+                // Multi-line @let with triple quotes: @let name """..."""
+                let value_str;
+                let value = if value.starts_with("\"\"\"") {
+                    let after_open = &value[3..];
+                    if after_open.ends_with("\"\"\"") && after_open.len() >= 3 {
+                        // Single-line triple-quote: @let name """value"""
+                        value_str = after_open[..after_open.len()-3].to_string();
+                        value_str.as_str()
+                    } else {
+                        // Multi-line: collect indented body lines until closing """
+                        let mut lines_buf = String::new();
+                        if !after_open.is_empty() {
+                            lines_buf.push_str(after_open);
+                            lines_buf.push('\n');
+                        }
+                        while self.pos < self.lines.len() {
+                            match &self.lines[self.pos].content {
+                                LineContent::Normal(s) if s.trim() == "\"\"\"" => {
+                                    self.pos += 1;
+                                    break;
+                                }
+                                LineContent::Normal(s) => {
+                                    lines_buf.push_str(s);
+                                    lines_buf.push('\n');
+                                }
+                                LineContent::Raw(s) => {
+                                    lines_buf.push_str(s);
+                                    lines_buf.push('\n');
+                                }
+                            }
+                            self.pos += 1;
+                        }
+                        value_str = lines_buf.trim_end_matches('\n').to_string();
+                        value_str.as_str()
+                    }
+                } else if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+                    // Support quoted string interpolation: @let greeting "Hello $name"
                     &value[1..value.len()-1]
                 } else {
                     value
@@ -1907,6 +1943,64 @@ impl Parser {
             }
             ctx.variables = saved_vars;
             return Ok(Some(all_nodes));
+        }
+
+        // --- @defer (lazy-load below-fold content via IntersectionObserver) ---
+
+        if content.trim() == "@defer" || content.starts_with("@defer ") {
+            let placeholder_text = content.strip_prefix("@defer").unwrap_or("").trim();
+
+            // Collect body lines
+            let mut body_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                body_lines.push(self.lines[self.pos].clone());
+                self.pos += 1;
+            }
+
+            if body_lines.is_empty() {
+                return Ok(None);
+            }
+
+            // Parse the body to get the actual content nodes
+            let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
+            let adjusted: Vec<Line> = body_lines.iter().map(|l| Line {
+                indent: l.indent - min_indent,
+                content: l.content.clone(),
+                line_num: l.line_num,
+            }).collect();
+
+            let saved_vars = ctx.variables.clone();
+            let mut body_parser = Parser { lines: adjusted, pos: 0 };
+            let inner_nodes = body_parser.parse_children(0, ctx);
+            ctx.variables = saved_vars;
+
+            // Wrap content in a div with data-defer attribute + placeholder
+            let _placeholder = if placeholder_text.is_empty() {
+                "Loading...".to_string()
+            } else {
+                substitute_vars(placeholder_text, &ctx.variables)
+            };
+            let mut wrapper_attrs = vec![
+                Attribute { key: "data-hl-defer".to_string(), value: None },
+                Attribute { key: "class".to_string(), value: Some("hl-defer-placeholder".to_string()) },
+            ];
+            // Hidden until intersection observer triggers
+            wrapper_attrs.push(Attribute { key: "hidden".to_string(), value: None });
+
+            let wrapper = Element {
+                kind: ElementKind::El,
+                attrs: wrapper_attrs,
+                argument: None,
+                children: inner_nodes,
+                line_num,
+            };
+
+            // Also emit the IntersectionObserver script as a sibling raw node
+            let script = Node::Raw(format!(
+                "<script>(function(){{var d=document.querySelectorAll('[data-hl-defer]');if(!d.length)return;var o=new IntersectionObserver(function(e){{e.forEach(function(i){{if(i.isIntersecting){{i.target.removeAttribute('hidden');i.target.classList.remove('hl-defer-placeholder');o.unobserve(i.target)}}}});}},{{rootMargin:'200px'}});d.forEach(function(el){{o.observe(el)}})}})()</script>"
+            ));
+
+            return Ok(Some(vec![Node::Element(wrapper), script]));
         }
 
         // --- @match ---
@@ -3679,6 +3773,7 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
 
         let attr = if let Some((key, value)) = part.split_once(' ') {
             let value = evaluate_if_expr(value.trim());
+            let value = substitute_ternary(&value);
             Attribute {
                 key: key.trim().to_string(),
                 value: Some(value),
@@ -3895,15 +3990,75 @@ fn parse_text_segments(input: &str, ctx: &mut ParseContext) -> Vec<TextSegment> 
 // ---------------------------------------------------------------------------
 
 fn evaluate_condition(condition: &str) -> bool {
+    // Ternary expression support: condition ? true_val : false_val
+    // (just check the condition part, the ternary is handled in substitute_ternary)
+
     if let Some((left, right)) = condition.split_once("!=") {
         left.trim() != right.trim()
     } else if let Some((left, right)) = condition.split_once("==") {
         left.trim() == right.trim()
+    } else if let Some((left, right)) = condition.split_once(">=") {
+        // Numeric comparison with fallback to string comparison
+        let l = left.trim();
+        let r = right.trim();
+        match (l.parse::<f64>(), r.parse::<f64>()) {
+            (Ok(ln), Ok(rn)) => ln >= rn,
+            _ => l >= r,
+        }
+    } else if let Some((left, right)) = condition.split_once("<=") {
+        let l = left.trim();
+        let r = right.trim();
+        match (l.parse::<f64>(), r.parse::<f64>()) {
+            (Ok(ln), Ok(rn)) => ln <= rn,
+            _ => l <= r,
+        }
+    } else if let Some((left, right)) = condition.split_once('>') {
+        let l = left.trim();
+        let r = right.trim();
+        match (l.parse::<f64>(), r.parse::<f64>()) {
+            (Ok(ln), Ok(rn)) => ln > rn,
+            _ => l > r,
+        }
+    } else if let Some((left, right)) = condition.split_once('<') {
+        let l = left.trim();
+        let r = right.trim();
+        match (l.parse::<f64>(), r.parse::<f64>()) {
+            (Ok(ln), Ok(rn)) => ln < rn,
+            _ => l < r,
+        }
+    } else if let Some((left, right)) = condition.split_once(" contains ") {
+        left.trim().contains(right.trim())
+    } else if let Some((left, right)) = condition.split_once(" starts-with ") {
+        left.trim().starts_with(right.trim())
+    } else if let Some((left, right)) = condition.split_once(" ends-with ") {
+        left.trim().ends_with(right.trim())
     } else {
         // Truthy check: non-empty, not "false", not "0"
         let trimmed = condition.trim();
         !trimmed.is_empty() && trimmed != "false" && trimmed != "0"
     }
+}
+
+/// Evaluate ternary expressions: `condition ? true_val : false_val` in attribute values.
+fn substitute_ternary(input: &str) -> String {
+    if !input.contains(" ? ") {
+        return input.to_string();
+    }
+    // Find the ternary operator pattern
+    if let Some(q_pos) = input.find(" ? ") {
+        let condition = input[..q_pos].trim();
+        let rest = &input[q_pos + 3..];
+        if let Some(c_pos) = rest.find(" : ") {
+            let true_val = rest[..c_pos].trim();
+            let false_val = rest[c_pos + 3..].trim();
+            if evaluate_condition(condition) {
+                return true_val.to_string();
+            } else {
+                return false_val.to_string();
+            }
+        }
+    }
+    input.to_string()
 }
 
 /// Evaluate `if(condition, true_val, false_val)` expressions in attribute values.
@@ -3949,6 +4104,23 @@ fn split_if_args(input: &str) -> Vec<&str> {
 
 fn evaluate_arithmetic(input: &str) -> String {
     let input = input.trim();
+
+    // String concatenation with ~ operator: @let full $first ~ " " ~ $last
+    if input.contains(" ~ ") {
+        let parts: Vec<&str> = input.split(" ~ ").collect();
+        if parts.len() >= 2 {
+            return parts.iter().map(|p| {
+                let t = p.trim();
+                // Strip quotes from string literals
+                if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
+                    &t[1..t.len()-1]
+                } else {
+                    t
+                }
+            }).collect::<Vec<_>>().join("");
+        }
+    }
+
     for op in &[" * ", " / ", " + ", " - "] {
         if let Some((left, right)) = input.split_once(op) {
             let left = left.trim();

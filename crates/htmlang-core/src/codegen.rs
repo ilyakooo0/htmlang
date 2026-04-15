@@ -352,6 +352,9 @@ impl StyleCollector {
 struct GenContext {
     dev: bool,
     depth: usize,
+    image_count: usize,
+    has_interactive: bool,
+    has_defer: bool,
 }
 
 impl GenContext {
@@ -613,12 +616,28 @@ fn prefix_declarations(block: &str) -> String {
 
 fn generate_full_inner(doc: &Document, dev: bool) -> String {
     let mut styles = StyleCollector::new();
-    let mut ctx = GenContext { dev, depth: 0 };
+    let mut ctx = GenContext { dev, depth: 0, image_count: 0, has_interactive: false, has_defer: false };
+
+    // Check if document has @main for skip-to-content link
+    let has_main = has_element_kind(&doc.nodes, &ElementKind::Main);
+
     let mut body = String::new();
+
+    // Skip-to-content link for accessibility (only when @main exists)
+    if has_main {
+        if dev {
+            body.push_str("<a href=\"#hl-main\" class=\"hl-skip\">Skip to content</a>\n");
+        } else {
+            body.push_str("<a href=\"#hl-main\" class=\"hl-skip\">Skip to content</a>");
+        }
+    }
 
     for node in &doc.nodes {
         generate_node(node, None, &mut body, &mut styles, &mut ctx);
     }
+
+    // Collect external domains for DNS prefetch
+    let dns_prefetch_html = collect_dns_prefetch(&body, dev);
 
     let mut element_css = String::new();
 
@@ -959,6 +978,51 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
         }
     }
 
+    // Auto theme-color meta from @theme primary token
+    let theme_color_html = doc.theme_tokens.iter()
+        .find(|(name, _)| name == "primary" || name == "theme-color")
+        .map(|(_, value)| {
+            if dev {
+                format!("<meta name=\"theme-color\" content=\"{}\">\n", html_escape(value))
+            } else {
+                format!("<meta name=\"theme-color\" content=\"{}\">", html_escape(value))
+            }
+        })
+        .unwrap_or_default();
+
+    // Focus-visible CSS for interactive elements (accessibility)
+    let focus_visible_css = if ctx.has_interactive {
+        if dev {
+            "a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }\n"
+        } else {
+            "a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid currentColor;outline-offset:2px}"
+        }
+    } else {
+        ""
+    };
+
+    // Skip-to-content CSS (visually hidden but accessible)
+    let skip_link_css = if has_main {
+        if dev {
+            ".hl-skip { position: absolute; left: -9999px; top: auto; width: 1px; height: 1px; overflow: hidden; z-index: 9999; padding: 8px 16px; background: #000; color: #fff; text-decoration: none; font-size: 14px; }\n.hl-skip:focus { left: 8px; top: 8px; width: auto; height: auto; overflow: visible; }\n"
+        } else {
+            ".hl-skip{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;z-index:9999;padding:8px 16px;background:#000;color:#fff;text-decoration:none;font-size:14px}.hl-skip:focus{left:8px;top:8px;width:auto;height:auto;overflow:visible}"
+        }
+    } else {
+        ""
+    };
+
+    // Noscript fallback: show deferred content if JS is disabled
+    let noscript_html = if ctx.has_defer {
+        if dev {
+            "<noscript><style>.hl-defer-placeholder { display: none; }</style></noscript>\n"
+        } else {
+            "<noscript><style>.hl-defer-placeholder{display:none}</style></noscript>"
+        }
+    } else {
+        ""
+    };
+
     match &doc.page_title {
         Some(title) => {
             if dev {
@@ -970,13 +1034,14 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
 <meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
 <title>{title}</title>
-{base_html}{canonical_html}{manifest_html}{preload_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}\
+{theme_color_html}{base_html}{canonical_html}{manifest_html}{preload_html}{dns_prefetch_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}\
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
 img {{ display: block; }}
-{element_css}\
+{focus_visible_css}{skip_link_css}{element_css}\
 </style>
+{noscript_html}\
 </head>
 <body>
 {body}\
@@ -985,32 +1050,42 @@ img {{ display: block; }}
 ",
                     title = html_escape(title),
                     lang_attr = lang_attr,
+                    theme_color_html = theme_color_html,
                     base_html = base_html,
                     canonical_html = canonical_html,
                     manifest_html = manifest_html,
                     preload_html = preload_html,
+                    dns_prefetch_html = dns_prefetch_html,
                     meta_html = meta_html,
                     favicon_html = favicon_html,
                     json_ld_html = json_ld_html,
                     head_html = head_html,
                     og_html = og_html,
+                    focus_visible_css = focus_visible_css,
+                    skip_link_css = skip_link_css,
+                    noscript_html = noscript_html,
                     element_css = element_css,
                     body = body,
                 )
             } else {
                 format!(
-                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{base_html}{canonical_html}{manifest_html}{preload_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
+                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{theme_color_html}{base_html}{canonical_html}{manifest_html}{preload_html}{dns_prefetch_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{focus_visible_css}{skip_link_css}{element_css}</style>{noscript_html}</head><body>{body}</body></html>",
                     title = html_escape(title),
                     lang_attr = lang_attr,
+                    theme_color_html = theme_color_html,
                     base_html = base_html,
                     canonical_html = canonical_html,
                     manifest_html = manifest_html,
                     preload_html = preload_html,
+                    dns_prefetch_html = dns_prefetch_html,
                     meta_html = meta_html,
                     og_html = og_html,
                     favicon_html = favicon_html,
                     json_ld_html = json_ld_html,
                     head_html = head_html,
+                    focus_visible_css = focus_visible_css,
+                    skip_link_css = skip_link_css,
+                    noscript_html = noscript_html,
                     element_css = element_css,
                     body = body,
                 )
@@ -1033,7 +1108,7 @@ img {{ display: block; }}
 /// Generate an HTML fragment: body + optional <style>, no <html>/<head>/<body> wrapper.
 fn generate_partial_inner(doc: &Document, dev: bool) -> String {
     let mut styles = StyleCollector::new();
-    let mut ctx = GenContext { dev, depth: 0 };
+    let mut ctx = GenContext { dev, depth: 0, image_count: 0, has_interactive: false, has_defer: false };
     let mut body = String::new();
 
     for node in &doc.nodes {
@@ -1182,6 +1257,8 @@ const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
     "fetchpriority", "blocking",
     // Global attrs
     "translate", "spellcheck",
+    // ARIA live regions
+    "aria-live", "aria-atomic", "aria-relevant",
 ];
 
 /// Boolean HTML attributes (rendered without a value, e.g., `<input disabled>`).
@@ -1465,6 +1542,12 @@ fn generate_element(
         _ => "",
     };
 
+    // Track interactive elements for focus-visible CSS
+    if matches!(elem.kind, ElementKind::Link | ElementKind::Button | ElementKind::Input
+        | ElementKind::Select | ElementKind::Textarea) {
+        ctx.has_interactive = true;
+    }
+
     // Compute CSS for each state and get a class name
     let gen_class = compute_class(&elem.attrs, &elem.kind, parent_kind, styles);
     let (id, user_class) = extract_id_class(&elem.attrs);
@@ -1477,11 +1560,28 @@ fn generate_element(
     out.push('<');
     out.push_str(tag);
 
+    // @main gets id="hl-main" for skip-to-content link (unless user set an id)
+    if elem.kind == ElementKind::Main && id.is_none() {
+        out.push_str(" id=\"hl-main\"");
+    }
+
     if elem.kind == ElementKind::Link {
         if let Some(url) = &elem.argument {
             out.push_str(" href=\"");
             out.push_str(&html_escape(url));
             out.push('"');
+            // Auto rel="noopener noreferrer" and target="_blank" for external links
+            let is_external = url.starts_with("http://") || url.starts_with("https://");
+            if is_external {
+                let has_rel = elem.attrs.iter().any(|a| a.key == "rel");
+                let has_target = elem.attrs.iter().any(|a| a.key == "target");
+                if !has_rel {
+                    out.push_str(" rel=\"noopener noreferrer\"");
+                }
+                if !has_target {
+                    out.push_str(" target=\"_blank\"");
+                }
+            }
         }
     }
 
@@ -1622,7 +1722,7 @@ fn generate_self_closing(
     parent_kind: Option<&ElementKind>,
     out: &mut String,
     styles: &mut StyleCollector,
-    ctx: &GenContext,
+    ctx: &mut GenContext,
 ) {
     let gen_class = compute_class(&elem.attrs, &elem.kind, parent_kind, styles);
     let (id, user_class) = extract_id_class(&elem.attrs);
@@ -1734,7 +1834,7 @@ fn generate_self_closing(
             }
         }
 
-        // Auto image dimensions: read local image file to inject width/height
+        // Auto image dimensions: read local image file to inject width/height + aspect-ratio
         let has_width = elem.attrs.iter().any(|a| a.key == "width");
         let has_height = elem.attrs.iter().any(|a| a.key == "height");
         if !has_width || !has_height {
@@ -1747,16 +1847,31 @@ fn generate_self_closing(
                         if !has_height {
                             out.push_str(&format!(" height=\"{}\"", h));
                         }
+                        // Auto aspect-ratio to prevent CLS
+                        if !elem.attrs.iter().any(|a| a.key == "aspect-ratio") {
+                            out.push_str(&format!(" style=\"aspect-ratio:{}/{}\"", w, h));
+                        }
                     }
                 }
             }
         }
 
-        if !elem.attrs.iter().any(|a| a.key == "loading") {
-            out.push_str(" loading=\"lazy\"");
-        }
-        if !elem.attrs.iter().any(|a| a.key == "decoding") {
-            out.push_str(" decoding=\"async\"");
+        // Smart image loading: first 3 images get fetchpriority="high" (above the fold),
+        // subsequent images get loading="lazy" + decoding="async"
+        ctx.image_count += 1;
+        if ctx.image_count <= 3 {
+            // Above-the-fold: eager loading with high priority
+            if !elem.attrs.iter().any(|a| a.key == "fetchpriority") {
+                out.push_str(" fetchpriority=\"high\"");
+            }
+        } else {
+            // Below-the-fold: lazy loading
+            if !elem.attrs.iter().any(|a| a.key == "loading") {
+                out.push_str(" loading=\"lazy\"");
+            }
+            if !elem.attrs.iter().any(|a| a.key == "decoding") {
+                out.push_str(" decoding=\"async\"");
+            }
         }
     }
 
@@ -2369,6 +2484,22 @@ fn attrs_to_css(
                 }
             }
 
+            // CSS containment for rendering performance
+            "contain" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "contain", v);
+                } else {
+                    push_css(&mut css, "contain", "layout style paint");
+                }
+            }
+            "content-visibility" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "content-visibility", v);
+                } else {
+                    push_css(&mut css, "content-visibility", "auto");
+                }
+            }
+
             // Outline (like border but doesn't affect layout)
             "outline" => {
                 if let Some(v) = val {
@@ -2795,9 +2926,6 @@ fn attrs_to_css(
             "vertical-align" => {
                 if let Some(v) = val { push_css(&mut css, "vertical-align", v); }
             }
-            "contain" => {
-                if let Some(v) = val { push_css(&mut css, "contain", v); }
-            }
             "scroll-margin" => {
                 if let Some(v) = val { push_css(&mut css, "scroll-margin", &css_px(v)); }
             }
@@ -2809,9 +2937,6 @@ fn attrs_to_css(
             }
             "scroll-padding-top" | "scroll-padding-bottom" | "scroll-padding-left" | "scroll-padding-right" => {
                 if let Some(v) = val { push_css(&mut css, effective_key, &css_px(v)); }
-            }
-            "content-visibility" => {
-                if let Some(v) = val { push_css(&mut css, "content-visibility", v); }
             }
             "direction" => {
                 if let Some(v) = val { push_css(&mut css, "direction", v); }
@@ -3269,4 +3394,43 @@ fn collect_source_lines(nodes: &[Node], mappings: &mut Vec<(usize, usize)>) {
             collect_source_lines(&elem.children, mappings);
         }
     }
+}
+
+/// Check if a specific element kind exists anywhere in the node tree.
+fn has_element_kind(nodes: &[Node], target: &ElementKind) -> bool {
+    for node in nodes {
+        if let Node::Element(elem) = node {
+            if elem.kind == *target {
+                return true;
+            }
+            if has_element_kind(&elem.children, target) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Collect unique external domains from generated HTML for DNS prefetch hints.
+fn collect_dns_prefetch(html: &str, dev: bool) -> String {
+    let mut domains = Vec::new();
+    let mut rest = html;
+    while let Some(pos) = rest.find("https://") {
+        let start = pos + 8; // skip "https://"
+        rest = &rest[start..];
+        let end = rest.find(|c: char| c == '/' || c == '"' || c == '\'' || c == ' ' || c == '>' || c == ')').unwrap_or(rest.len());
+        let domain = &rest[..end];
+        if !domain.is_empty() && domain.contains('.') && !domains.contains(&domain.to_string()) {
+            domains.push(domain.to_string());
+        }
+    }
+    let mut out = String::new();
+    for domain in &domains {
+        if dev {
+            out.push_str(&format!("<link rel=\"dns-prefetch\" href=\"//{}\">\n", domain));
+        } else {
+            out.push_str(&format!("<link rel=\"dns-prefetch\" href=\"//{}\">", domain));
+        }
+    }
+    out
 }

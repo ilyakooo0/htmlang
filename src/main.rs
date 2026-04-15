@@ -862,6 +862,13 @@ struct ProjectConfig {
     port: u16,
     variables: Vec<(String, String)>,
     breakpoints: Vec<(String, String)>,
+    // Build options (can be overridden by CLI flags)
+    dev: Option<bool>,
+    minify: Option<bool>,
+    compat: Option<bool>,
+    strict: Option<bool>,
+    // Watch options
+    debounce_ms: u64,
 }
 
 fn load_config(target: &Path) -> ProjectConfig {
@@ -870,6 +877,11 @@ fn load_config(target: &Path) -> ProjectConfig {
         port: 3000,
         variables: Vec::new(),
         breakpoints: Vec::new(),
+        dev: None,
+        minify: None,
+        compat: None,
+        strict: None,
+        debounce_ms: 50,
     };
 
     let config_path = if target.is_dir() {
@@ -891,9 +903,9 @@ fn load_config(target: &Path) -> ProjectConfig {
         }
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
             section = &trimmed[1..trimmed.len() - 1];
-            if !matches!(section, "variables" | "breakpoints") {
+            if !matches!(section, "variables" | "breakpoints" | "build" | "watch") {
                 eprintln!(
-                    "warning: {}:{}: unknown section '[{}]' (expected: variables, breakpoints)",
+                    "warning: {}:{}: unknown section '[{}]' (expected: variables, breakpoints, build, watch)",
                     config_path.display(), line_num + 1, section
                 );
             }
@@ -909,6 +921,27 @@ fn load_config(target: &Path) -> ProjectConfig {
                     _ => {
                         eprintln!(
                             "warning: {}:{}: unknown key '{}' (expected: output, port)",
+                            config_path.display(), line_num + 1, key
+                        );
+                    }
+                },
+                "build" => match key {
+                    "dev" => config.dev = Some(value == "true"),
+                    "minify" => config.minify = Some(value == "true"),
+                    "compat" => config.compat = Some(value == "true"),
+                    "strict" => config.strict = Some(value == "true"),
+                    _ => {
+                        eprintln!(
+                            "warning: {}:{}: unknown build key '{}' (expected: dev, minify, compat, strict)",
+                            config_path.display(), line_num + 1, key
+                        );
+                    }
+                },
+                "watch" => match key {
+                    "debounce_ms" => config.debounce_ms = value.parse().unwrap_or(50),
+                    _ => {
+                        eprintln!(
+                            "warning: {}:{}: unknown watch key '{}' (expected: debounce_ms)",
                             config_path.display(), line_num + 1, key
                         );
                     }
@@ -1023,6 +1056,7 @@ fn main() {
         let mut out_dir = None;
         let mut build_minify = false;
         let mut build_compat = false;
+        let mut build_strict = false;
         let mut i = 2;
         while i < args.len() {
             match args[i].as_str() {
@@ -1032,6 +1066,7 @@ fn main() {
                 }
                 "--minify" => build_minify = true,
                 "--compat" => build_compat = true,
+                "--strict" => build_strict = true,
                 _ if src_dir.is_none() => src_dir = Some(args[i].as_str()),
                 _ => {
                     eprintln!("unknown argument: {}", args[i]);
@@ -1046,6 +1081,12 @@ fn main() {
             eprintln!("error: '{}' is not a directory", src);
             process::exit(1);
         }
+        // Load project config — CLI flags override config file
+        let config = load_config(dir);
+        let build_minify = build_minify || config.minify.unwrap_or(false);
+        let build_compat = build_compat || config.compat.unwrap_or(false);
+        let build_strict = build_strict || config.strict.unwrap_or(false);
+        let out_dir = out_dir.or(config.output.as_deref());
         let hl_files = collect_hl_files_recursive(dir);
         if hl_files.is_empty() {
             eprintln!("no .hl files found in {}", src);
@@ -1067,6 +1108,10 @@ fn main() {
             })
         }).collect();
 
+        // Build content hash cache for incremental compilation
+        let cache_dir = dir.join(".htmlang-cache");
+        let _ = fs::create_dir_all(&cache_dir);
+
         // Compile files in parallel (with incremental skip for unchanged files)
         let build_start = std::time::Instant::now();
         let any_errors = std::sync::atomic::AtomicBool::new(false);
@@ -1075,25 +1120,36 @@ fn main() {
             for (file, effective_out) in hl_files.iter().zip(effective_outs.iter()) {
                 let any_errors = &any_errors;
                 let skipped = &skipped;
+                let cache_dir = &cache_dir;
                 s.spawn(move || {
-                    // Incremental: skip if output is newer than source
-                    if let Some(out_path) = effective_out {
-                        let out_p = Path::new(out_path.as_str());
-                        if out_p.exists() {
-                            if let (Ok(src_meta), Ok(out_meta)) = (file.metadata(), out_p.metadata()) {
-                                if let (Ok(src_mod), Ok(out_mod)) = (src_meta.modified(), out_meta.modified()) {
-                                    if out_mod > src_mod {
-                                        skipped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                        return;
-                                    }
+                    // Content hash-based caching: skip if file content hasn't changed
+                    let hash_file_name = file.file_name().unwrap_or_default().to_string_lossy().to_string() + ".hash";
+                    let hash_path = cache_dir.join(&hash_file_name);
+                    if let Ok(content) = fs::read(file) {
+                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        content.hash(&mut hasher);
+                        let current_hash = hasher.finish().to_string();
+                        if let Ok(cached_hash) = fs::read_to_string(&hash_path) {
+                            if cached_hash.trim() == current_hash {
+                                // Also verify output exists
+                                let out_exists = effective_out.as_ref().map_or(
+                                    file.with_extension("html").exists(),
+                                    |p| Path::new(p.as_str()).exists(),
+                                );
+                                if out_exists {
+                                    skipped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    return;
                                 }
                             }
                         }
+                        // Update hash cache after compilation
+                        let _ = fs::write(&hash_path, &current_hash);
                     }
                     let path_str = file.to_string_lossy().to_string();
                     let (has_errors, _) = compile(&path_str, &CompileConfig {
                         output_path: effective_out.as_deref(),
                         minify: build_minify, compat: build_compat,
+                        strict: build_strict,
                         ..Default::default()
                     });
                     if has_errors {
@@ -1582,7 +1638,7 @@ fn main() {
                 rt.block_on(htmlang::serve::run(effective_port, index_path, server_tx));
             });
             if serve_open { open_in_browser(effective_port); }
-            watch_loop(target_path, &hl_files, &[], true, true, Some(tx), effective_port);
+            watch_loop(target_path, &hl_files, &[], true, true, Some(tx), effective_port, config.debounce_ms);
         } else {
             let (_, included) = compile(&target, &CompileConfig {
                 dev: true, error_overlay: true,
@@ -1597,7 +1653,7 @@ fn main() {
             });
             if serve_open { open_in_browser(effective_port); }
             let files = vec![PathBuf::from(&target)];
-            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, true, true, Some(tx), effective_port);
+            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, true, true, Some(tx), effective_port, config.debounce_ms);
         }
         return;
     }
@@ -1644,14 +1700,14 @@ fn main() {
                 });
                 all_included.extend(included);
             }
-            watch_loop(target_path, &hl_files, &all_included, false, false, None, 0);
+            watch_loop(target_path, &hl_files, &all_included, false, false, None, 0, config.debounce_ms);
         } else {
             let (_, included) = compile(&target, &CompileConfig {
                 output_path: effective_output.as_deref(),
                 ..Default::default()
             });
             let files = vec![PathBuf::from(&target)];
-            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, false, false, None, 0);
+            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, false, false, None, 0, config.debounce_ms);
         }
         return;
     }
@@ -3207,7 +3263,7 @@ compile();
             None
         };
 
-        watch_loop(dir, &hl_files, &all_included, dev, serve, reload_tx, port);
+        watch_loop(dir, &hl_files, &all_included, dev, serve, reload_tx, port, 50);
         return;
     }
 
@@ -3262,6 +3318,7 @@ compile();
         serve,
         reload_tx,
         port,
+        50,
     );
 }
 
@@ -3289,6 +3346,7 @@ fn watch_loop(
     serve: bool,
     reload_tx: Option<tokio::sync::broadcast::Sender<()>>,
     serve_port: u16,
+    debounce_ms: u64,
 ) {
     use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
     use std::sync::mpsc;
@@ -3352,8 +3410,8 @@ fn watch_loop(
     loop {
         match rx.recv() {
             Ok(_) => {
-                // Drain additional events (debounce) with short delay for rapid saves
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                // Drain additional events (debounce) with configurable delay
+                std::thread::sleep(std::time::Duration::from_millis(debounce_ms));
                 while rx.try_recv().is_ok() {}
 
                 // Collect which files actually changed (HashSet for O(1) lookups)
