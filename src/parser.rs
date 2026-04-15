@@ -66,6 +66,8 @@ struct FnDef {
 
 struct ParseContext {
     page_title: Option<String>,
+    lang: Option<String>,
+    favicon: Option<String>,
     meta_tags: Vec<(String, String)>,
     head_blocks: Vec<String>,
     variables: HashMap<String, String>,
@@ -108,6 +110,8 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
     let mut parser = Parser { lines, pos: 0 };
     let mut ctx = ParseContext {
         page_title: None,
+        lang: None,
+        favicon: None,
         meta_tags: Vec::new(),
         head_blocks: Vec::new(),
         variables: HashMap::new(),
@@ -135,6 +139,8 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
     ParseResult {
         document: Document {
             page_title: ctx.page_title,
+            lang: ctx.lang,
+            favicon: ctx.favicon,
             meta_tags: ctx.meta_tags,
             head_blocks: ctx.head_blocks,
             variables: ctx.variables,
@@ -309,6 +315,16 @@ impl Parser {
 
         if let Some(rest) = content.strip_prefix("@page ") {
             ctx.page_title = Some(substitute_vars(rest, &ctx.variables));
+            return Ok(None);
+        }
+
+        if let Some(rest) = content.strip_prefix("@lang ") {
+            ctx.lang = Some(substitute_vars(rest.trim(), &ctx.variables));
+            return Ok(None);
+        }
+
+        if let Some(rest) = content.strip_prefix("@favicon ") {
+            ctx.favicon = Some(substitute_vars(rest.trim(), &ctx.variables));
             return Ok(None);
         }
 
@@ -1146,6 +1162,7 @@ const KNOWN_ELEMENTS: &[&str] = &[
     "video", "audio",
     "form", "details", "summary", "blockquote", "cite", "code", "pre", "hr", "divider",
     "figure", "figcaption", "progress", "meter",
+    "fragment",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
@@ -1200,6 +1217,7 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "figcaption" => Ok(ElementKind::FigCaption),
         "progress" => Ok(ElementKind::Progress),
         "meter" => Ok(ElementKind::Meter),
+        "fragment" => Ok(ElementKind::Fragment),
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
                 .iter()
@@ -1319,6 +1337,26 @@ const KNOWN_ATTRS: &[&str] = &[
     "word-break", "overflow-wrap",
     // Asset inlining
     "inline",
+    // Hidden
+    "hidden",
+    // Overflow directional
+    "overflow-x", "overflow-y",
+    // Inset shorthand
+    "inset",
+    // Modern form theming
+    "accent-color", "caret-color",
+    // List styling
+    "list-style",
+    // Table styling
+    "border-collapse", "border-spacing",
+    // Text decoration variants
+    "text-decoration", "text-decoration-color", "text-decoration-thickness", "text-decoration-style",
+    // Grid/flex placement
+    "place-items", "place-self",
+    // Scroll behavior
+    "scroll-behavior",
+    // Resize
+    "resize",
 ];
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
@@ -1345,22 +1383,7 @@ const NUMERIC_OR_KEYWORD_ATTRS: &[&str] = &["width", "height"];
 const SIZE_KEYWORDS: &[&str] = &["fill", "shrink"];
 
 fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext) {
-    let base_key = attr.key.as_str();
-    let base_key = base_key
-        .strip_prefix("hover:")
-        .or_else(|| base_key.strip_prefix("active:"))
-        .or_else(|| base_key.strip_prefix("focus:"))
-        .unwrap_or(base_key);
-    let base_key = base_key
-        .strip_prefix("sm:")
-        .or_else(|| base_key.strip_prefix("md:"))
-        .or_else(|| base_key.strip_prefix("lg:"))
-        .or_else(|| base_key.strip_prefix("xl:"))
-        .unwrap_or(base_key);
-    let base_key = base_key
-        .strip_prefix("dark:")
-        .or_else(|| base_key.strip_prefix("print:"))
-        .unwrap_or(base_key);
+    let base_key = strip_all_prefixes(attr.key.as_str());
 
     if let Some(val) = &attr.value {
         if NUMERIC_ATTRS.contains(&base_key) {
@@ -1555,25 +1578,7 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
 
         // Warn on unknown attributes
         if validate {
-            let base_key = attr.key.as_str();
-            // Strip state prefix (hover:, active:, focus:)
-            let base_key = base_key
-                .strip_prefix("hover:")
-                .or_else(|| base_key.strip_prefix("active:"))
-                .or_else(|| base_key.strip_prefix("focus:"))
-                .unwrap_or(base_key);
-            // Strip responsive prefix (sm:, md:, lg:, xl:)
-            let base_key = base_key
-                .strip_prefix("sm:")
-                .or_else(|| base_key.strip_prefix("md:"))
-                .or_else(|| base_key.strip_prefix("lg:"))
-                .or_else(|| base_key.strip_prefix("xl:"))
-                .unwrap_or(base_key);
-            // Strip media prefixes (dark:, print:)
-            let base_key = base_key
-                .strip_prefix("dark:")
-                .or_else(|| base_key.strip_prefix("print:"))
-                .unwrap_or(base_key);
+            let base_key = strip_all_prefixes(attr.key.as_str());
             if !KNOWN_ATTRS.contains(&base_key)
                 && !base_key.starts_with("aria-")
                 && !base_key.starts_with("data-")
@@ -1760,16 +1765,28 @@ fn evaluate_condition(condition: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 fn strip_all_prefixes(key: &str) -> &str {
+    // Strip pseudo-state prefixes
     let key = key
         .strip_prefix("hover:")
         .or_else(|| key.strip_prefix("active:"))
         .or_else(|| key.strip_prefix("focus:"))
+        .or_else(|| key.strip_prefix("focus-visible:"))
+        .or_else(|| key.strip_prefix("focus-within:"))
+        .or_else(|| key.strip_prefix("disabled:"))
+        .or_else(|| key.strip_prefix("checked:"))
+        .or_else(|| key.strip_prefix("placeholder:"))
+        .or_else(|| key.strip_prefix("first:"))
+        .or_else(|| key.strip_prefix("last:"))
+        .or_else(|| key.strip_prefix("odd:"))
+        .or_else(|| key.strip_prefix("even:"))
         .unwrap_or(key);
+    // Strip responsive prefixes
     let key = key.strip_prefix("sm:")
         .or_else(|| key.strip_prefix("md:"))
         .or_else(|| key.strip_prefix("lg:"))
         .or_else(|| key.strip_prefix("xl:"))
         .unwrap_or(key);
+    // Strip media prefixes
     key.strip_prefix("dark:")
         .or_else(|| key.strip_prefix("print:"))
         .unwrap_or(key)
@@ -1828,6 +1845,7 @@ fn element_kind_name(kind: &ElementKind) -> &'static str {
         ElementKind::FigCaption => "@figcaption",
         ElementKind::Progress => "@progress",
         ElementKind::Meter => "@meter",
+        ElementKind::Fragment => "@fragment",
     }
 }
 

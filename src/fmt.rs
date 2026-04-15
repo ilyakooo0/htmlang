@@ -1,10 +1,19 @@
 /// Attribute category for sorting.
 fn attr_category(key: &str) -> u8 {
-    // Strip state/responsive/media prefixes for categorization
+    // Strip pseudo-state/responsive/media prefixes for categorization
     let base = key
         .strip_prefix("hover:")
         .or_else(|| key.strip_prefix("active:"))
         .or_else(|| key.strip_prefix("focus:"))
+        .or_else(|| key.strip_prefix("focus-visible:"))
+        .or_else(|| key.strip_prefix("focus-within:"))
+        .or_else(|| key.strip_prefix("disabled:"))
+        .or_else(|| key.strip_prefix("checked:"))
+        .or_else(|| key.strip_prefix("placeholder:"))
+        .or_else(|| key.strip_prefix("first:"))
+        .or_else(|| key.strip_prefix("last:"))
+        .or_else(|| key.strip_prefix("odd:"))
+        .or_else(|| key.strip_prefix("even:"))
         .or_else(|| key.strip_prefix("sm:"))
         .or_else(|| key.strip_prefix("md:"))
         .or_else(|| key.strip_prefix("lg:"))
@@ -24,27 +33,32 @@ fn attr_category(key: &str) -> u8 {
         | "margin" | "margin-x" | "margin-y" | "margin-inline" | "margin-block" => 2,
         // Alignment
         "center-x" | "center-y" | "align-left" | "align-right"
-        | "align-top" | "align-bottom" | "justify-content" | "align-items" => 3,
+        | "align-top" | "align-bottom" | "justify-content" | "align-items"
+        | "place-items" | "place-self" => 3,
         // Positioning
-        "position" | "top" | "right" | "bottom" | "left" | "z-index" | "order"
-        | "col-span" | "row-span" | "display" | "visibility" | "overflow" => 4,
+        "position" | "top" | "right" | "bottom" | "left" | "z-index" | "order" | "inset"
+        | "col-span" | "row-span" | "display" | "visibility"
+        | "overflow" | "overflow-x" | "overflow-y" | "hidden" => 4,
         // Visual style
         "background" | "background-size" | "background-position" | "background-repeat"
-        | "color" | "opacity" => 5,
+        | "color" | "opacity" | "accent-color" | "caret-color" => 5,
         // Border & shape
         "border" | "border-top" | "border-bottom" | "border-left" | "border-right"
-        | "rounded" | "outline" | "shadow" | "text-shadow" => 6,
+        | "rounded" | "outline" | "shadow" | "text-shadow"
+        | "border-collapse" | "border-spacing" => 6,
         // Typography
         "bold" | "italic" | "underline" | "size" | "font"
         | "text-align" | "line-height" | "letter-spacing" | "text-transform"
-        | "white-space" | "text-overflow" | "word-break" | "overflow-wrap" => 7,
+        | "white-space" | "text-overflow" | "word-break" | "overflow-wrap"
+        | "text-decoration" | "text-decoration-color" | "text-decoration-thickness"
+        | "text-decoration-style" | "list-style" => 7,
         // Effects & interaction
         "transform" | "transition" | "animation" | "cursor" | "backdrop-filter"
         | "filter" | "pointer-events" | "user-select" | "aspect-ratio"
-        | "object-fit" | "object-position" => 8,
+        | "object-fit" | "object-position" | "resize" => 8,
         // Container queries & scroll
         "container" | "container-name" | "container-type"
-        | "scroll-snap-type" | "scroll-snap-align" => 9,
+        | "scroll-snap-type" | "scroll-snap-align" | "scroll-behavior" => 9,
         // Identity
         "id" | "class" => 10,
         // HTML passthrough / form / accessibility

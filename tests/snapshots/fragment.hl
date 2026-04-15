@@ -1,0 +1,7 @@
+@page Fragment Test
+
+@column [spacing 10]
+  @fragment
+    @text First
+    @text Second
+  @text Third

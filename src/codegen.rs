@@ -17,9 +17,8 @@ const BREAKPOINTS: &[(&str, &str)] = &[
 struct StyleEntry {
     class_name: String,
     base: String,
-    hover: String,
-    active: String,
-    focus: String,
+    /// (CSS selector suffix, css_rules) — e.g. (":hover", "color:red;")
+    pseudo: Vec<(String, String)>,
     /// Responsive overrides: (breakpoint_prefix, css)
     responsive: Vec<(String, String)>,
     /// Dark mode overrides
@@ -45,29 +44,30 @@ impl StyleCollector {
     fn get_class(
         &mut self,
         base: String,
-        hover: String,
-        active: String,
-        focus: String,
+        pseudo: Vec<(String, String)>,
         responsive: Vec<(String, String)>,
         dark: String,
         print: String,
     ) -> Option<String> {
         if base.is_empty()
-            && hover.is_empty()
-            && active.is_empty()
-            && focus.is_empty()
+            && pseudo.is_empty()
             && responsive.is_empty()
             && dark.is_empty()
             && print.is_empty()
         {
             return None;
         }
+        let pseudo_key: String = pseudo
+            .iter()
+            .map(|(sel, css)| format!("{}={}", sel, css))
+            .collect::<Vec<_>>()
+            .join("|");
         let resp_key: String = responsive
             .iter()
             .map(|(bp, css)| format!("{}={}", bp, css))
             .collect::<Vec<_>>()
             .join("|");
-        let key = format!("{}|{}|{}|{}|{}|{}|{}", base, hover, active, focus, resp_key, dark, print);
+        let key = format!("{}|{}|{}|{}|{}", base, pseudo_key, resp_key, dark, print);
         if let Some(&idx) = self.index.get(&key) {
             return Some(self.entries[idx].class_name.clone());
         }
@@ -76,9 +76,7 @@ impl StyleCollector {
         self.entries.push(StyleEntry {
             class_name: name.clone(),
             base,
-            hover,
-            active,
-            focus,
+            pseudo,
             responsive,
             dark,
             print,
@@ -96,14 +94,10 @@ impl StyleCollector {
             if !e.base.is_empty() {
                 css.push_str(&format!(".{}{sp}{{{}}}{nl}", e.class_name, e.base));
             }
-            if !e.hover.is_empty() {
-                css.push_str(&format!(".{}:hover{sp}{{{}}}{nl}", e.class_name, e.hover));
-            }
-            if !e.active.is_empty() {
-                css.push_str(&format!(".{}:active{sp}{{{}}}{nl}", e.class_name, e.active));
-            }
-            if !e.focus.is_empty() {
-                css.push_str(&format!(".{}:focus{sp}{{{}}}{nl}", e.class_name, e.focus));
+            for (selector, pseudo_css) in &e.pseudo {
+                if !pseudo_css.is_empty() {
+                    css.push_str(&format!(".{}{}{sp}{{{}}}{nl}", e.class_name, selector, pseudo_css));
+                }
             }
         }
 
@@ -304,18 +298,54 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
         h
     };
 
+    let lang_attr = match &doc.lang {
+        Some(lang) => format!(" lang=\"{}\"", html_escape(lang)),
+        None => String::new(),
+    };
+
+    let favicon_html = match &doc.favicon {
+        Some(path) => {
+            // Try to read and inline the favicon
+            if let Ok(data) = std::fs::read(path) {
+                let mime = if path.ends_with(".ico") {
+                    "image/x-icon"
+                } else if path.ends_with(".png") {
+                    "image/png"
+                } else if path.ends_with(".svg") {
+                    "image/svg+xml"
+                } else {
+                    "image/x-icon"
+                };
+                let b64 = base64_encode(&data);
+                if dev {
+                    format!("<link rel=\"icon\" href=\"data:{};base64,{}\">\n", mime, b64)
+                } else {
+                    format!("<link rel=\"icon\" href=\"data:{};base64,{}\">", mime, b64)
+                }
+            } else {
+                // Fall back to href
+                if dev {
+                    format!("<link rel=\"icon\" href=\"{}\">\n", html_escape(path))
+                } else {
+                    format!("<link rel=\"icon\" href=\"{}\">", html_escape(path))
+                }
+            }
+        }
+        None => String::new(),
+    };
+
     match &doc.page_title {
         Some(title) => {
             if dev {
                 format!(
                     "\
 <!DOCTYPE html>
-<html>
+<html{lang_attr}>
 <head>
 <meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
 <title>{title}</title>
-{meta_html}{head_html}\
+{meta_html}{favicon_html}{head_html}\
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
@@ -329,16 +359,20 @@ img {{ display: block; }}
 </html>
 ",
                     title = html_escape(title),
+                    lang_attr = lang_attr,
                     meta_html = meta_html,
+                    favicon_html = favicon_html,
                     head_html = head_html,
                     element_css = element_css,
                     body = body,
                 )
             } else {
                 format!(
-                    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{meta_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
+                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{meta_html}{favicon_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
                     title = html_escape(title),
+                    lang_attr = lang_attr,
                     meta_html = meta_html,
+                    favicon_html = favicon_html,
                     head_html = head_html,
                     element_css = element_css,
                     body = body,
@@ -469,6 +503,13 @@ fn generate_element(
     if matches!(elem.kind, ElementKind::Slot(_)) {
         return;
     }
+    if elem.kind == ElementKind::Fragment {
+        // Render children without a wrapper element
+        for child in &elem.children {
+            generate_node(child, parent_kind, out, styles, ctx);
+        }
+        return;
+    }
 
     let tag = match &elem.kind {
         ElementKind::Row | ElementKind::Column | ElementKind::El => "div",
@@ -516,7 +557,7 @@ fn generate_element(
         ElementKind::Progress => "progress",
         ElementKind::Meter => "meter",
         ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule
-        | ElementKind::Children | ElementKind::Slot(_) => unreachable!(),
+        | ElementKind::Children | ElementKind::Slot(_) | ElementKind::Fragment => unreachable!(),
     };
 
     let kind_label = match elem.kind {
@@ -557,6 +598,7 @@ fn generate_element(
         ElementKind::Pre => "pre",
         ElementKind::Figure => "figure",
         ElementKind::FigCaption => "figcaption",
+        ElementKind::Fragment => "fragment",
         _ => "",
     };
 
@@ -753,9 +795,15 @@ fn compute_class(
     styles: &mut StyleCollector,
 ) -> Option<String> {
     let base = attrs_to_css(attrs, "", kind, parent_kind);
-    let hover = attrs_to_css(attrs, "hover:", kind, parent_kind);
-    let active = attrs_to_css(attrs, "active:", kind, parent_kind);
-    let focus = attrs_to_css(attrs, "focus:", kind, parent_kind);
+
+    // Collect pseudo-state overrides
+    let mut pseudo = Vec::new();
+    for &(prefix, selector) in PSEUDO_PREFIXES {
+        let css = attrs_to_css(attrs, prefix, kind, parent_kind);
+        if !css.is_empty() {
+            pseudo.push((selector.to_string(), css));
+        }
+    }
 
     // Collect responsive overrides
     let mut responsive = Vec::new();
@@ -767,13 +815,10 @@ fn compute_class(
         }
     }
 
-    // Dark mode
     let dark = attrs_to_css(attrs, "dark:", kind, parent_kind);
-
-    // Print
     let print = attrs_to_css(attrs, "print:", kind, parent_kind);
 
-    styles.get_class(base, hover, active, focus, responsive, dark, print)
+    styles.get_class(base, pseudo, responsive, dark, print)
 }
 
 fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option<&str>) {
@@ -803,12 +848,26 @@ fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option
 // Attribute → CSS mapping
 // ---------------------------------------------------------------------------
 
-const STATE_PREFIXES: &[&str] = &["hover:", "active:", "focus:"];
+/// (htmlang prefix, CSS selector suffix)
+const PSEUDO_PREFIXES: &[(&str, &str)] = &[
+    ("hover:", ":hover"),
+    ("active:", ":active"),
+    ("focus:", ":focus"),
+    ("focus-visible:", ":focus-visible"),
+    ("focus-within:", ":focus-within"),
+    ("disabled:", ":disabled"),
+    ("checked:", ":checked"),
+    ("placeholder:", "::placeholder"),
+    ("first:", ":first-child"),
+    ("last:", ":last-child"),
+    ("odd:", ":nth-child(odd)"),
+    ("even:", ":nth-child(even)"),
+];
 const RESPONSIVE_PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:"];
 const MEDIA_PREFIXES: &[&str] = &["dark:", "print:"];
 
 fn is_prefixed_attr(key: &str) -> bool {
-    STATE_PREFIXES.iter().any(|p| key.starts_with(p))
+    PSEUDO_PREFIXES.iter().any(|&(p, _)| key.starts_with(p))
         || RESPONSIVE_PREFIXES.iter().any(|p| key.starts_with(p))
         || MEDIA_PREFIXES.iter().any(|p| key.starts_with(p))
 }
@@ -1138,6 +1197,7 @@ fn attrs_to_css(
                     push_css(&mut css, "visibility", v);
                 }
             }
+            "hidden" => push_css(&mut css, "display", "none"),
 
             // Transform & filters
             "transform" => {
@@ -1399,6 +1459,104 @@ fn attrs_to_css(
                 }
             }
 
+            // Overflow axis
+            "overflow-x" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "overflow-x", v);
+                }
+            }
+            "overflow-y" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "overflow-y", v);
+                }
+            }
+
+            // Inset (shorthand for top/right/bottom/left)
+            "inset" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "inset", &css_px(v));
+                }
+            }
+
+            // Accent & caret colors
+            "accent-color" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "accent-color", v);
+                }
+            }
+            "caret-color" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "caret-color", v);
+                }
+            }
+
+            // List style
+            "list-style" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "list-style", v);
+                }
+            }
+
+            // Table
+            "border-collapse" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "border-collapse", v);
+                }
+            }
+            "border-spacing" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "border-spacing", &css_px(v));
+                }
+            }
+
+            // Text decoration
+            "text-decoration" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "text-decoration", v);
+                }
+            }
+            "text-decoration-color" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "text-decoration-color", v);
+                }
+            }
+            "text-decoration-thickness" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "text-decoration-thickness", &css_px(v));
+                }
+            }
+            "text-decoration-style" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "text-decoration-style", v);
+                }
+            }
+
+            // Place items/self
+            "place-items" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "place-items", v);
+                }
+            }
+            "place-self" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "place-self", v);
+                }
+            }
+
+            // Scroll behavior
+            "scroll-behavior" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "scroll-behavior", v);
+                }
+            }
+
+            // Resize
+            "resize" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "resize", v);
+                }
+            }
+
             // Identity and HTML passthrough — not CSS
             "id" | "class" => {}
             "type" | "placeholder" | "name" | "value" | "disabled" | "required"
@@ -1473,4 +1631,28 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
 }

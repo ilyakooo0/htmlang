@@ -68,6 +68,26 @@ impl LanguageServer for Backend {
                 })),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                color_provider: Some(ColorProviderCapability::Simple(true)),
+                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
+                        legend: SemanticTokensLegend {
+                            token_types: vec![
+                                SemanticTokenType::KEYWORD,
+                                SemanticTokenType::VARIABLE,
+                                SemanticTokenType::FUNCTION,
+                                SemanticTokenType::STRING,
+                                SemanticTokenType::COMMENT,
+                                SemanticTokenType::PROPERTY,
+                            ],
+                            token_modifiers: vec![],
+                        },
+                        full: Some(SemanticTokensFullOptions::Bool(true)),
+                        range: None,
+                        ..Default::default()
+                    }),
+                ),
                 ..Default::default()
             },
             ..Default::default()
@@ -220,6 +240,77 @@ impl LanguageServer for Backend {
             Some(actions)
         })
     }
+
+    async fn document_color(
+        &self,
+        params: DocumentColorParams,
+    ) -> Result<Vec<ColorInformation>> {
+        let uri = &params.text_document.uri;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(vec![]),
+        };
+        drop(docs);
+        Ok(find_colors(&text))
+    }
+
+    async fn color_presentation(
+        &self,
+        params: ColorPresentationParams,
+    ) -> Result<Vec<ColorPresentation>> {
+        let c = params.color;
+        let r = (c.red * 255.0) as u8;
+        let g = (c.green * 255.0) as u8;
+        let b = (c.blue * 255.0) as u8;
+        let hex = if c.alpha < 1.0 {
+            let a = (c.alpha * 255.0) as u8;
+            format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)
+        } else {
+            format!("#{:02x}{:02x}{:02x}", r, g, b)
+        };
+        Ok(vec![ColorPresentation {
+            label: hex.clone(),
+            text_edit: Some(TextEdit {
+                range: params.range,
+                new_text: hex,
+            }),
+            additional_text_edits: None,
+        }])
+    }
+
+    async fn folding_range(
+        &self,
+        params: FoldingRangeParams,
+    ) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = &params.text_document.uri;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+        let ranges = folding_ranges(&text);
+        Ok(if ranges.is_empty() { None } else { Some(ranges) })
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = &params.text_document.uri;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+        let tokens = semantic_tokens(&text);
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data: tokens,
+        })))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +345,7 @@ fn completions(text: &str, position: Position) -> Vec<CompletionItem> {
         // State prefix (hover:, active:, focus:) or media prefix (dark:, print:)
         if let Some(colon) = current_word.find(':') {
             let prefix = &current_word[..colon];
-            if matches!(prefix, "hover" | "active" | "focus" | "dark" | "print") {
+            if matches!(prefix, "hover" | "active" | "focus" | "focus-visible" | "focus-within" | "disabled" | "checked" | "placeholder" | "first" | "last" | "odd" | "even" | "dark" | "print") {
                 return state_attr_completions(prefix, edit_range);
             }
         }
@@ -390,6 +481,7 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         ("@figcaption", "Caption for @figure"),
         ("@progress", "Progress bar (value, max attributes)"),
         ("@meter", "Meter/gauge element (value, min, max)"),
+        ("@fragment", "Group children without a wrapper element"),
     ]
     .iter()
     .map(|(name, detail)| item(name, CompletionItemKind::KEYWORD, detail, name, range))
@@ -418,6 +510,8 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@default", "Default case (inside @match)", "@default"),
         ("@warn", "Emit a compile-time warning", "@warn "),
         ("@debug", "Print debug message during compilation", "@debug "),
+        ("@lang", "Set document language (html lang attribute)", "@lang "),
+        ("@favicon", "Set favicon (inlined as base64 data URI)", "@favicon "),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -587,10 +681,48 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("rowspan", "Table cell row span", true),
         ("scope", "Table header scope (col/row/colgroup/rowgroup)", true),
         ("inline", "Inline SVG images into output", false),
+        // Hidden
+        ("hidden", "Hide element (display:none)", false),
+        // Overflow directional
+        ("overflow-x", "Horizontal overflow (hidden/scroll/auto)", true),
+        ("overflow-y", "Vertical overflow (hidden/scroll/auto)", true),
+        // Inset
+        ("inset", "Shorthand for top/right/bottom/left", true),
+        // Modern form theming
+        ("accent-color", "Accent color for form controls", true),
+        ("caret-color", "Text cursor color", true),
+        // List styling
+        ("list-style", "List style type (disc/circle/square/none)", true),
+        // Table styling
+        ("border-collapse", "Border collapse mode (collapse/separate)", true),
+        ("border-spacing", "Spacing between table cell borders", true),
+        // Text decoration
+        ("text-decoration", "Text decoration (underline/overline/line-through)", true),
+        ("text-decoration-color", "Text decoration color", true),
+        ("text-decoration-thickness", "Text decoration thickness", true),
+        ("text-decoration-style", "Text decoration style (solid/dashed/dotted/wavy)", true),
+        // Grid/flex placement
+        ("place-items", "Shorthand for align-items + justify-items", true),
+        ("place-self", "Shorthand for align-self + justify-self", true),
+        // Scroll behavior
+        ("scroll-behavior", "Scroll behavior (smooth/auto)", true),
+        // Resize
+        ("resize", "Resize behavior (none/both/horizontal/vertical)", true),
         // State prefixes
         ("hover:", "Style on hover", false),
         ("active:", "Style on active/click", false),
         ("focus:", "Style on focus", false),
+        // New pseudo-state prefixes
+        ("focus-visible:", "Style on keyboard focus", false),
+        ("focus-within:", "Style when child has focus", false),
+        ("disabled:", "Style when disabled", false),
+        ("checked:", "Style when checked", false),
+        ("placeholder:", "Style placeholder text", false),
+        // Child selectors
+        ("first:", "Style first child", false),
+        ("last:", "Style last child", false),
+        ("odd:", "Style odd children (1st, 3rd, ...)", false),
+        ("even:", "Style even children (2nd, 4th, ...)", false),
         // Responsive prefixes
         ("sm:", "Style at 640px+ (small)", false),
         ("md:", "Style at 768px+ (medium)", false),
@@ -619,6 +751,8 @@ fn state_attr_completions(prefix: &str, range: Range) -> Vec<CompletionItem> {
         ("border", "Border (width [color])", true),
         ("border-top", "Top border (width [color])", true),
         ("border-bottom", "Bottom border (width [color])", true),
+        ("border-left", "Left border (width [color])", true),
+        ("border-right", "Right border (width [color])", true),
         ("rounded", "Border radius", true),
         ("bold", "Bold text", false),
         ("italic", "Italic text", false),
@@ -634,6 +768,18 @@ fn state_attr_completions(prefix: &str, range: Range) -> Vec<CompletionItem> {
         ("visibility", "Visibility", true),
         ("pointer-events", "Pointer events", true),
         ("user-select", "User selection", true),
+        // Layout attrs for pseudo-states
+        ("width", "Width", true),
+        ("height", "Height", true),
+        ("padding", "Inner padding", true),
+        ("padding-x", "Horizontal padding", true),
+        ("padding-y", "Vertical padding", true),
+        ("margin", "Outer margin", true),
+        ("margin-x", "Horizontal margin", true),
+        ("margin-y", "Vertical margin", true),
+        ("outline", "Outline", true),
+        ("text-decoration", "Text decoration", true),
+        ("text-decoration-color", "Text decoration color", true),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -833,6 +979,24 @@ fn hover_builtin(word: &str) -> Option<String> {
         (Some("active"), rest)
     } else if let Some(rest) = word.strip_prefix("focus:") {
         (Some("focus"), rest)
+    } else if let Some(rest) = word.strip_prefix("focus-visible:") {
+        (Some("focus-visible"), rest)
+    } else if let Some(rest) = word.strip_prefix("focus-within:") {
+        (Some("focus-within"), rest)
+    } else if let Some(rest) = word.strip_prefix("disabled:") {
+        (Some("disabled"), rest)
+    } else if let Some(rest) = word.strip_prefix("checked:") {
+        (Some("checked"), rest)
+    } else if let Some(rest) = word.strip_prefix("placeholder:") {
+        (Some("placeholder"), rest)
+    } else if let Some(rest) = word.strip_prefix("first:") {
+        (Some("first"), rest)
+    } else if let Some(rest) = word.strip_prefix("last:") {
+        (Some("last"), rest)
+    } else if let Some(rest) = word.strip_prefix("odd:") {
+        (Some("odd"), rest)
+    } else if let Some(rest) = word.strip_prefix("even:") {
+        (Some("even"), rest)
     } else {
         (None, word)
     };
@@ -901,12 +1065,15 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@figcaption" => "**@figcaption** \u{2014} Figure caption\n\nRenders as `<figcaption>`. Caption text inside `@figure`.",
         "@progress" => "**@progress** \u{2014} Progress bar\n\nRenders as `<progress>`.\n\nUsage: `@progress [value 70, max 100]`",
         "@meter" => "**@meter** \u{2014} Meter\n\nRenders as `<meter>`. Gauge for scalar measurement.\n\nUsage: `@meter [value 0.7, min 0, max 1, low 0.3, high 0.8]`",
+        "@fragment" => "**@fragment** \u{2014} Fragment\n\nGroups children without emitting a wrapper element. Renders children directly in the parent.",
         // Directives
         "@match" => "**@match** \u{2014} Pattern matching\n\nMatch a value against cases.\n\n```\n@match $theme\n  @case dark\n    @el [background #333]\n  @case light\n    @el [background white]\n  @default\n    @el [background gray]\n```",
         "@case" => "**@case** \u{2014} Match case\n\nA case inside `@match`. Matches when the value equals the case value.",
         "@default" => "**@default** \u{2014} Default case\n\nFallback case inside `@match` when no other case matches.",
         "@warn" => "**@warn** \u{2014} Compile warning\n\nEmit a custom warning during compilation.\n\nUsage: `@warn This value is deprecated`",
         "@debug" => "**@debug** \u{2014} Debug message\n\nPrint a debug message to stderr during compilation.\n\nUsage: `@debug Theme is $theme`",
+        "@lang" => "**@lang** \u{2014} Document language\n\nSets the `lang` attribute on the `<html>` element.\n\nUsage: `@lang en`",
+        "@favicon" => "**@favicon** \u{2014} Favicon\n\nInlines a favicon as a base64 data URI in the `<head>`.\n\nUsage: `@favicon favicon.png`",
         // Attributes
         "spacing" | "gap" => "**spacing** `<value>`\n\nGap between children. Supports CSS units (px, rem, em, %).\nMaps to CSS `gap`.",
         "padding" => "**padding** `<value>` | `<y> <x>` | `<t> <h> <b>` | `<t> <r> <b> <l>`\n\nInner padding. Supports CSS units. Accepts 1\u{2013}4 values.",
@@ -1037,6 +1204,23 @@ fn hover_builtin(word: &str) -> Option<String> {
         "rowspan" => "**rowspan** `<value>` \u{2014} Number of rows a cell spans.",
         "scope" => "**scope** `<value>` \u{2014} Header scope (`col`, `row`, `colgroup`, `rowgroup`).",
         "inline" => "**inline** \u{2014} Inline SVG image content into the HTML output.",
+        "hidden" => "**hidden** \u{2014} Hide element (`display: none`).",
+        "overflow-x" => "**overflow-x** `<value>` \u{2014} Horizontal overflow (`hidden`, `scroll`, `auto`, `visible`).",
+        "overflow-y" => "**overflow-y** `<value>` \u{2014} Vertical overflow (`hidden`, `scroll`, `auto`, `visible`).",
+        "inset" => "**inset** `<value>` \u{2014} Shorthand for `top`, `right`, `bottom`, `left`. Maps to CSS `inset`.",
+        "accent-color" => "**accent-color** `<color>` \u{2014} Accent color for form controls (checkboxes, radios, range).",
+        "caret-color" => "**caret-color** `<color>` \u{2014} Color of the text input cursor.",
+        "list-style" => "**list-style** `<value>` \u{2014} List style type (`disc`, `circle`, `square`, `decimal`, `none`).",
+        "border-collapse" => "**border-collapse** `<value>` \u{2014} Table border model (`collapse`, `separate`).",
+        "border-spacing" => "**border-spacing** `<value>` \u{2014} Spacing between table cell borders (when `border-collapse: separate`).",
+        "text-decoration" => "**text-decoration** `<value>` \u{2014} Text decoration (`underline`, `overline`, `line-through`, `none`).",
+        "text-decoration-color" => "**text-decoration-color** `<color>` \u{2014} Color of text decoration.",
+        "text-decoration-thickness" => "**text-decoration-thickness** `<value>` \u{2014} Thickness of text decoration.",
+        "text-decoration-style" => "**text-decoration-style** `<value>` \u{2014} Style of text decoration (`solid`, `dashed`, `dotted`, `wavy`, `double`).",
+        "place-items" => "**place-items** `<value>` \u{2014} Shorthand for `align-items` and `justify-items`.",
+        "place-self" => "**place-self** `<value>` \u{2014} Shorthand for `align-self` and `justify-self`.",
+        "scroll-behavior" => "**scroll-behavior** `<value>` \u{2014} Scroll behavior (`smooth`, `auto`).",
+        "resize" => "**resize** `<value>` \u{2014} Resize behavior (`none`, `both`, `horizontal`, `vertical`).",
         _ => return None,
     };
 
@@ -1528,6 +1712,242 @@ fn extract_between<'a>(msg: &'a str, prefix: &str, suffix: &str) -> Option<&'a s
         let end = rest.find(suffix)?;
         Some(&rest[..end])
     }
+}
+
+// ---------------------------------------------------------------------------
+// Color provider
+// ---------------------------------------------------------------------------
+
+fn find_colors(text: &str) -> Vec<ColorInformation> {
+    let mut colors = Vec::new();
+    for (line_idx, line) in text.lines().enumerate() {
+        let mut start = 0;
+        while let Some(pos) = line[start..].find('#') {
+            let abs_pos = start + pos;
+            let hex_start = abs_pos + 1;
+            let hex_end = line[hex_start..]
+                .find(|c: char| !c.is_ascii_hexdigit())
+                .map(|p| hex_start + p)
+                .unwrap_or(line.len());
+            let hex = &line[hex_start..hex_end];
+            let len = hex.len();
+            if len == 3 || len == 6 || len == 8 {
+                if let Some((r, g, b, a)) = parse_hex_color(hex) {
+                    colors.push(ColorInformation {
+                        range: Range::new(
+                            Position::new(line_idx as u32, abs_pos as u32),
+                            Position::new(line_idx as u32, hex_end as u32),
+                        ),
+                        color: Color {
+                            red: r as f32 / 255.0,
+                            green: g as f32 / 255.0,
+                            blue: b as f32 / 255.0,
+                            alpha: a as f32 / 255.0,
+                        },
+                    });
+                }
+            }
+            start = hex_end;
+        }
+    }
+    colors
+}
+
+fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8, u8)> {
+    match hex.len() {
+        3 => {
+            let r = u8::from_str_radix(&hex[0..1], 16).ok()? * 17;
+            let g = u8::from_str_radix(&hex[1..2], 16).ok()? * 17;
+            let b = u8::from_str_radix(&hex[2..3], 16).ok()? * 17;
+            Some((r, g, b, 255))
+        }
+        6 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            Some((r, g, b, 255))
+        }
+        8 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
+            Some((r, g, b, a))
+        }
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Folding ranges
+// ---------------------------------------------------------------------------
+
+fn folding_ranges(text: &str) -> Vec<FoldingRange> {
+    let mut ranges = Vec::new();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        // Fold blocks that start with @fn, @if, @else, @each, @match, @style, @head, @keyframes, @define
+        if trimmed.starts_with("@fn ")
+            || trimmed.starts_with("@if ")
+            || trimmed == "@else"
+            || trimmed.starts_with("@else if ")
+            || trimmed.starts_with("@each ")
+            || trimmed.starts_with("@match ")
+            || trimmed == "@style"
+            || trimmed == "@head"
+            || trimmed.starts_with("@keyframes ")
+        {
+            let start_indent = lines[i].len() - lines[i].trim_start().len();
+            let start_line = i;
+            let mut end_line = i;
+            let mut j = i + 1;
+            while j < lines.len() {
+                let l = lines[j];
+                if l.trim().is_empty() {
+                    j += 1;
+                    continue;
+                }
+                let indent = l.len() - l.trim_start().len();
+                if indent <= start_indent {
+                    break;
+                }
+                end_line = j;
+                j += 1;
+            }
+            if end_line > start_line {
+                ranges.push(FoldingRange {
+                    start_line: start_line as u32,
+                    start_character: None,
+                    end_line: end_line as u32,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Region),
+                    collapsed_text: None,
+                });
+            }
+        }
+        // Fold comment blocks (lines starting with --)
+        if trimmed.starts_with("--") {
+            let start_line = i;
+            let mut end_line = i;
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].trim().starts_with("--") {
+                end_line = j;
+                j += 1;
+            }
+            if end_line > start_line {
+                ranges.push(FoldingRange {
+                    start_line: start_line as u32,
+                    start_character: None,
+                    end_line: end_line as u32,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Comment),
+                    collapsed_text: None,
+                });
+            }
+        }
+        i += 1;
+    }
+    ranges
+}
+
+// ---------------------------------------------------------------------------
+// Semantic tokens
+// ---------------------------------------------------------------------------
+
+fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
+    let mut tokens = Vec::new();
+    let mut prev_line: u32 = 0;
+    let mut prev_start: u32 = 0;
+
+    for (line_idx, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        let line_num = line_idx as u32;
+
+        // Detect comments
+        if trimmed.starts_with("--") {
+            let col = (line.len() - trimmed.len()) as u32;
+            push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, col, trimmed.len() as u32, 4);
+            continue;
+        }
+
+        // Scan for @keywords
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'@' {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
+                    i += 1;
+                }
+                let word = &line[start..i];
+                let token_type = match word {
+                    "@page" | "@let" | "@define" | "@fn" | "@if" | "@else" | "@each"
+                    | "@include" | "@import" | "@meta" | "@head" | "@style" | "@keyframes"
+                    | "@match" | "@case" | "@default" | "@slot" | "@children"
+                    | "@warn" | "@debug" | "@lang" | "@favicon" | "@fragment" => 0, // keyword
+                    _ => {
+                        // Check if it's a user function call (starts with @ but not a builtin element)
+                        if is_builtin_element(word) { 0 } else { 2 } // function
+                    }
+                };
+                push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, start as u32, (i - start) as u32, token_type);
+            } else if bytes[i] == b'$' {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
+                    i += 1;
+                }
+                if i > start + 1 {
+                    push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, start as u32, (i - start) as u32, 1); // variable
+                }
+            } else {
+                i += 1;
+            }
+        }
+    }
+    tokens
+}
+
+fn is_builtin_element(word: &str) -> bool {
+    matches!(word,
+        "@row" | "@column" | "@col" | "@el" | "@text" | "@paragraph" | "@p"
+        | "@image" | "@img" | "@link" | "@input" | "@button" | "@btn"
+        | "@select" | "@textarea" | "@option" | "@opt" | "@label" | "@raw"
+        | "@nav" | "@header" | "@footer" | "@main" | "@section" | "@article" | "@aside"
+        | "@list" | "@item" | "@li" | "@table" | "@thead" | "@tbody" | "@tr" | "@td" | "@th"
+        | "@video" | "@audio" | "@form" | "@details" | "@summary"
+        | "@blockquote" | "@cite" | "@code" | "@pre" | "@hr" | "@divider"
+        | "@figure" | "@figcaption" | "@progress" | "@meter" | "@fragment"
+    )
+}
+
+fn push_token(
+    tokens: &mut Vec<SemanticToken>,
+    prev_line: &mut u32,
+    prev_start: &mut u32,
+    line: u32,
+    start: u32,
+    length: u32,
+    token_type: u32,
+) {
+    let delta_line = line - *prev_line;
+    let delta_start = if delta_line == 0 {
+        start - *prev_start
+    } else {
+        start
+    };
+    tokens.push(SemanticToken {
+        delta_line,
+        delta_start,
+        length,
+        token_type,
+        token_modifiers_bitset: 0,
+    });
+    *prev_line = line;
+    *prev_start = start;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,7 @@
+@page Hidden Test
+
+@el [hidden]
+  @text This is hidden
+
+@el [padding 10]
+  @text This is visible

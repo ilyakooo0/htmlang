@@ -1,0 +1,32 @@
+@page New CSS Properties
+
+@el [overflow-x hidden, overflow-y auto]
+  @text Overflow
+
+@el [position absolute, inset 0]
+  @text Overlay
+
+@input [type checkbox, accent-color #3b82f6]
+
+@input [type text, caret-color red]
+
+@list [list-style disc]
+  @item One
+  @item Two
+
+@table [border-collapse collapse, border-spacing 0]
+  @tr
+    @td Cell
+
+@text [text-decoration underline, text-decoration-color red, text-decoration-thickness 2, text-decoration-style wavy] Decorated
+
+@el [grid, place-items center]
+  @text Centered
+
+@el [place-self center]
+  @text Self centered
+
+@el [overflow auto, scroll-behavior smooth]
+  @text Smooth scroll
+
+@textarea [resize vertical, rows 4] Resizable

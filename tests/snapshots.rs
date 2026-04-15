@@ -1268,3 +1268,245 @@ fn fmt_multiline_brackets() {
     assert!(formatted.contains("[width 200, color red]"));
     assert!(formatted.contains("  @text hello"));
 }
+
+// ---------------------------------------------------------------------------
+// New features: pseudo-states, child selectors, fragment, hidden, CSS props
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_pseudo_states_extended() {
+    snapshot_test("pseudo_states_extended");
+}
+
+#[test]
+fn snapshot_fragment() {
+    snapshot_test("fragment");
+}
+
+#[test]
+fn snapshot_hidden_attr() {
+    snapshot_test("hidden_attr");
+}
+
+#[test]
+fn snapshot_new_css_properties() {
+    snapshot_test("new_css_properties");
+}
+
+#[test]
+fn snapshot_lang_directive() {
+    snapshot_test("lang_directive");
+}
+
+// --- Assertion tests for new pseudo-states ---
+
+#[test]
+fn focus_visible_generates_pseudo() {
+    let output = compile("@page T\n@el [focus-visible:border 2 blue]");
+    assert!(output.contains(":focus-visible"));
+    assert!(output.contains("border:2px solid blue"));
+}
+
+#[test]
+fn focus_within_generates_pseudo() {
+    let output = compile("@page T\n@el [focus-within:background #eee]");
+    assert!(output.contains(":focus-within"));
+    assert!(output.contains("background:#eee"));
+}
+
+#[test]
+fn disabled_generates_pseudo() {
+    let output = compile("@page T\n@el [disabled:opacity 0.5]");
+    assert!(output.contains(":disabled"));
+    assert!(output.contains("opacity:0.5"));
+}
+
+#[test]
+fn checked_generates_pseudo() {
+    let output = compile("@page T\n@el [checked:background green]");
+    assert!(output.contains(":checked"));
+    assert!(output.contains("background:green"));
+}
+
+#[test]
+fn placeholder_generates_pseudo() {
+    let output = compile("@page T\n@input [type text, placeholder:color #999]");
+    assert!(output.contains("::placeholder"));
+    assert!(output.contains("color:#999"));
+}
+
+#[test]
+fn first_child_generates_pseudo() {
+    let output = compile("@page T\n@el [first:border-top 0]");
+    assert!(output.contains(":first-child"));
+}
+
+#[test]
+fn last_child_generates_pseudo() {
+    let output = compile("@page T\n@el [last:border-bottom 0]");
+    assert!(output.contains(":last-child"));
+}
+
+#[test]
+fn odd_generates_pseudo() {
+    let output = compile("@page T\n@el [odd:background #f5f5f5]");
+    assert!(output.contains(":nth-child(odd)"));
+}
+
+#[test]
+fn even_generates_pseudo() {
+    let output = compile("@page T\n@el [even:background white]");
+    assert!(output.contains(":nth-child(even)"));
+}
+
+// --- Assertion tests for fragment ---
+
+#[test]
+fn fragment_no_wrapper() {
+    let output = compile("@page T\n@column\n  @fragment\n    @text A\n    @text B");
+    // Fragment should NOT add any div wrapper
+    assert!(!output.contains("<div class=\"_1\"><span"));
+    // But children should still be present
+    assert!(output.contains("A"));
+    assert!(output.contains("B"));
+}
+
+// --- Assertion tests for hidden ---
+
+#[test]
+fn hidden_generates_display_none() {
+    let output = compile("@page T\n@el [hidden]");
+    assert!(output.contains("display:none"));
+}
+
+// --- Assertion tests for new CSS properties ---
+
+#[test]
+fn css_overflow_x() {
+    let output = compile("@page T\n@el [overflow-x hidden]");
+    assert!(output.contains("overflow-x:hidden"));
+}
+
+#[test]
+fn css_overflow_y() {
+    let output = compile("@page T\n@el [overflow-y auto]");
+    assert!(output.contains("overflow-y:auto"));
+}
+
+#[test]
+fn css_inset() {
+    let output = compile("@page T\n@el [inset 0]");
+    assert!(output.contains("inset:0"));
+}
+
+#[test]
+fn css_accent_color() {
+    let output = compile("@page T\n@input [type checkbox, accent-color blue]");
+    assert!(output.contains("accent-color:blue"));
+}
+
+#[test]
+fn css_caret_color() {
+    let output = compile("@page T\n@input [type text, caret-color red]");
+    assert!(output.contains("caret-color:red"));
+}
+
+#[test]
+fn css_list_style() {
+    let output = compile("@page T\n@list [list-style disc]");
+    assert!(output.contains("list-style:disc"));
+}
+
+#[test]
+fn css_border_collapse() {
+    let output = compile("@page T\n@table [border-collapse collapse]");
+    assert!(output.contains("border-collapse:collapse"));
+}
+
+#[test]
+fn css_text_decoration_full() {
+    let output = compile("@page T\n@text [text-decoration underline, text-decoration-color red, text-decoration-style wavy] Hello");
+    assert!(output.contains("text-decoration:underline"));
+    assert!(output.contains("text-decoration-color:red"));
+    assert!(output.contains("text-decoration-style:wavy"));
+}
+
+#[test]
+fn css_place_items() {
+    let output = compile("@page T\n@el [grid, place-items center]");
+    assert!(output.contains("place-items:center"));
+}
+
+#[test]
+fn css_place_self() {
+    let output = compile("@page T\n@el [place-self center]");
+    assert!(output.contains("place-self:center"));
+}
+
+#[test]
+fn css_scroll_behavior() {
+    let output = compile("@page T\n@el [scroll-behavior smooth]");
+    assert!(output.contains("scroll-behavior:smooth"));
+}
+
+#[test]
+fn css_resize() {
+    let output = compile("@page T\n@textarea [resize vertical]");
+    assert!(output.contains("resize:vertical"));
+}
+
+// --- Assertion tests for @lang ---
+
+#[test]
+fn lang_sets_html_attr() {
+    let output = compile("@page T\n@lang en\n@text Hello");
+    assert!(output.contains("<html lang=\"en\">"));
+}
+
+#[test]
+fn lang_not_present_without_directive() {
+    let output = compile("@page T\n@text Hello");
+    assert!(output.contains("<html>"));
+    assert!(!output.contains("lang="));
+}
+
+// --- Assertion test for @favicon ---
+
+#[test]
+fn favicon_fallback_href() {
+    // Nonexistent file should fall back to href
+    let output = compile("@page T\n@favicon nonexistent.png\n@text Hello");
+    assert!(output.contains("<link rel=\"icon\" href=\"nonexistent.png\">"));
+}
+
+// --- No warnings for new attrs ---
+
+#[test]
+fn no_warning_new_pseudo_prefixes() {
+    let diags = parse_diagnostics("@el [focus-visible:border 2 blue, disabled:opacity 0.5, checked:background green]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "new pseudo-state prefixes should be recognized, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_child_selectors() {
+    let diags = parse_diagnostics("@el [first:padding 0, last:padding 0, odd:background #eee, even:background white]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "child selectors should be recognized, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_new_css_attrs() {
+    let diags = parse_diagnostics("@el [overflow-x hidden, overflow-y auto, inset 0, accent-color blue, hidden]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "new CSS attrs should be recognized, got: {:?}",
+        diags
+    );
+}

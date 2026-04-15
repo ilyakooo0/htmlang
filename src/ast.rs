@@ -4,6 +4,8 @@ use std::collections::HashMap;
 #[allow(dead_code)]
 pub struct Document {
     pub page_title: Option<String>,
+    pub lang: Option<String>,
+    pub favicon: Option<String>,
     pub meta_tags: Vec<(String, String)>,
     pub head_blocks: Vec<String>,
     pub variables: HashMap<String, String>,
@@ -89,6 +91,7 @@ pub enum ElementKind {
     FigCaption,
     Progress,
     Meter,
+    Fragment,
 }
 
 #[derive(Debug, Clone)]
