@@ -198,5 +198,98 @@
       "  $0"
     ],
     "description": "Extend a base layout template"
+  },
+  "Script (external)": {
+    "prefix": "@script-src",
+    "body": [
+      "@script [src ${1:app.js}, ${2:defer}]",
+      "$0"
+    ],
+    "description": "External script tag with src attribute"
+  },
+  "Script (inline)": {
+    "prefix": "@script",
+    "body": [
+      "@script",
+      "  $0"
+    ],
+    "description": "Inline script block"
+  },
+  "Noscript fallback": {
+    "prefix": "@noscript",
+    "body": [
+      "@noscript",
+      "  @text ${1:JavaScript is required for this page.}",
+      "  $0"
+    ],
+    "description": "Fallback content when JavaScript is disabled"
+  },
+  "Breadcrumb navigation": {
+    "prefix": "@breadcrumb",
+    "body": [
+      "@breadcrumb [spacing ${1:10}]",
+      "  @link ${2:/} ${3:Home}",
+      "  @link ${4:/docs} ${5:Docs}",
+      "  @text ${6:Current Page}",
+      "  $0"
+    ],
+    "description": "Breadcrumb navigation with links"
+  },
+  "Address block": {
+    "prefix": "@address",
+    "body": [
+      "@address",
+      "  @text [bold] ${1:Name}",
+      "  @link mailto:${2:email@example.com} $2",
+      "  $0"
+    ],
+    "description": "Contact address block"
+  },
+  "Search form": {
+    "prefix": "@search",
+    "body": [
+      "@search",
+      "  @input [type search, placeholder ${1:Search...}]",
+      "  @button [type submit] ${2:Go}",
+      "  $0"
+    ],
+    "description": "Search form with input and submit button"
+  },
+  "Canonical URL": {
+    "prefix": "@canonical",
+    "body": [
+      "@canonical ${1:https://example.com/page}",
+      "$0"
+    ],
+    "description": "Canonical URL for the page"
+  },
+  "Base URL": {
+    "prefix": "@base",
+    "body": [
+      "@base ${1:https://example.com/}",
+      "$0"
+    ],
+    "description": "Base URL for relative links"
+  },
+  "Font face": {
+    "prefix": "@font-face",
+    "body": [
+      "@font-face ${1:Inter} ${2:fonts/${3:inter.woff2}}",
+      "$0"
+    ],
+    "description": "Custom font face declaration"
+  },
+  "JSON-LD structured data": {
+    "prefix": "@json-ld",
+    "body": [
+      "@json-ld",
+      "  {",
+      "    \"@context\": \"https://schema.org\",",
+      "    \"@type\": \"${1:WebPage}\",",
+      "    \"name\": \"${2:Page Title}\"",
+      "  }",
+      "$0"
+    ],
+    "description": "JSON-LD structured data block"
   }
 }

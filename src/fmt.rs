@@ -27,13 +27,18 @@ fn attr_category(key: &str) -> u8 {
         .or_else(|| key.strip_prefix("motion-reduce:"))
         .or_else(|| key.strip_prefix("landscape:"))
         .or_else(|| key.strip_prefix("portrait:"))
+        .or_else(|| key.strip_prefix("visited:"))
+        .or_else(|| key.strip_prefix("empty:"))
+        .or_else(|| key.strip_prefix("target:"))
+        .or_else(|| key.strip_prefix("valid:"))
+        .or_else(|| key.strip_prefix("invalid:"))
         .unwrap_or(key);
 
     match base {
         // Layout (parent)
         "spacing" | "gap" | "gap-x" | "gap-y" | "wrap"
         | "grid" | "grid-cols" | "grid-rows"
-        | "column-count" | "column-gap" => 0,
+        | "column-count" | "column-gap" | "column-width" | "column-rule" => 0,
         // Sizing
         "width" | "height" | "min-width" | "max-width" | "min-height" | "max-height"
         | "flex-grow" | "flex-shrink" | "flex-basis" => 1,
@@ -61,7 +66,7 @@ fn attr_category(key: &str) -> u8 {
         | "text-align" | "line-height" | "letter-spacing" | "text-transform"
         | "white-space" | "text-overflow" | "word-break" | "overflow-wrap"
         | "text-decoration" | "text-decoration-color" | "text-decoration-thickness"
-        | "text-decoration-style" | "list-style"
+        | "text-decoration-style" | "text-underline-offset" | "list-style"
         | "text-indent" | "hyphens" | "writing-mode" => 7,
         // Effects & interaction
         "transform" | "transition" | "animation" | "cursor" | "backdrop-filter"

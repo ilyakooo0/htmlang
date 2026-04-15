@@ -1,0 +1,8 @@
+@link [visited:color purple] https://example.com
+  Already visited
+
+@el [empty:display none, target:background yellow]
+  Conditional content
+
+@input [type email, valid:border 2 green]
+@input [type text, invalid:border 2 red]

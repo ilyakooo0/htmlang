@@ -551,6 +551,65 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
         None => String::new(),
     };
 
+    // Canonical URL
+    let canonical_html = match &doc.canonical {
+        Some(url) => {
+            if dev {
+                format!("<link rel=\"canonical\" href=\"{}\">\n", html_escape(url))
+            } else {
+                format!("<link rel=\"canonical\" href=\"{}\">", html_escape(url))
+            }
+        }
+        None => String::new(),
+    };
+
+    // Base URL
+    let base_html = match &doc.base_url {
+        Some(url) => {
+            if dev {
+                format!("<base href=\"{}\">\n", html_escape(url))
+            } else {
+                format!("<base href=\"{}\">", html_escape(url))
+            }
+        }
+        None => String::new(),
+    };
+
+    // @font-face CSS
+    for (name, url) in &doc.font_faces {
+        let format_hint = if url.ends_with(".woff2") {
+            " format('woff2')"
+        } else if url.ends_with(".woff") {
+            " format('woff')"
+        } else if url.ends_with(".ttf") {
+            " format('truetype')"
+        } else if url.ends_with(".otf") {
+            " format('opentype')"
+        } else {
+            ""
+        };
+        if dev {
+            element_css.insert_str(0, &format!(
+                "@font-face {{\n  font-family: '{}';\n  src: url('{}'){};\n  font-display: swap;\n}}\n",
+                name, url, format_hint
+            ));
+        } else {
+            element_css.insert_str(0, &format!(
+                "@font-face{{font-family:'{}';src:url('{}'){};font-display:swap}}",
+                name, url, format_hint
+            ));
+        }
+    }
+
+    // JSON-LD blocks
+    let json_ld_html: String = doc.json_ld_blocks.iter().map(|block| {
+        if dev {
+            format!("<script type=\"application/ld+json\">\n{}\n</script>\n", block)
+        } else {
+            format!("<script type=\"application/ld+json\">{}</script>", block)
+        }
+    }).collect();
+
     match &doc.page_title {
         Some(title) => {
             if dev {
@@ -562,7 +621,7 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
 <meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
 <title>{title}</title>
-{meta_html}{og_html}{favicon_html}{head_html}\
+{base_html}{canonical_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}\
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
@@ -577,8 +636,11 @@ img {{ display: block; }}
 ",
                     title = html_escape(title),
                     lang_attr = lang_attr,
+                    base_html = base_html,
+                    canonical_html = canonical_html,
                     meta_html = meta_html,
                     favicon_html = favicon_html,
+                    json_ld_html = json_ld_html,
                     head_html = head_html,
                     og_html = og_html,
                     element_css = element_css,
@@ -586,12 +648,15 @@ img {{ display: block; }}
                 )
             } else {
                 format!(
-                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{meta_html}{og_html}{favicon_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
+                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{base_html}{canonical_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
                     title = html_escape(title),
                     lang_attr = lang_attr,
+                    base_html = base_html,
+                    canonical_html = canonical_html,
                     meta_html = meta_html,
                     og_html = og_html,
                     favicon_html = favicon_html,
+                    json_ld_html = json_ld_html,
                     head_html = head_html,
                     element_css = element_css,
                     body = body,
@@ -637,6 +702,7 @@ fn generate_node(
                 | Some(ElementKind::Dialog) | Some(ElementKind::DefinitionList)
                 | Some(ElementKind::DefinitionDescription) | Some(ElementKind::Fieldset)
                 | Some(ElementKind::Datalist) | Some(ElementKind::Grid) | Some(ElementKind::Stack)
+                | Some(ElementKind::Noscript) | Some(ElementKind::Address) | Some(ElementKind::Search)
             );
             if needs_wrap {
                 out.push_str(&ctx.indent());
@@ -685,6 +751,7 @@ const BOOLEAN_HTML_ATTRS: &[&str] = &[
     "disabled", "required", "checked", "multiple",
     "controls", "autoplay", "loop", "muted",
     "open", "novalidate", "autofocus",
+    "defer", "async", "nomodule",
 ];
 
 fn emit_html_passthrough_attrs(out: &mut String, attrs: &[Attribute]) {
@@ -719,6 +786,84 @@ fn generate_element(
     // Self-closing elements
     if matches!(elem.kind, ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule | ElementKind::Source | ElementKind::Spacer) {
         generate_self_closing(elem, parent_kind, out, styles, ctx);
+        return;
+    }
+    // @script renders as <script> with raw body content (no HTML escaping)
+    if elem.kind == ElementKind::Script {
+        out.push_str(&ctx.indent());
+        out.push_str("<script");
+        // Pass through src, type, defer, async, etc.
+        for attr in &elem.attrs {
+            let key = attr.key.as_str();
+            if matches!(key, "src" | "type" | "defer" | "async" | "crossorigin" | "integrity" | "nomodule" | "id") {
+                if let Some(val) = &attr.value {
+                    out.push(' ');
+                    out.push_str(key);
+                    out.push_str("=\"");
+                    out.push_str(&html_escape(val));
+                    out.push('"');
+                } else {
+                    out.push(' ');
+                    out.push_str(key);
+                }
+            }
+        }
+        out.push('>');
+        // Children are raw JS code, not HTML
+        for child in &elem.children {
+            match child {
+                Node::Text(segments) => {
+                    for seg in segments {
+                        match seg {
+                            TextSegment::Plain(text) => out.push_str(text),
+                            _ => {}
+                        }
+                    }
+                }
+                Node::Raw(content) => out.push_str(content),
+                _ => {}
+            }
+        }
+        out.push_str("</script>");
+        out.push_str(ctx.nl());
+        return;
+    }
+    // @breadcrumb generates semantic <nav aria-label="breadcrumb"><ol>...</ol></nav>
+    if elem.kind == ElementKind::Breadcrumb {
+        let gen_class = compute_class(&elem.attrs, &elem.kind, parent_kind, styles);
+        let (id, user_class) = extract_id_class(&elem.attrs);
+        out.push_str(&ctx.indent());
+        out.push_str("<nav aria-label=\"breadcrumb\"");
+        emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
+        if let Some(id) = id {
+            out.push_str(" id=\"");
+            out.push_str(&html_escape(&id));
+            out.push('"');
+        }
+        out.push('>');
+        out.push_str(ctx.nl());
+        ctx.depth += 1;
+        out.push_str(&ctx.indent());
+        out.push_str("<ol>");
+        out.push_str(ctx.nl());
+        ctx.depth += 1;
+        for child in &elem.children {
+            out.push_str(&ctx.indent());
+            out.push_str("<li>");
+            let mut buf = String::new();
+            generate_node(child, Some(&elem.kind), &mut buf, styles, ctx);
+            out.push_str(buf.trim());
+            out.push_str("</li>");
+            out.push_str(ctx.nl());
+        }
+        ctx.depth -= 1;
+        out.push_str(&ctx.indent());
+        out.push_str("</ol>");
+        out.push_str(ctx.nl());
+        ctx.depth -= 1;
+        out.push_str(&ctx.indent());
+        out.push_str("</nav>");
+        out.push_str(ctx.nl());
         return;
     }
     if elem.kind == ElementKind::Children {
@@ -803,9 +948,13 @@ fn generate_element(
         ElementKind::Carousel => "div",
         ElementKind::Chip => "span",
         ElementKind::Tag => "span",
+        ElementKind::Noscript => "noscript",
+        ElementKind::Address => "address",
+        ElementKind::Search => "search",
         ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule
         | ElementKind::Children | ElementKind::Slot(_) | ElementKind::Fragment
-        | ElementKind::Source | ElementKind::Spacer => unreachable!(),
+        | ElementKind::Source | ElementKind::Spacer
+        | ElementKind::Script | ElementKind::Breadcrumb => unreachable!(),
     };
 
     let kind_label = match elem.kind {
@@ -870,6 +1019,9 @@ fn generate_element(
         ElementKind::Carousel => "carousel",
         ElementKind::Chip => "chip",
         ElementKind::Tag => "tag",
+        ElementKind::Noscript => "noscript",
+        ElementKind::Address => "address",
+        ElementKind::Search => "search",
         _ => "",
     };
 
@@ -1270,6 +1422,11 @@ const PSEUDO_PREFIXES: &[(&str, &str)] = &[
     ("before:", "::before"),
     ("after:", "::after"),
     ("selection:", "::selection"),
+    ("visited:", ":visited"),
+    ("empty:", ":empty"),
+    ("target:", ":target"),
+    ("valid:", ":valid"),
+    ("invalid:", ":invalid"),
 ];
 const RESPONSIVE_PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:", "2xl:"];
 const MEDIA_PREFIXES: &[&str] = &["dark:", "print:", "motion-safe:", "motion-reduce:", "landscape:", "portrait:"];
@@ -1959,6 +2116,23 @@ fn attrs_to_css(
             "text-decoration-style" => {
                 if let Some(v) = val {
                     push_css(&mut css, "text-decoration-style", v);
+                }
+            }
+            "text-underline-offset" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "text-underline-offset", &css_px(v));
+                }
+            }
+
+            // Multi-column
+            "column-width" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "column-width", &css_px(v));
+                }
+            }
+            "column-rule" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "column-rule", v);
                 }
             }
 

@@ -16,6 +16,10 @@ pub struct Document {
     pub og_tags: Vec<(String, String)>,
     pub custom_breakpoints: Vec<(String, String)>,
     pub theme_tokens: Vec<(String, String)>,
+    pub canonical: Option<String>,
+    pub base_url: Option<String>,
+    pub font_faces: Vec<(String, String)>,
+    pub json_ld_blocks: Vec<String>,
     pub nodes: Vec<Node>,
 }
 
@@ -121,6 +125,12 @@ pub enum ElementKind {
     Carousel,
     Chip,
     Tag,
+    // HTML5 elements
+    Script,
+    Noscript,
+    Address,
+    Search,
+    Breadcrumb,
 }
 
 #[derive(Debug, Clone)]

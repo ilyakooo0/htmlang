@@ -1,0 +1,4 @@
+@breadcrumb [spacing 10]
+  @link / Home
+  @link /docs Docs
+  @text Current Page

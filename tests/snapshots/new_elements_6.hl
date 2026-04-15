@@ -1,0 +1,10 @@
+@noscript
+  @text JavaScript is required for this page.
+
+@address
+  @text [bold] John Doe
+  @link mailto:john@example.com john@example.com
+
+@search
+  @input [type search, placeholder Search...]
+  @button [type submit] Go

@@ -654,6 +654,11 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         ("@iframe", "Embedded external page (iframe)"),
         ("@output", "Form calculation result (output)"),
         ("@canvas", "Drawing surface for scripts (canvas)"),
+        ("@script", "Inline script element (script)"),
+        ("@noscript", "Fallback content when scripts disabled (noscript)"),
+        ("@address", "Contact information (address)"),
+        ("@search", "Search section (search)"),
+        ("@breadcrumb", "Breadcrumb navigation (nav with aria)"),
     ]
     .iter()
     .map(|(name, detail)| item(name, CompletionItemKind::KEYWORD, detail, name, range))
@@ -691,6 +696,10 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@deprecated", "Mark next @fn as deprecated", "@deprecated "),
         ("@extends", "Inherit a layout template and fill @slot blocks", "@extends "),
         ("@use", "Selective import of definitions from a file", "@use "),
+        ("@canonical", "Set canonical URL for the page", "@canonical "),
+        ("@base", "Set base URL for relative links", "@base "),
+        ("@font-face", "Define a custom font face", "@font-face"),
+        ("@json-ld", "Add JSON-LD structured data to head", "@json-ld"),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -1118,6 +1127,16 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("has(", "Style when element has matching children :has()", false),
         // Critical CSS hint
         ("critical", "Mark as above-fold critical CSS", false),
+        // New pseudo-state prefixes
+        ("visited:", "Style visited links", false),
+        ("empty:", "Style when element has no children", false),
+        ("target:", "Style when element is the URL fragment target", false),
+        ("valid:", "Style when form element is valid", false),
+        ("invalid:", "Style when form element is invalid", false),
+        // New CSS properties
+        ("text-underline-offset", "Offset of text underline from its default position", true),
+        ("column-width", "Ideal width of columns in multi-column layout", true),
+        ("column-rule", "Rule between columns (width style color)", true),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -1528,6 +1547,16 @@ fn hover_builtin(word: &str) -> Option<String> {
         (Some("landscape"), rest)
     } else if let Some(rest) = word.strip_prefix("portrait:") {
         (Some("portrait"), rest)
+    } else if let Some(rest) = word.strip_prefix("visited:") {
+        (Some("visited"), rest)
+    } else if let Some(rest) = word.strip_prefix("empty:") {
+        (Some("empty"), rest)
+    } else if let Some(rest) = word.strip_prefix("target:") {
+        (Some("target"), rest)
+    } else if let Some(rest) = word.strip_prefix("valid:") {
+        (Some("valid"), rest)
+    } else if let Some(rest) = word.strip_prefix("invalid:") {
+        (Some("invalid"), rest)
     } else {
         (None, word)
     };
@@ -1626,6 +1655,10 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@deprecated" => "**@deprecated** `<message>`\n\nMarks the next `@fn` as deprecated. Callers get a compile-time warning.\n\n```\n@deprecated Use @new-card instead\n@fn old-card $title\n  ...\n```",
         "@extends" => "**@extends** `<file.hl>`\n\nInherit a layout template. Fill named `@slot` blocks.\n\n```\n@extends layout.hl\n@slot content\n  My page content\n@slot sidebar\n  Sidebar content\n```",
         "@use" => "**@use** `<file.hl> name1, name2`\n\nSelective import: only imports named `@fn`/`@define` definitions.\n\n```\n@use components.hl card, button\n```",
+        "@canonical" => "**@canonical** `<url>`\n\nSets the canonical URL for the page. Adds `<link rel=\"canonical\">` to `<head>`.\n\nUsage: `@canonical https://example.com/page`",
+        "@base" => "**@base** `<url>`\n\nSets the base URL for all relative URLs in the document. Adds `<base>` to `<head>`.\n\nUsage: `@base https://example.com/`",
+        "@font-face" => "**@font-face** \u{2014} Custom font\n\nDefines a custom font face. Generates a CSS `@font-face` rule.\n\n```\n@font-face\n  family Inter\n  src url(/fonts/Inter.woff2)\n  weight 400 700\n```",
+        "@json-ld" => "**@json-ld** \u{2014} Structured data\n\nAdds JSON-LD structured data to `<head>` as `<script type=\"application/ld+json\">`.\n\n```\n@json-ld\n  type Organization\n  name My Company\n  url https://example.com\n```",
         // Attributes
         "spacing" | "gap" => "**spacing** `<value>`\n\nGap between children. Supports CSS units (px, rem, em, %).\nMaps to CSS `gap`.",
         "padding" => "**padding** `<value>` | `<y> <x>` | `<t> <h> <b>` | `<t> <r> <b> <l>`\n\nInner padding. Supports CSS units. Accepts 1\u{2013}4 values.",
@@ -1804,6 +1837,11 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@iframe" => "**@iframe** \u{2014} Embedded page\n\nRenders as `<iframe>`.\n\nUsage: `@iframe [width fill, height 400] https://example.com`\n\nAttributes: `sandbox`, `allow`, `allowfullscreen`",
         "@output" => "**@output** \u{2014} Form output\n\nRenders as `<output>`. Displays calculation results in forms.\n\nUsage: `@output [for a b] Result`",
         "@canvas" => "**@canvas** \u{2014} Drawing surface\n\nRenders as `<canvas>`. Use with `@raw` JavaScript for drawing.\n\nUsage: `@canvas [width 400, height 300, id myCanvas]`",
+        "@script" => "**@script** \u{2014} Script\n\nRenders as `<script>`. Inline JavaScript.\n\nUsage: `@script console.log(\"hello\")`",
+        "@noscript" => "**@noscript** \u{2014} NoScript fallback\n\nRenders as `<noscript>`. Shown when JavaScript is disabled.\n\nUsage: `@noscript Please enable JavaScript.`",
+        "@address" => "**@address** \u{2014} Address\n\nRenders as `<address>`. Contact information for the nearest `@article` or `@body`.\n\nUsage: `@address hello@example.com`",
+        "@search" => "**@search** \u{2014} Search\n\nRenders as `<search>`. Semantic container for search functionality.\n\nUsage:\n```\n@search\n  @input [type search, placeholder Search...]\n  @button Search\n```",
+        "@breadcrumb" => "**@breadcrumb** \u{2014} Breadcrumb\n\nRenders as `<nav aria-label=\"Breadcrumb\">`. Semantic breadcrumb navigation.\n\nUsage:\n```\n@breadcrumb\n  @link / Home\n  @link /docs Docs\n  @text Current Page\n```",
         // Convenience elements
         "@grid" => "**@grid** \u{2014} CSS Grid container\n\nRenders as `<div>` with `display: grid`.\n\nUsage: `@grid [grid-cols 3, gap 20]`",
         "@stack" => "**@stack** \u{2014} Stack container\n\nRenders as `<div>` with `position: relative`. Children can be absolutely positioned on top of each other.",
@@ -1834,6 +1872,10 @@ fn hover_builtin(word: &str) -> Option<String> {
         "has(" => "**has(selector):** \u{2014} Parent selector pseudo-class.\n\nStyle an element based on its children.\n\nUsage: `@el [has(.active):background blue, has(img):padding 0]`\n\nGenerates CSS `:has()` selector.",
         // Critical
         "critical" => "**critical** \u{2014} Mark element as above-fold.\n\nHint for build tools to prioritize this element's CSS.",
+        // New CSS properties
+        "text-underline-offset" => "**text-underline-offset** `<value>` \u{2014} Offset of text underline from its default position. Supports CSS units.\n\nUsage: `[underline, text-underline-offset 4]`",
+        "column-width" => "**column-width** `<value>` \u{2014} Ideal column width in multi-column layout. Browser determines column count.\n\nUsage: `[column-width 200]`",
+        "column-rule" => "**column-rule** `<value>` \u{2014} Rule between columns (shorthand for width, style, color).\n\nUsage: `[column-rule 1px solid #ccc]`",
         // Variable filters
         "\\$|uppercase" => "**|uppercase** \u{2014} Convert variable to UPPERCASE.\n\nUsage: `$name|uppercase`",
         "\\$|lowercase" => "**|lowercase** \u{2014} Convert variable to lowercase.\n\nUsage: `$name|lowercase`",
@@ -2914,7 +2956,8 @@ fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
                     | "@include" | "@import" | "@meta" | "@head" | "@style" | "@keyframes"
                     | "@match" | "@case" | "@default" | "@slot" | "@children"
                     | "@warn" | "@debug" | "@lang" | "@favicon" | "@fragment"
-                    | "@unless" | "@og" | "@breakpoint" => 0, // keyword
+                    | "@unless" | "@og" | "@breakpoint"
+                    | "@canonical" | "@base" | "@font-face" | "@json-ld" => 0, // keyword
                     _ => {
                         // Check if it's a user function call (starts with @ but not a builtin element)
                         if is_builtin_element(word) { 0 } else { 2 } // function
@@ -2950,6 +2993,7 @@ fn is_builtin_element(word: &str) -> bool {
         | "@figure" | "@figcaption" | "@progress" | "@meter" | "@fragment"
         | "@dialog" | "@dl" | "@dt" | "@dd" | "@fieldset" | "@legend"
         | "@picture" | "@source" | "@time" | "@mark" | "@kbd" | "@abbr" | "@datalist"
+        | "@script" | "@noscript" | "@address" | "@search" | "@breadcrumb"
     )
 }
 

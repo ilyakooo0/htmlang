@@ -221,6 +221,8 @@ Commands:
   dead-code <dir>       Find unused @fn, @define, @let across project
   deploy <dir>          Build and deploy to GitHub Pages
   playground [out.html] Generate a self-contained HTML playground
+  clean [dir]           Remove generated .html files
+  outline <file.hl>     Show document structure tree
 
 Options:
   -w, --watch       Watch for changes and recompile
@@ -1709,6 +1711,98 @@ document.getElementById('editor').addEventListener('keydown',e=>{if(e.key==='Ent
         }
         eprintln!("playground written to {}", out);
         eprintln!("open in browser: open {}", out);
+        return;
+    }
+
+    // Handle "clean" subcommand — remove generated .html files
+    if args.len() >= 2 && args[1] == "clean" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let dir = Path::new(target);
+        if !dir.is_dir() {
+            eprintln!("error: '{}' is not a directory", target);
+            process::exit(1);
+        }
+        let hl_files = collect_hl_files_recursive(dir);
+        let mut removed = 0;
+        for hl_file in &hl_files {
+            let html_file = hl_file.with_extension("html");
+            if html_file.exists() {
+                match fs::remove_file(&html_file) {
+                    Ok(()) => {
+                        eprintln!("removed {}", html_file.display());
+                        removed += 1;
+                    }
+                    Err(e) => eprintln!("error: {}: {}", html_file.display(), e),
+                }
+            }
+        }
+        // Also remove sitemap.xml if present
+        let sitemap = dir.join("sitemap.xml");
+        if sitemap.exists() {
+            if let Ok(()) = fs::remove_file(&sitemap) {
+                eprintln!("removed {}", sitemap.display());
+                removed += 1;
+            }
+        }
+        eprintln!("cleaned {} file{}", removed, if removed == 1 { "" } else { "s" });
+        return;
+    }
+
+    // Handle "outline" subcommand — show document structure
+    if args.len() >= 2 && args[1] == "outline" {
+        if args.len() < 3 {
+            eprintln!("usage: htmlang outline <file.hl>");
+            process::exit(1);
+        }
+        let path = &args[2];
+        let input = match fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: {}: {}", path, e);
+                process::exit(1);
+            }
+        };
+        let base = Path::new(path).parent();
+        let result = htmlang::parser::parse_with_base(&input, base);
+        if let Some(title) = &result.document.page_title {
+            eprintln!("@page {}", title);
+        }
+        fn print_outline(nodes: &[htmlang::ast::Node], depth: usize) {
+            let indent = "  ".repeat(depth);
+            for node in nodes {
+                match node {
+                    htmlang::ast::Node::Element(elem) => {
+                        let kind = format!("{:?}", elem.kind);
+                        let kind = kind.split('(').next().unwrap_or(&kind);
+                        let label = if let Some(arg) = &elem.argument {
+                            format!("@{} {}", kind.to_lowercase(), arg)
+                        } else {
+                            format!("@{}", kind.to_lowercase())
+                        };
+                        eprintln!("{}{}", indent, label);
+                        print_outline(&elem.children, depth + 1);
+                    }
+                    htmlang::ast::Node::Text(segs) => {
+                        let text: String = segs.iter().filter_map(|s| match s {
+                            htmlang::ast::TextSegment::Plain(t) => Some(t.as_str()),
+                            _ => None,
+                        }).collect();
+                        if !text.trim().is_empty() {
+                            let display = if text.len() > 40 {
+                                format!("{}...", &text[..37])
+                            } else {
+                                text
+                            };
+                            eprintln!("{}\"{}\"", indent, display.trim());
+                        }
+                    }
+                    htmlang::ast::Node::Raw(_) => {
+                        eprintln!("{}@raw ...", indent);
+                    }
+                }
+            }
+        }
+        print_outline(&result.document.nodes, 0);
         return;
     }
 

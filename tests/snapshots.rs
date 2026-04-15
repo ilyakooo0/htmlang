@@ -2715,3 +2715,172 @@ fn no_warning_new_attrs_batch6() {
         diags
     );
 }
+
+// --- New elements (batch 6) ---
+
+#[test]
+fn snapshot_new_elements_6() {
+    snapshot_test("new_elements_6");
+}
+
+#[test]
+fn snapshot_script_element() {
+    snapshot_test("script_element");
+}
+
+#[test]
+fn snapshot_breadcrumb() {
+    snapshot_test("breadcrumb");
+}
+
+#[test]
+fn snapshot_new_directives() {
+    snapshot_test("new_directives");
+}
+
+#[test]
+fn snapshot_new_pseudos() {
+    snapshot_test("new_pseudos");
+}
+
+#[test]
+fn snapshot_new_css_properties_4() {
+    snapshot_test("new_css_properties_4");
+}
+
+// --- Assertion tests for new features ---
+
+#[test]
+fn script_element_with_src() {
+    let output = compile("@script [src app.js, defer]");
+    assert!(output.contains("<script src=\"app.js\" defer>"), "script src: {}", output);
+    assert!(output.contains("</script>"), "script close: {}", output);
+}
+
+#[test]
+fn script_element_inline() {
+    let output = compile("@script\n  console.log(42);");
+    assert!(output.contains("<script>console.log(42);</script>"), "inline script: {}", output);
+}
+
+#[test]
+fn noscript_element() {
+    let output = compile("@noscript\n  @text Fallback");
+    assert!(output.contains("<noscript>"), "noscript open: {}", output);
+    assert!(output.contains("</noscript>"), "noscript close: {}", output);
+}
+
+#[test]
+fn address_element() {
+    let output = compile("@address\n  @text Contact");
+    assert!(output.contains("<address>"), "address: {}", output);
+}
+
+#[test]
+fn search_element() {
+    let output = compile("@search\n  @input [type search]");
+    assert!(output.contains("<search>"), "search: {}", output);
+}
+
+#[test]
+fn breadcrumb_generates_nav_ol() {
+    let output = compile("@breadcrumb\n  @text Home\n  @text About");
+    assert!(output.contains("<nav aria-label=\"breadcrumb\">"), "nav: {}", output);
+    assert!(output.contains("<ol>"), "ol: {}", output);
+    assert!(output.contains("<li>"), "li: {}", output);
+}
+
+#[test]
+fn canonical_directive() {
+    let output = compile("@page T\n@canonical https://example.com/page\n@text Hello");
+    assert!(output.contains("<link rel=\"canonical\" href=\"https://example.com/page\">"), "canonical: {}", output);
+}
+
+#[test]
+fn base_directive() {
+    let output = compile("@page T\n@base https://example.com/\n@text Hello");
+    assert!(output.contains("<base href=\"https://example.com/\">"), "base: {}", output);
+}
+
+#[test]
+fn font_face_directive() {
+    let output = compile("@page T\n@font-face Inter fonts/inter.woff2\n@text Hello");
+    assert!(output.contains("@font-face"), "font-face: {}", output);
+    assert!(output.contains("font-family:'Inter'"), "font name: {}", output);
+    assert!(output.contains("fonts/inter.woff2"), "font url: {}", output);
+    assert!(output.contains("woff2"), "format hint: {}", output);
+}
+
+#[test]
+fn json_ld_directive() {
+    let output = compile("@page T\n@json-ld\n  {\"@type\": \"WebPage\"}\n@text Hello");
+    assert!(output.contains("application/ld+json"), "json-ld type: {}", output);
+    assert!(output.contains("WebPage"), "json-ld content: {}", output);
+}
+
+#[test]
+fn visited_pseudo() {
+    let output = compile("@link [visited:color purple] https://example.com\n  Test");
+    assert!(output.contains(":visited"), "visited pseudo: {}", output);
+    assert!(output.contains("color:purple"), "visited color: {}", output);
+}
+
+#[test]
+fn empty_pseudo() {
+    let output = compile("@el [empty:display none]\n  Content");
+    assert!(output.contains(":empty"), "empty pseudo: {}", output);
+}
+
+#[test]
+fn target_pseudo() {
+    let output = compile("@el [target:background yellow]\n  Content");
+    assert!(output.contains(":target"), "target pseudo: {}", output);
+}
+
+#[test]
+fn valid_invalid_pseudo() {
+    let output = compile("@input [type email, valid:border 2 green]");
+    assert!(output.contains(":valid"), "valid pseudo: {}", output);
+}
+
+#[test]
+fn text_underline_offset_property() {
+    let output = compile("@text [underline, text-underline-offset 4] Link");
+    assert!(output.contains("text-underline-offset:4px"), "text-underline-offset: {}", output);
+}
+
+#[test]
+fn column_width_property() {
+    let output = compile("@el [column-width 200]\n  Content");
+    assert!(output.contains("column-width:200px"), "column-width: {}", output);
+}
+
+#[test]
+fn column_rule_property() {
+    let output = compile("@el [column-rule 1px solid #ccc]\n  Content");
+    assert!(output.contains("column-rule:1px solid #ccc"), "column-rule: {}", output);
+}
+
+#[test]
+fn no_warning_new_attrs_batch7() {
+    let diags = parse_diagnostics(
+        "@el [text-underline-offset 4, column-width 200, column-rule 1px solid gray]"
+    );
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "new CSS properties should be recognized: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_script_attrs() {
+    let diags = parse_diagnostics(
+        "@script [src app.js, defer, async, crossorigin anonymous, integrity sha384-abc, nomodule]"
+    );
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "script attributes should be recognized: {:?}",
+        diags
+    );
+}

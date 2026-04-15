@@ -100,6 +100,14 @@ struct ParseContext {
     deprecated_fns: HashMap<String, String>,
     /// Theme tokens: (name, value) pairs from @theme
     theme_tokens: Vec<(String, String)>,
+    /// Canonical URL
+    canonical: Option<String>,
+    /// Base URL for relative links
+    base_url: Option<String>,
+    /// @font-face declarations: (font_name, url)
+    font_faces: Vec<(String, String)>,
+    /// @json-ld blocks
+    json_ld_blocks: Vec<String>,
 }
 
 struct Parser {
@@ -142,6 +150,10 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
         define_lines: HashMap::new(),
         deprecated_fns: HashMap::new(),
         theme_tokens: Vec::new(),
+        canonical: None,
+        base_url: None,
+        font_faces: Vec::new(),
+        json_ld_blocks: Vec::new(),
     };
     let nodes = parser.parse_children(0, &mut ctx);
     validate_tree(&nodes, None, &mut ctx.diagnostics);
@@ -161,6 +173,10 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
             og_tags: ctx.og_tags,
             custom_breakpoints: ctx.custom_breakpoints,
             theme_tokens: ctx.theme_tokens,
+            canonical: ctx.canonical,
+            base_url: ctx.base_url,
+            font_faces: ctx.font_faces,
+            json_ld_blocks: ctx.json_ld_blocks,
             nodes,
         },
         diagnostics: ctx.diagnostics,
@@ -1093,6 +1109,57 @@ impl Parser {
             return Ok(None);
         }
 
+        // --- @canonical directive ---
+
+        if let Some(rest) = content.strip_prefix("@canonical ") {
+            ctx.canonical = Some(substitute_vars(rest.trim(), &ctx.variables));
+            return Ok(None);
+        }
+
+        // --- @base directive ---
+
+        if let Some(rest) = content.strip_prefix("@base ") {
+            ctx.base_url = Some(substitute_vars(rest.trim(), &ctx.variables));
+            return Ok(None);
+        }
+
+        // --- @font-face directive ---
+
+        if let Some(rest) = content.strip_prefix("@font-face ") {
+            let rest = rest.trim();
+            if let Some((name, url)) = rest.split_once(' ') {
+                ctx.font_faces.push((
+                    substitute_vars(name.trim(), &ctx.variables),
+                    substitute_vars(url.trim(), &ctx.variables),
+                ));
+            }
+            return Ok(None);
+        }
+
+        // --- @json-ld block ---
+
+        if content.trim() == "@json-ld" {
+            let mut block = String::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                match &self.lines[self.pos].content {
+                    LineContent::Normal(s) => {
+                        block.push_str(s.trim());
+                        block.push('\n');
+                    }
+                    LineContent::Raw(s) => {
+                        block.push_str(s);
+                        block.push('\n');
+                    }
+                }
+                self.pos += 1;
+            }
+            let trimmed = block.trim().to_string();
+            if !trimmed.is_empty() {
+                ctx.json_ld_blocks.push(trimmed);
+            }
+            return Ok(None);
+        }
+
         // --- @deprecated annotation ---
 
         if let Some(rest) = content.strip_prefix("@deprecated ") {
@@ -1540,6 +1607,7 @@ const KNOWN_ELEMENTS: &[&str] = &[
     "iframe", "output", "canvas",
     "grid", "stack", "spacer", "badge", "tooltip",
     "avatar", "carousel", "chip", "tag",
+    "script", "noscript", "address", "search", "breadcrumb",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
@@ -1548,6 +1616,7 @@ const KNOWN_DIRECTIVES: &[&str] = &[
     "match", "case", "default", "warn", "debug",
     "unless", "og", "breakpoint", "lang", "favicon",
     "use", "theme", "deprecated", "extends",
+    "canonical", "base", "font-face", "json-ld",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -1623,6 +1692,11 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "carousel" => Ok(ElementKind::Carousel),
         "chip" => Ok(ElementKind::Chip),
         "tag" => Ok(ElementKind::Tag),
+        "script" => Ok(ElementKind::Script),
+        "noscript" => Ok(ElementKind::Noscript),
+        "address" => Ok(ElementKind::Address),
+        "search" => Ok(ElementKind::Search),
+        "breadcrumb" => Ok(ElementKind::Breadcrumb),
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
                 .iter()
@@ -1756,6 +1830,8 @@ const KNOWN_ATTRS: &[&str] = &[
     "border-collapse", "border-spacing",
     // Text decoration variants
     "text-decoration", "text-decoration-color", "text-decoration-thickness", "text-decoration-style",
+    "text-underline-offset",
+    "column-width", "column-rule",
     // Grid/flex placement
     "place-items", "place-self",
     // Scroll behavior
@@ -1775,6 +1851,8 @@ const KNOWN_ATTRS: &[&str] = &[
     // Iframe/output attrs
     "sandbox", "allow", "allowfullscreen", "referrerpolicy",
     "formaction", "formmethod", "formtarget", "target",
+    // Script attributes
+    "defer", "async", "crossorigin", "integrity", "nomodule",
     // Pseudo-element content
     "content",
     // CSS shorthands
@@ -2279,6 +2357,11 @@ fn strip_all_prefixes(key: &str) -> &str {
         .or_else(|| key.strip_prefix("selection:"))
         .or_else(|| key.strip_prefix("before:"))
         .or_else(|| key.strip_prefix("after:"))
+        .or_else(|| key.strip_prefix("visited:"))
+        .or_else(|| key.strip_prefix("empty:"))
+        .or_else(|| key.strip_prefix("target:"))
+        .or_else(|| key.strip_prefix("valid:"))
+        .or_else(|| key.strip_prefix("invalid:"))
         .or_else(|| {
             // Handle nth:EXPR: prefix (e.g., nth:3:background -> background)
             if key.starts_with("nth:") {
@@ -2406,6 +2489,11 @@ fn element_kind_name(kind: &ElementKind) -> &'static str {
         ElementKind::Carousel => "@carousel",
         ElementKind::Chip => "@chip",
         ElementKind::Tag => "@tag",
+        ElementKind::Script => "@script",
+        ElementKind::Noscript => "@noscript",
+        ElementKind::Address => "@address",
+        ElementKind::Search => "@search",
+        ElementKind::Breadcrumb => "@breadcrumb",
     }
 }
 
@@ -2421,6 +2509,7 @@ fn is_container(kind: &ElementKind) -> bool {
         | ElementKind::DefinitionDescription | ElementKind::Fieldset | ElementKind::Datalist
         | ElementKind::Iframe | ElementKind::Canvas
         | ElementKind::Grid | ElementKind::Stack | ElementKind::Carousel
+        | ElementKind::Noscript | ElementKind::Address | ElementKind::Search | ElementKind::Breadcrumb
     )
 }
 

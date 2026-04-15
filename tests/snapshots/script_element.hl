@@ -1,0 +1,7 @@
+@script [src app.js, defer]
+
+@script
+  console.log("hello world");
+  document.addEventListener("DOMContentLoaded", () => {
+    alert("loaded");
+  });

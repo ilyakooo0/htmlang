@@ -1,0 +1,14 @@
+@page My Site
+@canonical https://example.com/page
+@base https://example.com/
+@font-face Inter fonts/inter.woff2
+@font-face Mono fonts/mono.ttf
+@json-ld
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "My Site"
+  }
+
+@column [spacing 10]
+  @text [font Inter] Hello with custom fonts

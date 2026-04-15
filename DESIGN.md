@@ -54,6 +54,12 @@ A minimalist layout language inspired by elm-ui that compiles to static HTML.
 | `@output`    | output           | Form calculation result        |
 | `@canvas`    | canvas           | Drawing surface for scripts    |
 
+| `@script`  | script           | JavaScript (inline or external) |
+| `@noscript` | noscript         | Fallback when JS is disabled   |
+| `@address` | address          | Contact information             |
+| `@search`  | search           | Search landmark (HTML5)         |
+| `@breadcrumb` | nav>ol        | Semantic breadcrumb navigation  |
+
 Bare lines (not starting with `@` or `[`) are text nodes.
 
 ## Syntax
@@ -704,6 +710,8 @@ htmlang deps src/            # show dependency graph (@include/@import)
 htmlang dead-code src/       # find unused @fn, @define, @let across project
 htmlang deploy src/          # build and deploy to GitHub Pages
 htmlang playground           # generate self-contained HTML playground
+htmlang clean src/           # remove generated .html files
+htmlang outline page.hl      # show document structure tree
 ```
 
 Watch mode recompiles automatically when the source file or any `@include`d/`@import`ed files change.
@@ -903,6 +911,139 @@ Functions support named `@slot` blocks for multi-region components:
 
 Slots not filled by the caller use the default children from the function definition.
 
+## New elements
+
+### `@script`
+
+Embeds JavaScript. Supports inline code and external files via `src`. Children are raw JS (not HTML-escaped).
+
+```
+@script [src app.js, defer]
+
+@script
+  console.log("hello world");
+  document.addEventListener("DOMContentLoaded", () => {
+    init();
+  });
+```
+
+Attributes: `src`, `type`, `defer`, `async`, `crossorigin`, `integrity`, `nomodule`.
+
+### `@noscript`
+
+Fallback content displayed when JavaScript is disabled.
+
+```
+@noscript
+  @text This page requires JavaScript.
+```
+
+### `@address`
+
+Contact information, rendered as `<address>`.
+
+```
+@address
+  @text [bold] John Doe
+  @link mailto:john@example.com john@example.com
+```
+
+### `@search`
+
+HTML5 `<search>` landmark for search functionality.
+
+```
+@search
+  @input [type search, placeholder Search...]
+  @button [type submit] Search
+```
+
+### `@breadcrumb`
+
+Semantic breadcrumb navigation. Generates `<nav aria-label="breadcrumb">` with an `<ol>` list. Each child becomes an `<li>`.
+
+```
+@breadcrumb [spacing 10]
+  @link / Home
+  @link /docs Documentation
+  @text Current Page
+```
+
+## New directives
+
+### `@canonical`
+
+Sets the canonical URL. Generates `<link rel="canonical">` in the document head.
+
+```
+@canonical https://example.com/my-page
+```
+
+### `@base`
+
+Sets the base URL for relative links. Generates `<base href="...">`.
+
+```
+@base https://example.com/
+```
+
+### `@font-face`
+
+Declares a custom font. Generates a CSS `@font-face` rule with `font-display: swap`. Format is auto-detected from the file extension.
+
+```
+@font-face Inter fonts/inter.woff2
+@font-face Mono fonts/jetbrains-mono.ttf
+```
+
+### `@json-ld`
+
+Structured data for SEO. Generates a `<script type="application/ld+json">` block. Indented body is raw JSON.
+
+```
+@json-ld
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "My Site"
+  }
+```
+
+## Additional pseudo-states
+
+| Prefix | CSS Selector | Purpose |
+|--------|--------------|---------|
+| `visited:` | `:visited` | Visited links |
+| `empty:` | `:empty` | Empty elements |
+| `target:` | `:target` | URL fragment target |
+| `valid:` | `:valid` | Valid form inputs |
+| `invalid:` | `:invalid` | Invalid form inputs |
+
+```
+@link [visited:color purple] https://example.com
+  Already visited
+
+@input [type email, valid:border 2 green]
+@el [target:background yellow, id section-1]
+  Highlighted when navigated to
+```
+
+## Additional CSS properties
+
+| Attribute | Effect |
+|-----------|--------|
+| `text-underline-offset N` | Offset of text underline from text |
+| `column-width N` | Ideal column width for multi-column layout |
+| `column-rule VALUE` | Rule between columns (e.g., `1px solid #ccc`) |
+
+```
+@text [underline, text-underline-offset 4, text-decoration-thickness 2]
+  Styled underline
+
+@el [column-count 3, column-width 200, column-rule 1px solid #ccc]
+  Multi-column content
+```
+
 ## CSS `@layer` wrapping
 
 Generated styles are wrapped in `@layer htmlang { ... }` for specificity management. This allows `@style` blocks and `@raw` CSS to easily override generated styles without specificity wars.
@@ -935,6 +1076,23 @@ htmlang deploy src/
 
 Compiles all `.hl` files, copies static assets, and pushes to a `gh-pages` branch.
 
+### `htmlang clean`
+
+Remove generated `.html` files from a directory (matching `.hl` source files). Also removes `sitemap.xml` if present.
+
+```
+htmlang clean src/
+htmlang clean       # clean current directory
+```
+
+### `htmlang outline`
+
+Show the document structure tree — a quick overview of elements and nesting without compiling.
+
+```
+htmlang outline page.hl
+```
+
 ### `htmlang playground`
 
 Generate a self-contained HTML playground for experimenting with htmlang:
@@ -942,6 +1100,8 @@ Generate a self-contained HTML playground for experimenting with htmlang:
 ```
 htmlang playground              # writes playground.html
 htmlang playground my-play.html # custom output path
+htmlang clean src/              # remove generated .html files
+htmlang outline page.hl         # show document structure tree
 ```
 
 ## Editor support

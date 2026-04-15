@@ -65,7 +65,7 @@
       }
     },
     "include-directive": {
-      "match": "(@include)\\s+(.*)",
+      "match": "(@(?:include|import|extends|canonical|base|font-face))\\s+(.*)",
       "captures": {
         "1": { "name": "keyword.control.directive.htmlang" },
         "2": { "name": "string.unquoted.filename.htmlang" }
@@ -73,7 +73,7 @@
     },
     "element": {
       "name": "entity.name.tag.htmlang",
-      "match": "@(?:row|column|col|el|text|paragraph|p|image|img|link|raw|children)\\b"
+      "match": "@(?:row|column|col|el|text|paragraph|p|image|img|link|raw|children|nav|header|footer|main|section|article|aside|list|item|table|thead|tbody|tr|td|th|form|input|button|select|textarea|label|option|details|summary|blockquote|cite|code|pre|hr|figure|figcaption|video|audio|iframe|canvas|script|noscript|address|search|breadcrumb|grid|stack|spacer|badge|tooltip|avatar|carousel|chip|tag)\\b"
     },
     "function-call": {
       "name": "entity.name.function.htmlang",

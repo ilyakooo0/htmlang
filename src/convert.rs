@@ -890,6 +890,9 @@ fn emit_element(
         "iframe" => "@iframe",
         "output" => "@output",
         "canvas" => "@canvas",
+        "noscript" => "@noscript",
+        "address" => "@address",
+        "search" => "@search",
         // Unknown / raw elements
         "script" | "style" | "svg" | "object" | "embed" => {
             emit_raw_element(tag, attrs, children, depth, out);
