@@ -1613,9 +1613,10 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
         let part = substitute_vars(part, &ctx.variables);
 
         let attr = if let Some((key, value)) = part.split_once(' ') {
+            let value = evaluate_if_expr(value.trim());
             Attribute {
                 key: key.trim().to_string(),
-                value: Some(value.trim().to_string()),
+                value: Some(value),
             }
         } else {
             Attribute {
@@ -1835,6 +1836,47 @@ fn evaluate_condition(condition: &str) -> bool {
         let trimmed = condition.trim();
         !trimmed.is_empty() && trimmed != "false" && trimmed != "0"
     }
+}
+
+/// Evaluate `if(condition, true_val, false_val)` expressions in attribute values.
+fn evaluate_if_expr(input: &str) -> String {
+    let trimmed = input.trim();
+    if !trimmed.starts_with("if(") || !trimmed.ends_with(')') {
+        return input.to_string();
+    }
+    let inner = &trimmed[3..trimmed.len() - 1];
+    let parts = split_if_args(inner);
+    if parts.len() != 3 {
+        return input.to_string();
+    }
+    let condition = parts[0].trim();
+    let true_val = parts[1].trim();
+    let false_val = parts[2].trim();
+
+    if evaluate_condition(condition) {
+        true_val.to_string()
+    } else {
+        false_val.to_string()
+    }
+}
+
+fn split_if_args(input: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut depth = 0;
+    for (i, c) in input.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(&input[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&input[start..]);
+    parts
 }
 
 fn evaluate_arithmetic(input: &str) -> String {

@@ -1,0 +1,1295 @@
+/// Converts HTML to htmlang (.hl) syntax.
+///
+/// This is a best-effort converter: it handles well-formed HTML and maps known
+/// elements and CSS properties to their htmlang equivalents. Unknown elements
+/// are wrapped in `@raw """..."""`.
+
+// ---------------------------------------------------------------------------
+// Simple recursive-descent HTML parser
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+enum HtmlNode {
+    Element {
+        tag: String,
+        attrs: Vec<(String, String)>,
+        children: Vec<HtmlNode>,
+        self_closing: bool,
+    },
+    Text(String),
+    Comment(String),
+    /// For DOCTYPE, processing instructions, etc. we just keep the raw text.
+    Raw(String),
+}
+
+struct HtmlParser<'a> {
+    src: &'a [u8],
+    pos: usize,
+}
+
+/// Tags that are self-closing in HTML (void elements).
+const VOID_TAGS: &[&str] = &[
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+    "meta", "param", "source", "track", "wbr",
+];
+
+impl<'a> HtmlParser<'a> {
+    fn new(src: &'a str) -> Self {
+        Self {
+            src: src.as_bytes(),
+            pos: 0,
+        }
+    }
+
+    fn remaining(&self) -> &'a str {
+        std::str::from_utf8(&self.src[self.pos..]).unwrap_or("")
+    }
+
+    fn advance(&mut self) {
+        if self.pos < self.src.len() {
+            self.pos += 1;
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self.pos < self.src.len() && self.src[self.pos].is_ascii_whitespace() {
+            self.pos += 1;
+        }
+    }
+
+    fn starts_with(&self, s: &str) -> bool {
+        self.remaining().starts_with(s)
+    }
+
+    fn consume_until(&mut self, needle: &str) -> String {
+        let start = self.pos;
+        while self.pos < self.src.len() {
+            if self.remaining().starts_with(needle) {
+                let text = std::str::from_utf8(&self.src[start..self.pos])
+                    .unwrap_or("")
+                    .to_string();
+                self.pos += needle.len();
+                return text;
+            }
+            self.pos += 1;
+        }
+        // Reached end without finding needle
+        std::str::from_utf8(&self.src[start..])
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn parse_nodes(&mut self, stop_tag: Option<&str>) -> Vec<HtmlNode> {
+        let mut nodes = Vec::new();
+        loop {
+            if self.pos >= self.src.len() {
+                break;
+            }
+            // Check for closing tag
+            if let Some(stop) = stop_tag {
+                if self.starts_with("</") {
+                    let saved = self.pos;
+                    self.pos += 2;
+                    let tag = self.parse_tag_name();
+                    if tag.eq_ignore_ascii_case(stop) {
+                        // Consume the rest of the closing tag
+                        self.consume_until(">");
+                        break;
+                    }
+                    // Not our closing tag, restore and let it be handled
+                    self.pos = saved;
+                    // This closing tag doesn't match; break out to let the
+                    // parent handle it.
+                    break;
+                }
+            }
+
+            if self.starts_with("<!--") {
+                self.pos += 4;
+                let text = self.consume_until("-->");
+                nodes.push(HtmlNode::Comment(text));
+            } else if self.starts_with("<!") {
+                // DOCTYPE or similar
+                let raw = self.consume_until(">");
+                nodes.push(HtmlNode::Raw(format!("<!{}>", raw)));
+            } else if self.starts_with("</") {
+                // Stray closing tag (no matching open) -- skip it
+                self.consume_until(">");
+            } else if self.starts_with("<") {
+                if let Some(node) = self.parse_element() {
+                    nodes.push(node);
+                }
+            } else {
+                // Text content
+                let text = self.parse_text();
+                if !text.is_empty() {
+                    nodes.push(HtmlNode::Text(text));
+                }
+            }
+        }
+        nodes
+    }
+
+    fn parse_text(&mut self) -> String {
+        let start = self.pos;
+        while self.pos < self.src.len() && self.src[self.pos] != b'<' {
+            self.pos += 1;
+        }
+        let raw = std::str::from_utf8(&self.src[start..self.pos]).unwrap_or("");
+        decode_entities(raw)
+    }
+
+    fn parse_tag_name(&mut self) -> String {
+        let start = self.pos;
+        while self.pos < self.src.len() {
+            let ch = self.src[self.pos];
+            if ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_' || ch == b':' {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        std::str::from_utf8(&self.src[start..self.pos])
+            .unwrap_or("")
+            .to_ascii_lowercase()
+    }
+
+    fn parse_element(&mut self) -> Option<HtmlNode> {
+        // Consume '<'
+        self.advance();
+        let tag = self.parse_tag_name();
+        if tag.is_empty() {
+            return None;
+        }
+
+        let mut attrs = Vec::new();
+        loop {
+            self.skip_whitespace();
+            if self.pos >= self.src.len() {
+                break;
+            }
+            if self.starts_with("/>") {
+                self.pos += 2;
+                return Some(HtmlNode::Element {
+                    tag,
+                    attrs,
+                    children: Vec::new(),
+                    self_closing: true,
+                });
+            }
+            if self.starts_with(">") {
+                self.advance();
+                break;
+            }
+            // Parse attribute
+            let key = self.parse_attr_name();
+            if key.is_empty() {
+                self.advance(); // skip unknown char
+                continue;
+            }
+            self.skip_whitespace();
+            let value = if self.starts_with("=") {
+                self.advance();
+                self.skip_whitespace();
+                self.parse_attr_value()
+            } else {
+                String::new()
+            };
+            attrs.push((key, value));
+        }
+
+        // Void / self-closing tags
+        if VOID_TAGS.contains(&tag.as_str()) {
+            return Some(HtmlNode::Element {
+                tag,
+                attrs,
+                children: Vec::new(),
+                self_closing: true,
+            });
+        }
+
+        // Raw content tags (script, style) -- consume until closing tag
+        if tag == "script" || tag == "style" {
+            let closer = format!("</{}>", tag);
+            let content = self.consume_until_ci(&closer);
+            let children = if content.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![HtmlNode::Text(content)]
+            };
+            return Some(HtmlNode::Element {
+                tag,
+                attrs,
+                children,
+                self_closing: false,
+            });
+        }
+
+        let children = self.parse_nodes(Some(&tag));
+        Some(HtmlNode::Element {
+            tag,
+            attrs,
+            children,
+            self_closing: false,
+        })
+    }
+
+    fn parse_attr_name(&mut self) -> String {
+        let start = self.pos;
+        while self.pos < self.src.len() {
+            let ch = self.src[self.pos];
+            if ch.is_ascii_alphanumeric()
+                || ch == b'-'
+                || ch == b'_'
+                || ch == b':'
+                || ch == b'.'
+                || ch == b'@'
+            {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        std::str::from_utf8(&self.src[start..self.pos])
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn parse_attr_value(&mut self) -> String {
+        if self.pos >= self.src.len() {
+            return String::new();
+        }
+        let quote = self.src[self.pos];
+        if quote == b'"' || quote == b'\'' {
+            self.advance();
+            let start = self.pos;
+            while self.pos < self.src.len() && self.src[self.pos] != quote {
+                self.pos += 1;
+            }
+            let val = std::str::from_utf8(&self.src[start..self.pos])
+                .unwrap_or("")
+                .to_string();
+            if self.pos < self.src.len() {
+                self.advance(); // closing quote
+            }
+            decode_entities(&val)
+        } else {
+            // Unquoted value
+            let start = self.pos;
+            while self.pos < self.src.len()
+                && !self.src[self.pos].is_ascii_whitespace()
+                && self.src[self.pos] != b'>'
+            {
+                self.pos += 1;
+            }
+            std::str::from_utf8(&self.src[start..self.pos])
+                .unwrap_or("")
+                .to_string()
+        }
+    }
+
+    /// Case-insensitive consume-until.
+    fn consume_until_ci(&mut self, needle: &str) -> String {
+        let start = self.pos;
+        let needle_lower = needle.to_ascii_lowercase();
+        while self.pos < self.src.len() {
+            let rem = self.remaining().to_ascii_lowercase();
+            if rem.starts_with(&needle_lower) {
+                let text = std::str::from_utf8(&self.src[start..self.pos])
+                    .unwrap_or("")
+                    .to_string();
+                self.pos += needle.len();
+                return text;
+            }
+            self.pos += 1;
+        }
+        std::str::from_utf8(&self.src[start..])
+            .unwrap_or("")
+            .to_string()
+    }
+}
+
+fn decode_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+}
+
+// ---------------------------------------------------------------------------
+// CSS style parsing (inline style="" attribute)
+// ---------------------------------------------------------------------------
+
+fn parse_inline_style(style: &str) -> Vec<(String, String)> {
+    let mut props = Vec::new();
+    for decl in style.split(';') {
+        let decl = decl.trim();
+        if decl.is_empty() {
+            continue;
+        }
+        if let Some(colon) = decl.find(':') {
+            let key = decl[..colon].trim().to_string();
+            let val = decl[colon + 1..].trim().to_string();
+            props.push((key, val));
+        }
+    }
+    props
+}
+
+/// Strips a trailing "px" and returns just the number, if the value is a plain
+/// px value. Otherwise returns the value as-is.
+fn strip_px(v: &str) -> &str {
+    v.strip_suffix("px").unwrap_or(v)
+}
+
+/// Strips px from a multi-value string like "10px 20px".
+fn strip_px_multi(v: &str) -> String {
+    v.split_whitespace()
+        .map(strip_px)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Converts CSS properties to htmlang attribute key-value pairs.
+/// Returns (attrs, leftover_css) where leftover_css is anything we
+/// could not convert to a known htmlang attribute.
+fn css_to_hl_attrs(styles: &[(String, String)]) -> (Vec<(String, Option<String>)>, Vec<(String, String)>) {
+    let mut attrs: Vec<(String, Option<String>)> = Vec::new();
+    let mut leftover: Vec<(String, String)> = Vec::new();
+
+    // Collect all styles into a map so we can detect flex patterns
+    let style_map: std::collections::HashMap<&str, &str> = styles
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    // Detect flex row/column -- these affect the element kind, not attributes
+    // We skip display:flex and flex-direction here; the caller checks them.
+
+    for (key, val) in styles {
+        match key.as_str() {
+            // Skip flex layout props -- handled at element-kind level
+            "display" if val == "flex" => {}
+            "flex-direction" => {}
+
+            "display" if val == "grid" => {
+                attrs.push(("grid".into(), None));
+            }
+            "display" if val == "none" => {
+                attrs.push(("hidden".into(), None));
+            }
+
+            "padding" => {
+                attrs.push(("padding".into(), Some(strip_px_multi(val))));
+            }
+            "padding-left" | "padding-right" => {
+                // Check for padding-x pattern
+                if key == "padding-left" {
+                    if let Some(&pr) = style_map.get("padding-right") {
+                        if pr == val {
+                            attrs.push(("padding-x".into(), Some(strip_px(val).into())));
+                            continue;
+                        }
+                    }
+                }
+                if key == "padding-right" {
+                    if style_map.get("padding-left") == Some(&val.as_str()) {
+                        // Already emitted as padding-x
+                        continue;
+                    }
+                }
+                leftover.push((key.clone(), val.clone()));
+            }
+            "padding-top" | "padding-bottom" => {
+                if key == "padding-top" {
+                    if let Some(&pb) = style_map.get("padding-bottom") {
+                        if pb == val {
+                            attrs.push(("padding-y".into(), Some(strip_px(val).into())));
+                            continue;
+                        }
+                    }
+                }
+                if key == "padding-bottom" {
+                    if style_map.get("padding-top") == Some(&val.as_str()) {
+                        continue;
+                    }
+                }
+                leftover.push((key.clone(), val.clone()));
+            }
+            "padding-inline" => {
+                attrs.push(("padding-inline".into(), Some(strip_px_multi(val))));
+            }
+            "padding-block" => {
+                attrs.push(("padding-block".into(), Some(strip_px_multi(val))));
+            }
+
+            "margin" => {
+                attrs.push(("margin".into(), Some(strip_px_multi(val))));
+            }
+            "margin-left" | "margin-right" => {
+                if key == "margin-left" {
+                    if let Some(&mr) = style_map.get("margin-right") {
+                        if mr == val {
+                            attrs.push(("margin-x".into(), Some(strip_px(val).into())));
+                            continue;
+                        }
+                    }
+                }
+                if key == "margin-right" {
+                    if style_map.get("margin-left") == Some(&val.as_str()) {
+                        continue;
+                    }
+                }
+                leftover.push((key.clone(), val.clone()));
+            }
+            "margin-top" | "margin-bottom" => {
+                if key == "margin-top" {
+                    if let Some(&mb) = style_map.get("margin-bottom") {
+                        if mb == val {
+                            attrs.push(("margin-y".into(), Some(strip_px(val).into())));
+                            continue;
+                        }
+                    }
+                }
+                if key == "margin-bottom" {
+                    if style_map.get("margin-top") == Some(&val.as_str()) {
+                        continue;
+                    }
+                }
+                leftover.push((key.clone(), val.clone()));
+            }
+            "margin-inline" => {
+                attrs.push(("margin-inline".into(), Some(strip_px_multi(val))));
+            }
+            "margin-block" => {
+                attrs.push(("margin-block".into(), Some(strip_px_multi(val))));
+            }
+
+            "width" => attrs.push(("width".into(), Some(strip_px(val).into()))),
+            "height" => attrs.push(("height".into(), Some(strip_px(val).into()))),
+            "min-width" => attrs.push(("min-width".into(), Some(strip_px(val).into()))),
+            "max-width" => attrs.push(("max-width".into(), Some(strip_px(val).into()))),
+            "min-height" => attrs.push(("min-height".into(), Some(strip_px(val).into()))),
+            "max-height" => attrs.push(("max-height".into(), Some(strip_px(val).into()))),
+
+            "gap" => attrs.push(("spacing".into(), Some(strip_px(val).into()))),
+            "column-gap" => attrs.push(("gap-x".into(), Some(strip_px(val).into()))),
+            "row-gap" => attrs.push(("gap-y".into(), Some(strip_px(val).into()))),
+
+            "background" | "background-color" => {
+                attrs.push(("background".into(), Some(val.clone())));
+            }
+            "color" => attrs.push(("color".into(), Some(val.clone()))),
+
+            "border" => {
+                // Try to simplify "1px solid #ccc" -> "1 #ccc"
+                attrs.push(("border".into(), Some(simplify_border(val))));
+            }
+            "border-top" => attrs.push(("border-top".into(), Some(simplify_border(val)))),
+            "border-bottom" => attrs.push(("border-bottom".into(), Some(simplify_border(val)))),
+            "border-left" => attrs.push(("border-left".into(), Some(simplify_border(val)))),
+            "border-right" => attrs.push(("border-right".into(), Some(simplify_border(val)))),
+
+            "border-radius" => {
+                attrs.push(("rounded".into(), Some(strip_px(val).into())));
+            }
+
+            "font-weight" if val == "bold" || val == "700" => {
+                attrs.push(("bold".into(), None));
+            }
+            "font-weight" => {
+                leftover.push((key.clone(), val.clone()));
+            }
+            "font-style" if val == "italic" => {
+                attrs.push(("italic".into(), None));
+            }
+            "font-style" => {
+                leftover.push((key.clone(), val.clone()));
+            }
+            "text-decoration" if val.contains("underline") => {
+                attrs.push(("underline".into(), None));
+            }
+            "text-decoration" => {
+                leftover.push((key.clone(), val.clone()));
+            }
+            "font-size" => attrs.push(("size".into(), Some(strip_px(val).into()))),
+            "font-family" => attrs.push(("font".into(), Some(val.clone()))),
+
+            "text-align" => attrs.push(("text-align".into(), Some(val.clone()))),
+            "line-height" => attrs.push(("line-height".into(), Some(val.clone()))),
+            "letter-spacing" => {
+                attrs.push(("letter-spacing".into(), Some(strip_px(val).into())));
+            }
+            "text-transform" => attrs.push(("text-transform".into(), Some(val.clone()))),
+            "white-space" => attrs.push(("white-space".into(), Some(val.clone()))),
+
+            "overflow" => attrs.push(("overflow".into(), Some(val.clone()))),
+            "position" => attrs.push(("position".into(), Some(val.clone()))),
+            "top" => attrs.push(("top".into(), Some(strip_px(val).into()))),
+            "right" => attrs.push(("right".into(), Some(strip_px(val).into()))),
+            "bottom" => attrs.push(("bottom".into(), Some(strip_px(val).into()))),
+            "left" => attrs.push(("left".into(), Some(strip_px(val).into()))),
+            "z-index" => attrs.push(("z-index".into(), Some(val.clone()))),
+
+            "display" => attrs.push(("display".into(), Some(val.clone()))),
+            "visibility" => attrs.push(("visibility".into(), Some(val.clone()))),
+
+            "opacity" => attrs.push(("opacity".into(), Some(val.clone()))),
+            "cursor" => attrs.push(("cursor".into(), Some(val.clone()))),
+            "transition" => attrs.push(("transition".into(), Some(val.clone()))),
+            "transform" => attrs.push(("transform".into(), Some(val.clone()))),
+            "backdrop-filter" => attrs.push(("backdrop-filter".into(), Some(val.clone()))),
+            "box-shadow" => attrs.push(("shadow".into(), Some(val.clone()))),
+            "flex-wrap" if val == "wrap" => attrs.push(("wrap".into(), None)),
+            "animation" => attrs.push(("animation".into(), Some(val.clone()))),
+            "aspect-ratio" => attrs.push(("aspect-ratio".into(), Some(val.clone()))),
+            "outline" => attrs.push(("outline".into(), Some(simplify_border(val)))),
+            "filter" => attrs.push(("filter".into(), Some(val.clone()))),
+            "object-fit" => attrs.push(("object-fit".into(), Some(val.clone()))),
+            "object-position" => attrs.push(("object-position".into(), Some(val.clone()))),
+            "text-shadow" => attrs.push(("text-shadow".into(), Some(val.clone()))),
+            "text-overflow" => attrs.push(("text-overflow".into(), Some(val.clone()))),
+            "pointer-events" => attrs.push(("pointer-events".into(), Some(val.clone()))),
+            "user-select" => attrs.push(("user-select".into(), Some(val.clone()))),
+            "justify-content" => attrs.push(("justify-content".into(), Some(val.clone()))),
+            "align-items" => attrs.push(("align-items".into(), Some(val.clone()))),
+
+            "grid-template-columns" => {
+                attrs.push(("grid-cols".into(), Some(simplify_grid_repeat(val))));
+            }
+            "grid-template-rows" => {
+                attrs.push(("grid-rows".into(), Some(simplify_grid_repeat(val))));
+            }
+            "grid-column" => {
+                if let Some(rest) = val.strip_prefix("span ") {
+                    attrs.push(("col-span".into(), Some(rest.trim().into())));
+                } else {
+                    leftover.push((key.clone(), val.clone()));
+                }
+            }
+            "grid-row" => {
+                if let Some(rest) = val.strip_prefix("span ") {
+                    attrs.push(("row-span".into(), Some(rest.trim().into())));
+                } else {
+                    leftover.push((key.clone(), val.clone()));
+                }
+            }
+
+            "scroll-snap-type" => attrs.push(("scroll-snap-type".into(), Some(val.clone()))),
+            "scroll-snap-align" => attrs.push(("scroll-snap-align".into(), Some(val.clone()))),
+
+            "flex" if val == "1" => attrs.push(("width".into(), Some("fill".into()))),
+            "flex-shrink" if val == "0" => attrs.push(("width".into(), Some("shrink".into()))),
+
+            _ => {
+                leftover.push((key.clone(), val.clone()));
+            }
+        }
+    }
+
+    (attrs, leftover)
+}
+
+/// Simplifies a CSS border value like "1px solid #ccc" to "1 #ccc".
+fn simplify_border(val: &str) -> String {
+    let parts: Vec<&str> = val.split_whitespace().collect();
+    // Common pattern: "1px solid #ccc"
+    if parts.len() == 3 && parts[1] == "solid" {
+        let width = strip_px(parts[0]);
+        let color = parts[2];
+        if color == "currentColor" {
+            width.to_string()
+        } else {
+            format!("{} {}", width, color)
+        }
+    } else if parts.len() == 2 && parts[0].ends_with("px") {
+        // "1px #ccc" (no style)
+        format!("{} {}", strip_px(parts[0]), parts[1])
+    } else {
+        val.to_string()
+    }
+}
+
+/// Simplifies "repeat(3, 1fr)" to "3".
+fn simplify_grid_repeat(val: &str) -> String {
+    if let Some(inner) = val
+        .strip_prefix("repeat(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        let parts: Vec<&str> = inner.splitn(2, ',').collect();
+        if parts.len() == 2 && parts[1].trim() == "1fr" {
+            return parts[0].trim().to_string();
+        }
+    }
+    val.to_string()
+}
+
+// ---------------------------------------------------------------------------
+// HTML-to-htmlang conversion
+// ---------------------------------------------------------------------------
+
+/// Converts an HTML string to htmlang (.hl) syntax.
+pub fn convert(html: &str) -> String {
+    let mut parser = HtmlParser::new(html);
+    let nodes = parser.parse_nodes(None);
+
+    // Unwrap boilerplate: look inside html > body for the real content.
+    let content_nodes = unwrap_boilerplate(&nodes);
+
+    let mut out = String::new();
+    for node in content_nodes {
+        emit_node(node, 0, &mut out);
+    }
+
+    // Trim trailing whitespace but keep a final newline
+    let trimmed = out.trim_end();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", trimmed)
+    }
+}
+
+/// Walks through html/head/body wrappers and returns references to the
+/// meaningful content nodes.
+fn unwrap_boilerplate(nodes: &[HtmlNode]) -> Vec<&HtmlNode> {
+    // First pass: skip DOCTYPE, comments, whitespace-only text at top level
+    let meaningful: Vec<&HtmlNode> = nodes
+        .iter()
+        .filter(|n| match n {
+            HtmlNode::Raw(_) => false,
+            HtmlNode::Comment(_) => false,
+            HtmlNode::Text(t) => !t.trim().is_empty(),
+            HtmlNode::Element { .. } => true,
+        })
+        .collect();
+
+    // If there's a single <html> element, unwrap it
+    if meaningful.len() == 1 {
+        if let HtmlNode::Element {
+            tag, children, ..
+        } = meaningful[0]
+        {
+            if tag == "html" {
+                return unwrap_html_children(children);
+            }
+        }
+    }
+
+    // Otherwise, check if there are any html/head/body tags mixed in
+    let mut result = Vec::new();
+    for node in nodes {
+        match node {
+            HtmlNode::Raw(_) => {}
+            HtmlNode::Comment(_) => {}
+            HtmlNode::Text(t) if t.trim().is_empty() => {}
+            HtmlNode::Element { tag, children, .. }
+                if tag == "html" || tag == "head" || tag == "body" =>
+            {
+                if tag == "body" || tag == "html" {
+                    for child in children {
+                        match child {
+                            HtmlNode::Element { tag: t, .. } if t == "head" => {}
+                            HtmlNode::Text(t) if t.trim().is_empty() => {}
+                            _ => result.push(child),
+                        }
+                    }
+                }
+                // Skip <head> entirely
+            }
+            _ => result.push(node),
+        }
+    }
+
+    if result.is_empty() {
+        // Fallback: return everything that's not boilerplate
+        nodes
+            .iter()
+            .filter(|n| !matches!(n, HtmlNode::Raw(_)))
+            .collect()
+    } else {
+        result
+    }
+}
+
+fn unwrap_html_children(children: &[HtmlNode]) -> Vec<&HtmlNode> {
+    let mut result = Vec::new();
+    for child in children {
+        match child {
+            HtmlNode::Element { tag, children, .. } if tag == "head" => {
+                // Skip <head> entirely
+                let _ = children;
+            }
+            HtmlNode::Element {
+                tag, children, ..
+            } if tag == "body" => {
+                for body_child in children {
+                    match body_child {
+                        HtmlNode::Text(t) if t.trim().is_empty() => {}
+                        _ => result.push(body_child),
+                    }
+                }
+            }
+            HtmlNode::Text(t) if t.trim().is_empty() => {}
+            _ => result.push(child),
+        }
+    }
+    result
+}
+
+fn indent_str(depth: usize) -> String {
+    "  ".repeat(depth)
+}
+
+fn emit_node(node: &HtmlNode, depth: usize, out: &mut String) {
+    match node {
+        HtmlNode::Text(text) => {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                for line in trimmed.lines() {
+                    let l = line.trim();
+                    if !l.is_empty() {
+                        out.push_str(&indent_str(depth));
+                        out.push_str(l);
+                        out.push('\n');
+                    }
+                }
+            }
+        }
+        HtmlNode::Comment(text) => {
+            for line in text.trim().lines() {
+                out.push_str(&indent_str(depth));
+                out.push_str("-- ");
+                out.push_str(line.trim());
+                out.push('\n');
+            }
+        }
+        HtmlNode::Raw(_) => {}
+        HtmlNode::Element {
+            tag,
+            attrs,
+            children,
+            ..
+        } => {
+            emit_element(tag, attrs, children, depth, out);
+        }
+    }
+}
+
+fn emit_element(
+    tag: &str,
+    attrs: &[(String, String)],
+    children: &[HtmlNode],
+    depth: usize,
+    out: &mut String,
+) {
+    let indent = indent_str(depth);
+
+    // Collect HTML attributes
+    let style_str = attr_val(attrs, "style").unwrap_or_default();
+    let class_str = attr_val(attrs, "class").unwrap_or_default();
+    let id_str = attr_val(attrs, "id");
+    let href = attr_val(attrs, "href");
+    let src = attr_val(attrs, "src");
+    let alt = attr_val(attrs, "alt");
+
+    // Parse inline styles
+    let css_props = parse_inline_style(&style_str);
+
+    // Detect flex layout from styles
+    let is_flex = css_props.iter().any(|(k, v)| k == "display" && v == "flex");
+    let flex_dir = css_props
+        .iter()
+        .find(|(k, _)| k == "flex-direction")
+        .map(|(_, v)| v.as_str());
+
+    // Map HTML tag to htmlang element
+    let hl_tag = match tag {
+        "div" => {
+            if is_flex {
+                match flex_dir {
+                    Some("column") => "@column",
+                    _ => "@row",
+                }
+            } else {
+                "@el"
+            }
+        }
+        "span" => "@text",
+        "p" => "@paragraph",
+        "a" => "@link",
+        "img" => "@image",
+        "nav" => "@nav",
+        "header" => "@header",
+        "footer" => "@footer",
+        "main" => "@main",
+        "section" => "@section",
+        "article" => "@article",
+        "aside" => "@aside",
+        "ul" => "@list",
+        "ol" => "@list",
+        "li" => "@item",
+        "table" => "@table",
+        "thead" => "@thead",
+        "tbody" => "@tbody",
+        "tr" => "@tr",
+        "td" => "@td",
+        "th" => "@th",
+        "form" => "@form",
+        "input" => "@input",
+        "button" => "@button",
+        "select" => "@select",
+        "textarea" => "@textarea",
+        "label" => "@label",
+        "details" => "@details",
+        "summary" => "@summary",
+        "blockquote" => "@blockquote",
+        "cite" => "@cite",
+        "code" => "@code",
+        "pre" => "@pre",
+        "hr" => "@hr",
+        "figure" => "@figure",
+        "figcaption" => "@figcaption",
+        "video" => "@video",
+        "audio" => "@audio",
+        "dialog" => "@dialog",
+        "dl" => "@dl",
+        "dt" => "@dt",
+        "dd" => "@dd",
+        "fieldset" => "@fieldset",
+        "legend" => "@legend",
+        "picture" => "@picture",
+        "source" => "@source",
+        "mark" => "@mark",
+        "kbd" => "@kbd",
+        "abbr" => "@abbr",
+        "time" => "@time",
+        "progress" => "@progress",
+        "meter" => "@meter",
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => "@paragraph",
+        "b" | "strong" => "@text",
+        "i" | "em" => "@text",
+        "u" => "@text",
+        "br" => {
+            out.push_str(&indent);
+            out.push('\n');
+            return;
+        }
+        // Unknown / raw elements
+        "script" | "style" | "svg" | "canvas" | "iframe" | "object" | "embed" => {
+            emit_raw_element(tag, attrs, children, depth, out);
+            return;
+        }
+        _ => {
+            // Try to emit as raw
+            emit_raw_element(tag, attrs, children, depth, out);
+            return;
+        }
+    };
+
+    // Build htmlang attributes from CSS + HTML attrs
+    let (mut hl_attrs, leftover_css) = css_to_hl_attrs(&css_props);
+
+    // Add id if present
+    if let Some(id) = &id_str {
+        hl_attrs.insert(0, ("id".into(), Some(id.clone())));
+    }
+
+    // Special handling for heading sizes
+    match tag {
+        "h1" => hl_attrs.push(("size".into(), Some("32".into()))),
+        "h2" => hl_attrs.push(("size".into(), Some("24".into()))),
+        "h3" => hl_attrs.push(("size".into(), Some("20".into()))),
+        "h4" => hl_attrs.push(("size".into(), Some("18".into()))),
+        "h5" => hl_attrs.push(("size".into(), Some("16".into()))),
+        "h6" => hl_attrs.push(("size".into(), Some("14".into()))),
+        _ => {}
+    }
+
+    // Bold/italic for strong/em/b/i/u
+    match tag {
+        "b" | "strong" => {
+            if !hl_attrs.iter().any(|(k, _)| k == "bold") {
+                hl_attrs.push(("bold".into(), None));
+            }
+        }
+        "i" | "em" => {
+            if !hl_attrs.iter().any(|(k, _)| k == "italic") {
+                hl_attrs.push(("italic".into(), None));
+            }
+        }
+        "u" => {
+            if !hl_attrs.iter().any(|(k, _)| k == "underline") {
+                hl_attrs.push(("underline".into(), None));
+            }
+        }
+        _ => {}
+    }
+
+    // Ordered list
+    if tag == "ol" {
+        hl_attrs.push(("ordered".into(), None));
+    }
+
+    // Alt text for images
+    if tag == "img" {
+        if let Some(alt_text) = &alt {
+            if !alt_text.is_empty() {
+                hl_attrs.push(("alt".into(), Some(alt_text.clone())));
+            }
+        }
+    }
+
+    // Passthrough HTML attributes that htmlang supports
+    for (key, val) in attrs {
+        match key.as_str() {
+            "style" | "class" | "id" | "href" | "src" | "alt" => {}
+            "type" | "name" | "value" | "placeholder" | "disabled" | "required"
+            | "checked" | "readonly" | "maxlength" | "min" | "max" | "step"
+            | "action" | "method" | "target" | "rel" | "title" | "role"
+            | "aria-label" | "aria-hidden" | "tabindex" | "for" | "open"
+            | "autoplay" | "controls" | "loop" | "muted" | "preload"
+            | "width" | "height" | "loading" | "decoding" | "srcset" | "sizes"
+            | "media" | "datetime" | "cite" | "download" => {
+                if val.is_empty() {
+                    hl_attrs.push((key.clone(), None));
+                } else {
+                    hl_attrs.push((key.clone(), Some(val.clone())));
+                }
+            }
+            _ if key.starts_with("data-") || key.starts_with("aria-") => {
+                if val.is_empty() {
+                    hl_attrs.push((key.clone(), None));
+                } else {
+                    hl_attrs.push((key.clone(), Some(val.clone())));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Build the line
+    out.push_str(&indent);
+    out.push_str(hl_tag);
+
+    // Argument (link href, image src)
+    if tag == "a" {
+        if let Some(url) = &href {
+            out.push(' ');
+            out.push_str(url);
+        }
+    } else if tag == "img" {
+        if let Some(src_val) = &src {
+            out.push(' ');
+            out.push_str(src_val);
+        }
+    }
+
+    // Attributes block
+    if !hl_attrs.is_empty() {
+        out.push_str(" [");
+        for (i, (key, val)) in hl_attrs.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(key);
+            if let Some(v) = val {
+                out.push(' ');
+                out.push_str(v);
+            }
+        }
+        out.push(']');
+    }
+    out.push('\n');
+
+    // Comment with original classes (if any)
+    if !class_str.is_empty() {
+        out.push_str(&indent_str(depth + 1));
+        out.push_str("-- classes: ");
+        out.push_str(&class_str);
+        out.push('\n');
+    }
+
+    // Comment with leftover CSS that couldn't be mapped
+    if !leftover_css.is_empty() {
+        let css_text: Vec<String> = leftover_css
+            .iter()
+            .map(|(k, v)| format!("{}: {}", k, v))
+            .collect();
+        out.push_str(&indent_str(depth + 1));
+        out.push_str("-- unmapped css: ");
+        out.push_str(&css_text.join("; "));
+        out.push('\n');
+    }
+
+    // Alt text for images
+    if tag == "img" {
+        if let Some(alt_text) = &alt {
+            if !alt_text.is_empty() {
+                // Alt is emitted as an attribute already? No -- let's add it.
+                // Actually we should add it to hl_attrs above. But since we
+                // already flushed the line, add a comment.
+                // Re-check: the image alt is typically an attribute.
+                // We'll add it inline. Let's fix this by checking above.
+            }
+        }
+    }
+
+    // Emit children
+    for child in children {
+        emit_node(child, depth + 1, out);
+    }
+}
+
+fn emit_raw_element(
+    tag: &str,
+    attrs: &[(String, String)],
+    children: &[HtmlNode],
+    depth: usize,
+    out: &mut String,
+) {
+    let indent = indent_str(depth);
+
+    // Reconstruct the HTML for this element
+    let mut html = String::new();
+    html.push('<');
+    html.push_str(tag);
+    for (key, val) in attrs {
+        html.push(' ');
+        html.push_str(key);
+        if !val.is_empty() {
+            html.push_str("=\"");
+            html.push_str(&html_escape(val));
+            html.push('"');
+        }
+    }
+    if children.is_empty() {
+        html.push_str(" />");
+    } else {
+        html.push('>');
+        reconstruct_html(children, &mut html);
+        html.push_str(&format!("</{}>", tag));
+    }
+
+    let trimmed = html.trim();
+    if trimmed.contains('\n') || trimmed.len() > 60 {
+        out.push_str(&indent);
+        out.push_str("@raw \"\"\"\n");
+        for line in trimmed.lines() {
+            out.push_str(&indent_str(depth + 1));
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push_str(&indent);
+        out.push_str("\"\"\"\n");
+    } else {
+        out.push_str(&indent);
+        out.push_str("@raw \"\"\"");
+        out.push_str(trimmed);
+        out.push_str("\"\"\"\n");
+    }
+}
+
+fn reconstruct_html(nodes: &[HtmlNode], out: &mut String) {
+    for node in nodes {
+        match node {
+            HtmlNode::Text(t) => out.push_str(&html_escape(t)),
+            HtmlNode::Comment(c) => {
+                out.push_str("<!--");
+                out.push_str(c);
+                out.push_str("-->");
+            }
+            HtmlNode::Raw(r) => out.push_str(r),
+            HtmlNode::Element {
+                tag,
+                attrs,
+                children,
+                self_closing,
+            } => {
+                out.push('<');
+                out.push_str(tag);
+                for (key, val) in attrs {
+                    out.push(' ');
+                    out.push_str(key);
+                    if !val.is_empty() {
+                        out.push_str("=\"");
+                        out.push_str(&html_escape(val));
+                        out.push('"');
+                    }
+                }
+                if *self_closing {
+                    out.push_str(" />");
+                } else {
+                    out.push('>');
+                    reconstruct_html(children, out);
+                    out.push_str(&format!("</{}>", tag));
+                }
+            }
+        }
+    }
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn attr_val(attrs: &[(String, String)], key: &str) -> Option<String> {
+    attrs
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.clone())
+        .filter(|v| !v.is_empty())
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn simple_div() {
+        let html = r#"<div style="padding: 20px; background-color: #fff; border-radius: 8px">Hello</div>"#;
+        let result = convert(html);
+        assert!(result.contains("@el [padding 20, background #fff, rounded 8]"));
+        assert!(result.contains("Hello"));
+    }
+
+    #[test]
+    fn flex_row() {
+        let html = r#"<div style="display: flex; flex-direction: row; gap: 10px"><span>A</span><span>B</span></div>"#;
+        let result = convert(html);
+        assert!(result.contains("@row [spacing 10]"));
+    }
+
+    #[test]
+    fn flex_column() {
+        let html = r#"<div style="display: flex; flex-direction: column"><p>One</p></div>"#;
+        let result = convert(html);
+        assert!(result.contains("@column"));
+    }
+
+    #[test]
+    fn link_element() {
+        let html = r#"<a href="https://example.com">Click me</a>"#;
+        let result = convert(html);
+        assert!(result.contains("@link https://example.com"));
+        assert!(result.contains("Click me"));
+    }
+
+    #[test]
+    fn image_element() {
+        let html = r#"<img src="photo.jpg" alt="A photo">"#;
+        let result = convert(html);
+        assert!(result.contains("@image photo.jpg"));
+    }
+
+    #[test]
+    fn nested_structure() {
+        let html = r#"<div><p>Hello</p><p>World</p></div>"#;
+        let result = convert(html);
+        assert!(result.contains("@el\n"));
+        assert!(result.contains("  @paragraph\n"));
+        assert!(result.contains("    Hello\n"));
+    }
+
+    #[test]
+    fn strips_boilerplate() {
+        let html = r#"<!DOCTYPE html><html><head><title>Test</title></head><body><div>Content</div></body></html>"#;
+        let result = convert(html);
+        assert!(!result.contains("html"));
+        assert!(!result.contains("head"));
+        assert!(!result.contains("body"));
+        assert!(result.contains("@el"));
+        assert!(result.contains("Content"));
+    }
+
+    #[test]
+    fn script_to_raw() {
+        let html = r#"<script>alert("hi");</script>"#;
+        let result = convert(html);
+        assert!(result.contains("@raw"));
+        assert!(result.contains("alert"));
+    }
+
+    #[test]
+    fn classes_as_comments() {
+        let html = r#"<div class="container main-content">Text</div>"#;
+        let result = convert(html);
+        assert!(result.contains("-- classes: container main-content"));
+    }
+
+    #[test]
+    fn heading_sizes() {
+        let h1 = convert("<h1>Title</h1>");
+        assert!(h1.contains("@paragraph [size 32]"));
+        let h3 = convert("<h3>Sub</h3>");
+        assert!(h3.contains("@paragraph [size 20]"));
+    }
+
+    #[test]
+    fn strong_bold() {
+        let result = convert("<strong>Important</strong>");
+        assert!(result.contains("@text [bold]"));
+    }
+
+    #[test]
+    fn ordered_list() {
+        let result = convert("<ol><li>First</li><li>Second</li></ol>");
+        assert!(result.contains("@list [ordered]"));
+        assert!(result.contains("@item"));
+    }
+
+    #[test]
+    fn semantic_elements() {
+        let result = convert("<nav><a href=\"/\">Home</a></nav>");
+        assert!(result.contains("@nav"));
+        assert!(result.contains("@link /"));
+    }
+
+    #[test]
+    fn table_structure() {
+        let html = "<table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Alice</td></tr></tbody></table>";
+        let result = convert(html);
+        assert!(result.contains("@table"));
+        assert!(result.contains("@thead"));
+        assert!(result.contains("@th"));
+        assert!(result.contains("@tbody"));
+        assert!(result.contains("@td"));
+    }
+
+    #[test]
+    fn form_elements() {
+        let html = r#"<form action="/submit"><input type="text" placeholder="Name"><button>Go</button></form>"#;
+        let result = convert(html);
+        assert!(result.contains("@form [action /submit]"));
+        assert!(result.contains("@input [type text, placeholder Name]"));
+        assert!(result.contains("@button"));
+    }
+
+    #[test]
+    fn empty_input() {
+        assert_eq!(convert("").trim(), "");
+        assert_eq!(convert("   ").trim(), "");
+    }
+
+    #[test]
+    fn border_simplification() {
+        let result = convert(r#"<div style="border: 1px solid #ccc">X</div>"#);
+        assert!(result.contains("border 1 #ccc"));
+    }
+
+    #[test]
+    fn rounded_shorthand() {
+        let result = convert(r#"<div style="border-radius: 8px">X</div>"#);
+        assert!(result.contains("rounded 8"));
+    }
+}

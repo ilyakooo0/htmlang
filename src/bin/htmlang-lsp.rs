@@ -139,6 +139,18 @@ impl LanguageServer for Backend {
         };
         drop(docs);
 
+        // Check if we're on an @include/@import line for path completions
+        let lines: Vec<&str> = text.lines().collect();
+        if let Some(line) = lines.get(pos.line as usize) {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("@include ") || trimmed.starts_with("@import ") {
+                let items = path_completions(uri, pos);
+                if !items.is_empty() {
+                    return Ok(Some(CompletionResponse::Array(items)));
+                }
+            }
+        }
+
         let items = completions(&text, pos);
         Ok(if items.is_empty() {
             None
@@ -427,6 +439,7 @@ fn completions(text: &str, position: Position) -> Vec<CompletionItem> {
         let mut items = element_completions(edit_range);
         items.extend(directive_completions(edit_range));
         items.extend(function_completions(text, edit_range));
+        items.extend(snippet_completions(edit_range));
         return items;
     }
 
@@ -602,6 +615,90 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         item(name, CompletionItemKind::SNIPPET, detail, insert, range)
     })
     .collect()
+}
+
+fn snippet_completions(range: Range) -> Vec<CompletionItem> {
+    let snippets: &[(&str, &str, &str)] = &[
+        (
+            "card component",
+            "Reusable card with title and content",
+            "@fn card \\$title\n  @el [padding 20, background white, rounded 8]\n    @text [bold] \\$title\n    @children",
+        ),
+        (
+            "responsive layout",
+            "Centered responsive column layout",
+            "@column [max-width 800, center-x, padding 40, spacing 20]",
+        ),
+        (
+            "nav bar",
+            "Navigation bar with horizontal items",
+            "@nav [padding 16, background #1a1a2e]\n  @row [spacing 20, align-items center]",
+        ),
+        (
+            "hero section",
+            "Hero section with title and subtitle",
+            "@column [padding 80, center-x, center-y, min-height 60vh]\n  @text [bold, size 48] ${1:Title}\n  @paragraph [size 18, color #666] ${2:Subtitle}",
+        ),
+    ];
+
+    snippets
+        .iter()
+        .map(|(label, detail, insert)| CompletionItem {
+            label: label.to_string(),
+            kind: Some(CompletionItemKind::SNIPPET),
+            detail: Some(detail.to_string()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range,
+                new_text: insert.to_string(),
+            })),
+            sort_text: Some(format!("zz_{}", label)),
+            ..Default::default()
+        })
+        .collect()
+}
+
+fn path_completions(uri: &Url, position: Position) -> Vec<CompletionItem> {
+    let file_path = match uri.to_file_path() {
+        Ok(p) => p,
+        Err(_) => return vec![],
+    };
+    let dir = match file_path.parent() {
+        Some(d) => d,
+        None => return vec![],
+    };
+
+    let col = position.character as u32;
+    let edit_range = Range::new(Position::new(position.line, col), Position::new(position.line, col));
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return vec![],
+    };
+
+    let mut items = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("hl") {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                // Skip the current file itself
+                if Some(name) == file_path.file_name().and_then(|n| n.to_str()) {
+                    continue;
+                }
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::FILE),
+                    detail: Some("htmlang file".to_string()),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: edit_range,
+                        new_text: name.to_string(),
+                    })),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+    items
 }
 
 fn attr_completions(range: Range) -> Vec<CompletionItem> {
@@ -1402,6 +1499,28 @@ fn hover_builtin(word: &str) -> Option<String> {
 fn definition_at(text: &str, position: Position, uri: &Url) -> Option<GotoDefinitionResponse> {
     let lines: Vec<&str> = text.lines().collect();
     let line = lines.get(position.line as usize)?;
+
+    // Check for @include/@import file path navigation
+    let trimmed = line.trim();
+    if let Some(filename) = trimmed
+        .strip_prefix("@include ")
+        .or_else(|| trimmed.strip_prefix("@import "))
+    {
+        let filename = filename.trim();
+        if !filename.is_empty() {
+            let file_path = uri.to_file_path().ok()?;
+            let dir = file_path.parent()?;
+            let target = dir.join(filename);
+            if target.exists() {
+                let target_uri = Url::from_file_path(&target).ok()?;
+                return Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: target_uri,
+                    range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+                }));
+            }
+        }
+    }
+
     let col = (position.character as usize).min(line.len());
     let word = word_at(line, col)?;
 

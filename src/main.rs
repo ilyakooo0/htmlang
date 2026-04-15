@@ -4,12 +4,31 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Mutex;
 
-fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>) -> (bool, Vec<PathBuf>) {
+struct DiagnosticJson {
+    file: String,
+    line: usize,
+    severity: String,
+    message: String,
+}
+
+fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("error: {}: {}", input_path, e);
+            if format_json {
+                if let Some(collector) = json_collector {
+                    collector.lock().unwrap().push(DiagnosticJson {
+                        file: input_path.to_string(),
+                        line: 0,
+                        severity: "error".to_string(),
+                        message: format!("{}", e),
+                    });
+                }
+            } else {
+                eprintln!("error: {}: {}", input_path, e);
+            }
             return (true, vec![]);
         }
     };
@@ -17,14 +36,32 @@ fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, o
     let base = Path::new(input_path).parent();
     let result = htmlang::parser::parse_with_base(&input, base);
 
-    for d in &result.diagnostics {
-        let prefix = match d.severity {
-            htmlang::parser::Severity::Error => "error",
-            htmlang::parser::Severity::Warning => "warning",
-        };
-        eprintln!("{}: line {}: {}", prefix, d.line, d.message);
-        if let Some(ref src) = d.source_line {
-            eprintln!("  | {}", src);
+    if format_json {
+        if let Some(collector) = json_collector {
+            let mut collected = collector.lock().unwrap();
+            for d in &result.diagnostics {
+                let severity = match d.severity {
+                    htmlang::parser::Severity::Error => "error",
+                    htmlang::parser::Severity::Warning => "warning",
+                };
+                collected.push(DiagnosticJson {
+                    file: input_path.to_string(),
+                    line: d.line,
+                    severity: severity.to_string(),
+                    message: d.message.clone(),
+                });
+            }
+        }
+    } else {
+        for d in &result.diagnostics {
+            let prefix = match d.severity {
+                htmlang::parser::Severity::Error => "error",
+                htmlang::parser::Severity::Warning => "warning",
+            };
+            eprintln!("{}: line {}: {}", prefix, d.line, d.message);
+            if let Some(ref src) = d.source_line {
+                eprintln!("  | {}", src);
+            }
         }
     }
 
@@ -58,6 +95,65 @@ fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, o
     }
 
     (has_errors, result.included_files)
+}
+
+fn print_json_diagnostics(diagnostics: &[DiagnosticJson]) {
+    let mut json = String::from("{\"diagnostics\":[");
+    for (i, d) in diagnostics.iter().enumerate() {
+        if i > 0 {
+            json.push(',');
+        }
+        let escaped_file = d.file.replace('\\', "\\\\").replace('"', "\\\"");
+        let escaped_msg = d.message.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+        json.push_str(&format!(
+            "{{\"file\":\"{}\",\"line\":{},\"severity\":\"{}\",\"message\":\"{}\"}}",
+            escaped_file, d.line, d.severity, escaped_msg
+        ));
+    }
+    json.push_str("]}");
+    println!("{}", json);
+}
+
+fn kebab_to_title(s: &str) -> String {
+    s.split('-')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(c) => {
+                    let mut title = c.to_uppercase().to_string();
+                    title.extend(chars);
+                    title
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn copy_non_hl_files(src_dir: &Path, out_dir: &Path) {
+    copy_non_hl_recursive(src_dir, src_dir, out_dir);
+}
+
+fn copy_non_hl_recursive(base: &Path, dir: &Path, out_dir: &Path) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                copy_non_hl_recursive(base, &path, out_dir);
+            } else if path.is_file() && path.extension().map_or(true, |e| e != "hl") {
+                let rel = path.strip_prefix(base).unwrap_or(&path);
+                let dest = out_dir.join(rel);
+                if let Some(parent) = dest.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                match fs::copy(&path, &dest) {
+                    Ok(_) => eprintln!("copied {}", dest.display()),
+                    Err(e) => eprintln!("error: copy {}: {}", dest.display(), e),
+                }
+            }
+        }
+    }
 }
 
 fn generate_error_overlay(diagnostics: &[htmlang::parser::Diagnostic], file: &str) -> String {
@@ -104,31 +200,41 @@ htmlang {} - a minimalist layout language that compiles to static HTML
 Usage: htmlang [options] <file.hl | directory>
 
 Commands:
-  init [dir]        Create a new project (defaults to current directory)
-  build <dir> [-o <out>]  Compile all .hl files recursively
-  fmt <file.hl>     Format a .hl file (normalizes indentation)
-  sitemap <dir>     Generate sitemap.xml from .hl files
+  init [dir]            Create a new project (defaults to current directory)
+  new <page-name>       Create a new .hl page from a template
+  build <dir> [-o <out>]  Compile all .hl files recursively (parallel)
+  check <file.hl | dir> Check for errors without writing output
+  convert <file.html>   Convert an HTML file to .hl format (stdout)
+  fmt <file.hl>         Format a .hl file (normalizes indentation)
+  sitemap <dir>         Generate sitemap.xml from .hl files
 
 Options:
   -w, --watch       Watch for changes and recompile
   -s, --serve       Start dev server with hot reload (implies --watch)
   -p, --port <N>    Port for dev server (default: 3000)
+  --open            Open browser automatically (with --serve)
   -o, --output <path>  Output file/directory path
   -d, --dev         Development mode
   -c, --check       Check for errors without writing output
+  --format json     Output diagnostics as JSON to stdout
   -h, --help        Show this help
   -V, --version     Show version
 
 Examples:
   htmlang init              Scaffold a new project
   htmlang init my-site      Scaffold in a new directory
+  htmlang new about-us      Create about-us.hl from template
   htmlang page.hl           Compile page.hl to page.html
   htmlang site/             Compile all .hl files in directory
   htmlang -w page.hl        Recompile on file changes
   htmlang -s page.hl        Start dev server with hot reload
+  htmlang -s --open site/   Serve and open browser
   htmlang -s site/          Serve a multi-page site
   htmlang -s -p 8080 page.hl
   htmlang -c page.hl        Lint without writing output
+  htmlang check src/        Check all files in a directory
+  htmlang convert page.html Convert HTML to .hl format
+  htmlang --format json page.hl  Get diagnostics as JSON
   htmlang fmt page.hl       Format a file
   htmlang build src/ -o dist/  Compile all .hl files to dist/
   htmlang sitemap src/      Generate sitemap.xml",
@@ -224,12 +330,24 @@ fn generate_sitemap(dir: &str, base_url: &str) {
     }
 }
 
+fn open_in_browser(port: u16) {
+    let url = format!("http://127.0.0.1:{}", port);
+    let cmd = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(cmd).arg(&url).spawn();
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut watch = false;
     let mut serve = false;
     let mut dev = false;
     let mut check = false;
+    let mut format_json = false;
+    let mut open_browser = false;
     let mut port: u16 = 3000;
     let mut output_path: Option<String> = None;
     let mut input_path = None;
@@ -297,22 +415,38 @@ fn main() {
         if let Some(out) = out_dir {
             let _ = fs::create_dir_all(out);
         }
-        let mut any_errors = false;
-        for file in &hl_files {
-            let path_str = file.to_string_lossy().to_string();
-            let effective_out = out_dir.map(|o| {
-                // Mirror directory structure
+        // Pre-create output directories for each file (must be done before parallel compilation)
+        let effective_outs: Vec<Option<String>> = hl_files.iter().map(|file| {
+            out_dir.map(|o| {
                 let rel = file.strip_prefix(dir).unwrap_or(file);
                 let out_path = Path::new(o).join(rel).with_extension("html");
                 if let Some(parent) = out_path.parent() {
                     let _ = fs::create_dir_all(parent);
                 }
                 out_path.to_string_lossy().to_string()
-            });
-            let (has_errors, _) = compile(&path_str, false, false, false, effective_out.as_deref());
-            if has_errors { any_errors = true; }
+            })
+        }).collect();
+
+        // Compile files in parallel
+        let any_errors = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|s| {
+            for (file, effective_out) in hl_files.iter().zip(effective_outs.iter()) {
+                let any_errors = &any_errors;
+                s.spawn(move || {
+                    let path_str = file.to_string_lossy().to_string();
+                    let (has_errors, _) = compile(&path_str, false, false, false, effective_out.as_deref(), false, None);
+                    if has_errors {
+                        any_errors.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                });
+            }
+        });
+        if any_errors.load(std::sync::atomic::Ordering::Relaxed) { process::exit(1); }
+
+        // Copy non-.hl static assets to output directory
+        if let Some(out) = out_dir {
+            copy_non_hl_files(dir, Path::new(out));
         }
-        if any_errors { process::exit(1); }
         return;
     }
 
@@ -324,6 +458,108 @@ fn main() {
             .map(|s| s.as_str())
             .unwrap_or("https://example.com");
         generate_sitemap(dir, base_url);
+        return;
+    }
+
+    // Handle "check" subcommand
+    if args.len() >= 2 && args[1] == "check" {
+        let mut check_target = None;
+        let mut check_format_json = false;
+        let mut ci = 2;
+        while ci < args.len() {
+            match args[ci].as_str() {
+                "--format" => {
+                    ci += 1;
+                    if args.get(ci).map_or(false, |v| v == "json") {
+                        check_format_json = true;
+                    }
+                }
+                _ if check_target.is_none() => check_target = Some(args[ci].as_str()),
+                _ => {
+                    eprintln!("unknown argument: {}", args[ci]);
+                    process::exit(1);
+                }
+            }
+            ci += 1;
+        }
+        let target = check_target.unwrap_or(".");
+        let json_collector = if check_format_json { Some(Mutex::new(Vec::new())) } else { None };
+        let path = Path::new(target);
+        let mut any_errors = false;
+        if path.is_dir() {
+            let hl_files = collect_hl_files_recursive(path);
+            if hl_files.is_empty() {
+                eprintln!("no .hl files found in {}", target);
+                process::exit(1);
+            }
+            for file in &hl_files {
+                let path_str = file.to_string_lossy().to_string();
+                let (has_errors, _) = compile(&path_str, false, false, true, None, check_format_json, json_collector.as_ref());
+                if has_errors { any_errors = true; }
+            }
+        } else {
+            let (has_errors, _) = compile(target, false, false, true, None, check_format_json, json_collector.as_ref());
+            if has_errors { any_errors = true; }
+        }
+        if check_format_json {
+            if let Some(collector) = json_collector {
+                print_json_diagnostics(&collector.lock().unwrap());
+            }
+        }
+        if any_errors { process::exit(1); }
+        return;
+    }
+
+    // Handle "new" subcommand
+    if args.len() >= 2 && args[1] == "new" {
+        if args.len() < 3 {
+            eprintln!("usage: htmlang new <page-name>");
+            process::exit(1);
+        }
+        let page_name = &args[2];
+        let file_name = format!("{}.hl", page_name);
+        let file_path = Path::new(&file_name);
+        if file_path.exists() {
+            eprintln!("error: {} already exists", file_name);
+            process::exit(1);
+        }
+        let title = kebab_to_title(page_name);
+        let template = format!(
+            "@page {title}\n\
+             @let primary #3b82f6\n\
+             \n\
+             @column [max-width 800, center-x, padding 40, spacing 20]\n\
+             \x20\x20@text [bold, size 32] {title}\n\
+             \x20\x20@paragraph [line-height 1.6]\n\
+             \x20\x20\x20\x20Content goes here.\n",
+            title = title,
+        );
+        match fs::write(file_path, &template) {
+            Ok(()) => eprintln!("created {}", file_name),
+            Err(e) => {
+                eprintln!("error: {}: {}", file_name, e);
+                process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // Handle "convert" subcommand
+    if args.len() >= 2 && args[1] == "convert" {
+        if args.len() < 3 {
+            eprintln!("usage: htmlang convert <file.html>");
+            process::exit(1);
+        }
+        let html_file = &args[2];
+        let html = match fs::read_to_string(html_file) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: {}: {}", html_file, e);
+                process::exit(1);
+            }
+        };
+        let hl_output = htmlang::convert::convert(&html);
+        print!("{}", hl_output);
         return;
     }
 
@@ -341,6 +577,21 @@ fn main() {
             "--watch" | "-w" => watch = true,
             "--dev" | "-d" => dev = true,
             "--check" | "-c" => check = true,
+            "--open" => open_browser = true,
+            "--format" => {
+                i += 1;
+                match args.get(i) {
+                    Some(f) if f == "json" => format_json = true,
+                    Some(f) => {
+                        eprintln!("unknown format: {}", f);
+                        process::exit(1);
+                    }
+                    None => {
+                        eprintln!("--format requires a value");
+                        process::exit(1);
+                    }
+                }
+            }
             "--serve" | "-s" => {
                 serve = true;
                 watch = true;
@@ -403,6 +654,7 @@ fn main() {
             let _ = fs::create_dir_all(out);
         }
 
+        let json_collector = if format_json { Some(Mutex::new(Vec::new())) } else { None };
         let mut any_errors = false;
         let mut all_included: Vec<PathBuf> = Vec::new();
         for file in &hl_files {
@@ -415,11 +667,17 @@ fn main() {
                 }
                 out_p.to_string_lossy().to_string()
             });
-            let (has_errors, included) = compile(&path_str, dev, serve, check, effective_out.as_deref());
+            let (has_errors, included) = compile(&path_str, dev, serve, check, effective_out.as_deref(), format_json, json_collector.as_ref());
             if has_errors {
                 any_errors = true;
             }
             all_included.extend(included);
+        }
+
+        if format_json {
+            if let Some(collector) = json_collector {
+                print_json_diagnostics(&collector.lock().unwrap());
+            }
         }
 
         if !watch {
@@ -438,6 +696,9 @@ fn main() {
                 let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
                 rt.block_on(htmlang::serve::run(port, index_path, server_tx));
             });
+            if open_browser {
+                open_in_browser(port);
+            }
             Some(tx)
         } else {
             None
@@ -448,7 +709,13 @@ fn main() {
     }
 
     // --- Single file mode ---
-    let (has_errors, included_files) = compile(&input_path, dev, serve, check, output_path.as_deref());
+    let json_collector_single = if format_json { Some(Mutex::new(Vec::new())) } else { None };
+    let (has_errors, included_files) = compile(&input_path, dev, serve, check, output_path.as_deref(), format_json, json_collector_single.as_ref());
+    if format_json {
+        if let Some(ref collector) = json_collector_single {
+            print_json_diagnostics(&collector.lock().unwrap());
+        }
+    }
 
     if !watch {
         if has_errors {
@@ -469,6 +736,9 @@ fn main() {
             let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
             rt.block_on(htmlang::serve::run(port, out_path, server_tx));
         });
+        if open_browser {
+            open_in_browser(port);
+        }
         Some(tx)
     } else {
         None
@@ -612,7 +882,7 @@ fn watch_loop(
                 // Recompile all source files
                 for file in source_files {
                     let path_str = file.to_string_lossy().to_string();
-                    let (_, new_includes) = compile(&path_str, dev, serve, false, None);
+                    let (_, new_includes) = compile(&path_str, dev, serve, false, None, false, None);
                     for inc in &new_includes {
                         let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                         if let Some(h) = hash_file(inc) {
@@ -626,7 +896,7 @@ fn watch_loop(
                     for file in &collect_hl_files(watch_dir) {
                         if !source_files.contains(file) {
                             let path_str = file.to_string_lossy().to_string();
-                            let (_, new_includes) = compile(&path_str, dev, serve, false, None);
+                            let (_, new_includes) = compile(&path_str, dev, serve, false, None, false, None);
                             for inc in &new_includes {
                                 let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                             }

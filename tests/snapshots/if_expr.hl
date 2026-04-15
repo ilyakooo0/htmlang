@@ -1,0 +1,12 @@
+@page If Expression
+@let active true
+@let theme dark
+
+@el [background if($active, blue, gray)]
+  Active element
+
+@el [background if($active, #3b82f6, #999), color if($theme == dark, white, black)]
+  Themed element
+
+@el [padding if($active != true, 10, 20)]
+  Inactive padding

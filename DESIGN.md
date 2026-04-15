@@ -422,6 +422,23 @@ When `@each` has more than one variable and items contain spaces, values are des
 
 `var()` and `calc()` expressions are also passed through as-is.
 
+## Conditional attribute values
+
+Use `if(condition, true_value, false_value)` inside attribute values for conditional styling:
+
+```
+@let active true
+@let theme dark
+
+@el [background if($active, blue, gray)]
+  Conditionally styled
+
+@el [color if($theme == dark, white, black)]
+  Theme-aware text
+```
+
+Supports equality (`==`), inequality (`!=`), and truthy checks.
+
 ## Attributes reference
 
 ### Layout (set on parent)
@@ -599,11 +616,18 @@ This reads the SVG file and embeds its content directly, keeping the output self
 ```
 htmlang init                 # scaffold a new project
 htmlang init my-site         # scaffold in a new directory
+htmlang new about-us         # create about-us.hl from template
 htmlang page.hl              # compile page.hl → page.html
 htmlang site/                # compile all .hl files in directory
 htmlang --watch page.hl      # compile and watch for changes
 htmlang -w page.hl           # short form
 htmlang --serve site/        # serve a multi-page site with hot reload
+htmlang -s --open site/      # serve and open browser
+htmlang check page.hl        # check for errors without writing output
+htmlang check src/           # check all .hl files in a directory
+htmlang convert page.html    # convert HTML to .hl format (stdout)
+htmlang build src/ -o dist/  # parallel compile + copy static assets
+htmlang --format json page.hl  # output diagnostics as JSON
 ```
 
 Watch mode recompiles automatically when the source file or any `@include`d/`@import`ed files change.

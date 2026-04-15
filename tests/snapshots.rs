@@ -1893,3 +1893,141 @@ fn no_warning_new_media_prefixes() {
         diags
     );
 }
+
+// ---------------------------------------------------------------------------
+// Feature: if() conditional attribute values
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_if_expr() {
+    snapshot_test("if_expr");
+}
+
+#[test]
+fn if_expr_true_branch() {
+    let output = compile("@let x true\n@el [background if($x, blue, gray)]\n  test");
+    assert!(output.contains("blue"), "should use true branch, got: {}", output);
+    assert!(!output.contains("gray"), "should not contain false branch");
+}
+
+#[test]
+fn if_expr_false_branch() {
+    let output = compile("@let x false\n@el [background if($x, blue, gray)]\n  test");
+    assert!(output.contains("gray"), "should use false branch, got: {}", output);
+    assert!(!output.contains("blue"), "should not contain true branch");
+}
+
+#[test]
+fn if_expr_equality_condition() {
+    let output = compile("@let theme dark\n@el [color if($theme == dark, white, black)]\n  test");
+    assert!(output.contains("white"), "should match equality, got: {}", output);
+}
+
+#[test]
+fn if_expr_inequality_condition() {
+    let output = compile("@let mode light\n@el [color if($mode != dark, green, red)]\n  test");
+    assert!(output.contains("green"), "should match inequality, got: {}", output);
+}
+
+#[test]
+fn if_expr_passthrough_non_if() {
+    // Regular values should not be affected
+    let output = compile("@el [background blue]\n  test");
+    assert!(output.contains("blue"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature: HTML-to-HL converter
+// ---------------------------------------------------------------------------
+
+#[test]
+fn convert_basic_div() {
+    let hl = htmlang::convert::convert("<div>Hello</div>");
+    assert!(hl.contains("@el"), "div should become @el: {}", hl);
+    assert!(hl.contains("Hello"), "text should be preserved: {}", hl);
+}
+
+#[test]
+fn convert_paragraph() {
+    let hl = htmlang::convert::convert("<p>Some text</p>");
+    assert!(hl.contains("@paragraph"), "p should become @paragraph: {}", hl);
+}
+
+#[test]
+fn convert_link() {
+    let hl = htmlang::convert::convert("<a href=\"https://example.com\">Click</a>");
+    assert!(hl.contains("@link"), "a should become @link: {}", hl);
+    assert!(hl.contains("https://example.com"), "href preserved: {}", hl);
+}
+
+#[test]
+fn convert_image() {
+    let hl = htmlang::convert::convert("<img src=\"photo.jpg\" alt=\"A photo\">");
+    assert!(hl.contains("@image"), "img should become @image: {}", hl);
+    assert!(hl.contains("photo.jpg"), "src preserved: {}", hl);
+    assert!(hl.contains("alt A photo"), "alt preserved: {}", hl);
+}
+
+#[test]
+fn convert_nested() {
+    let hl = htmlang::convert::convert("<div><span>inner</span></div>");
+    assert!(hl.contains("@el"), "outer div: {}", hl);
+    assert!(hl.contains("@text"), "span becomes @text: {}", hl);
+    assert!(hl.contains("inner"), "text preserved: {}", hl);
+}
+
+#[test]
+fn convert_semantic_elements() {
+    let hl = htmlang::convert::convert("<nav><header>H</header></nav>");
+    assert!(hl.contains("@nav"), "nav preserved: {}", hl);
+    assert!(hl.contains("@header"), "header preserved: {}", hl);
+}
+
+#[test]
+fn convert_list() {
+    let hl = htmlang::convert::convert("<ul><li>A</li><li>B</li></ul>");
+    assert!(hl.contains("@list"), "ul becomes @list: {}", hl);
+    assert!(hl.contains("@item"), "li becomes @item: {}", hl);
+}
+
+#[test]
+fn convert_ordered_list() {
+    let hl = htmlang::convert::convert("<ol><li>First</li></ol>");
+    assert!(hl.contains("@list [ordered]"), "ol becomes @list [ordered]: {}", hl);
+}
+
+#[test]
+fn convert_form_elements() {
+    let hl = htmlang::convert::convert("<form><input type=\"text\"><button>Go</button></form>");
+    assert!(hl.contains("@form"), "form preserved: {}", hl);
+    assert!(hl.contains("@input"), "input preserved: {}", hl);
+    assert!(hl.contains("@button"), "button preserved: {}", hl);
+}
+
+#[test]
+fn convert_table() {
+    let hl = htmlang::convert::convert("<table><tr><td>Cell</td></tr></table>");
+    assert!(hl.contains("@table"), "table: {}", hl);
+    assert!(hl.contains("@tr"), "tr: {}", hl);
+    assert!(hl.contains("@td"), "td: {}", hl);
+}
+
+#[test]
+fn convert_strips_html_boilerplate() {
+    let hl = htmlang::convert::convert("<!DOCTYPE html><html><head><title>T</title></head><body><p>Hi</p></body></html>");
+    assert!(hl.contains("@paragraph"), "should extract body content: {}", hl);
+    assert!(!hl.contains("DOCTYPE"), "should strip doctype: {}", hl);
+}
+
+#[test]
+fn convert_inline_style() {
+    let hl = htmlang::convert::convert("<div style=\"padding: 20px; background: red;\">X</div>");
+    assert!(hl.contains("padding 20"), "padding converted: {}", hl);
+    assert!(hl.contains("background red"), "background converted: {}", hl);
+}
+
+#[test]
+fn convert_script_to_raw() {
+    let hl = htmlang::convert::convert("<script>alert('hi')</script>");
+    assert!(hl.contains("@raw"), "script becomes @raw: {}", hl);
+}
