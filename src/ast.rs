@@ -116,6 +116,10 @@ pub enum ElementKind {
     Spacer,
     Badge,
     Tooltip,
+    Avatar,
+    Carousel,
+    Chip,
+    Tag,
 }
 
 #[derive(Debug, Clone)]

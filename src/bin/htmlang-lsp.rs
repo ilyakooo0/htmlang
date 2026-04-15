@@ -727,6 +727,41 @@ fn snippet_completions(range: Range) -> Vec<CompletionItem> {
             "Interactive button with hover effect",
             "@el [padding 12 24, background ${1:#3b82f6}, hover:background ${2:#2563eb}, rounded 8, cursor pointer, transition all 0.15s ease] > @link ${3:url}\n  @text [color white, bold] ${4:Click me}",
         ),
+        (
+            "form with inputs",
+            "Form with labeled inputs and submit button",
+            "@form [spacing 16]\n  @label ${1:Name}\n    @input [type text, name ${2:name}, placeholder ${3:Enter name}, required]\n  @label ${4:Email}\n    @input [type email, name ${5:email}, placeholder ${6:Enter email}, required]\n  @button [type submit, padding 12 24, background ${7:#3b82f6}, color white, rounded 8, bold, cursor pointer] Submit",
+        ),
+        (
+            "grid layout",
+            "Responsive grid with columns",
+            "@grid [grid-cols ${1:3}, gap ${2:20}]\n  @el [padding 20, background ${3:#f3f4f6}, rounded 8]\n    ${4:Item 1}\n  @el [padding 20, background ${3:#f3f4f6}, rounded 8]\n    ${5:Item 2}\n  @el [padding 20, background ${3:#f3f4f6}, rounded 8]\n    ${6:Item 3}",
+        ),
+        (
+            "footer section",
+            "Footer with columns and copyright",
+            "@footer [padding 40, background ${1:#1a1a2e}, color ${2:#ccc}]\n  @row [spacing 40, wrap]\n    @column [spacing 10, width fill]\n      @text [bold, color white] ${3:Company}\n      @link ${4:#} ${5:About}\n      @link ${6:#} ${7:Contact}\n    @column [spacing 10, width fill]\n      @text [bold, color white] ${8:Resources}\n      @link ${9:#} ${10:Documentation}\n  @text [size 14, color #888, center-x] \\u00a9 2026 ${11:Company Name}",
+        ),
+        (
+            "avatar with image",
+            "Circular avatar with fallback",
+            "@avatar [width ${1:48}, height ${1:48}, background ${2:#e5e7eb}]\n  @image [width ${1:48}, height ${1:48}, object-fit cover, alt ${3:avatar}] ${4:url}",
+        ),
+        (
+            "carousel horizontal",
+            "Scroll-snap horizontal carousel",
+            "@carousel [gap ${1:16}, padding ${2:16}]\n  @el [width ${3:300}, padding 20, background ${4:#f3f4f6}, rounded 8]\n    ${5:Slide 1}\n  @el [width ${3:300}, padding 20, background ${4:#f3f4f6}, rounded 8]\n    ${6:Slide 2}\n  @el [width ${3:300}, padding 20, background ${4:#f3f4f6}, rounded 8]\n    ${7:Slide 3}",
+        ),
+        (
+            "dark mode toggle",
+            "Element with light/dark mode styles",
+            "@el [padding 20, background ${1:white}, dark:background ${2:#1a1a2e}, color ${3:#333}, dark:color ${4:#eee}, rounded 8, transition all 0.2s ease]\n  ${5:Content}",
+        ),
+        (
+            "truncated text",
+            "Text with ellipsis overflow",
+            "@text [max-width ${1:200}, truncate] ${2:Long text that will be truncated...}",
+        ),
     ];
 
     snippets
@@ -1050,6 +1085,24 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("allow", "Iframe permissions policy", true),
         ("allowfullscreen", "Allow iframe fullscreen", false),
         ("target", "Link/form target (_blank/_self/_parent/_top)", true),
+        // CSS shorthands
+        ("truncate", "Truncate text with ellipsis (single line)", false),
+        ("line-clamp", "Clamp text to N lines with ellipsis", true),
+        ("blur", "Apply blur filter (px)", true),
+        ("backdrop-blur", "Apply backdrop blur filter (px)", true),
+        ("no-scrollbar", "Hide scrollbar while keeping overflow", false),
+        ("skeleton", "Add shimmer loading skeleton animation", false),
+        ("gradient", "Linear gradient (color1 color2 [angle])", true),
+        // Direction
+        ("direction", "Text direction (ltr/rtl)", true),
+        // Container query prefixes
+        ("cq-sm:", "Container query at 640px+", false),
+        ("cq-md:", "Container query at 768px+", false),
+        ("cq-lg:", "Container query at 1024px+", false),
+        // Pseudo-elements
+        ("before:", "Style ::before pseudo-element", false),
+        ("after:", "Style ::after pseudo-element", false),
+        ("selection:", "Style text selection", false),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -1357,20 +1410,54 @@ fn hover_variable(text: &str, name: &str) -> Option<String> {
 }
 
 fn hover_user_fn(text: &str, name: &str) -> Option<String> {
-    for line in text.lines() {
+    let lines: Vec<&str> = text.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("@fn ") {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if parts.first() == Some(&name) {
                 let params = &parts[1..];
+
+                // Collect doc-comment lines above the @fn (lines starting with --)
+                let mut doc_lines: Vec<&str> = Vec::new();
+                let mut j = i;
+                while j > 0 {
+                    j -= 1;
+                    let prev = lines[j].trim();
+                    if let Some(comment) = prev.strip_prefix("-- ") {
+                        doc_lines.push(comment);
+                    } else if prev.starts_with("--") {
+                        doc_lines.push(&prev[2..]);
+                    } else {
+                        break;
+                    }
+                }
+                doc_lines.reverse();
+
+                let doc_str = if doc_lines.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n\n{}", doc_lines.join("\n"))
+                };
+
+                // Format params showing defaults
                 let params_str = if params.is_empty() {
                     String::new()
                 } else {
-                    format!("\n\nParameters: {}", params.join(", "))
+                    let formatted: Vec<String> = params.iter().map(|p| {
+                        if p.contains('=') {
+                            let (name, default) = p.split_once('=').unwrap();
+                            format!("{} (default: {})", name, default)
+                        } else {
+                            p.to_string()
+                        }
+                    }).collect();
+                    format!("\n\nParameters: {}", formatted.join(", "))
                 };
+
                 return Some(format!(
-                    "**@{}** \u{2014} User function{}",
-                    name, params_str
+                    "**@{}** \u{2014} User function{}{}",
+                    name, params_str, doc_str
                 ));
             }
         }
@@ -1698,6 +1785,34 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@iframe" => "**@iframe** \u{2014} Embedded page\n\nRenders as `<iframe>`.\n\nUsage: `@iframe [width fill, height 400] https://example.com`\n\nAttributes: `sandbox`, `allow`, `allowfullscreen`",
         "@output" => "**@output** \u{2014} Form output\n\nRenders as `<output>`. Displays calculation results in forms.\n\nUsage: `@output [for a b] Result`",
         "@canvas" => "**@canvas** \u{2014} Drawing surface\n\nRenders as `<canvas>`. Use with `@raw` JavaScript for drawing.\n\nUsage: `@canvas [width 400, height 300, id myCanvas]`",
+        // Convenience elements
+        "@grid" => "**@grid** \u{2014} CSS Grid container\n\nRenders as `<div>` with `display: grid`.\n\nUsage: `@grid [grid-cols 3, gap 20]`",
+        "@stack" => "**@stack** \u{2014} Stack container\n\nRenders as `<div>` with `position: relative`. Children can be absolutely positioned on top of each other.",
+        "@spacer" => "**@spacer** \u{2014} Flexible spacer\n\nRenders as `<div>` with `flex: 1`. Pushes siblings apart in flex containers.",
+        "@badge" => "**@badge** \u{2014} Badge\n\nRenders as `<span>` with pill shape, centered text.\n\nUsage: `@badge [background #3b82f6, color white] NEW`",
+        "@tooltip" => "**@tooltip** \u{2014} Tooltip\n\nRenders as `<span>` with `title` attribute for native tooltips.\n\nUsage: `@tooltip [cursor help] Hover me`",
+        "@avatar" => "**@avatar** \u{2014} Avatar\n\nRenders as `<div>` with circular shape, centered content, `overflow: hidden`.\n\nUsage:\n```\n@avatar [width 48, height 48, background #e5e7eb]\n  @image [object-fit cover] photo.jpg\n```",
+        "@carousel" => "**@carousel** \u{2014} Horizontal carousel\n\nRenders as `<div>` with horizontal scroll-snap.\nChildren auto-receive `scroll-snap-align: start` and `flex-shrink: 0`.\n\nUsage:\n```\n@carousel [gap 16]\n  @el [width 300] Slide 1\n  @el [width 300] Slide 2\n```",
+        "@chip" => "**@chip** \u{2014} Chip / pill\n\nRenders as `<span>` with rounded borders, inline-flex layout.\n\nUsage: `@chip [background #e5e7eb] Category`",
+        "@tag" => "**@tag** \u{2014} Tag label\n\nRenders as `<span>` with subtle rounded rectangle, bold small text.\n\nUsage: `@tag [background #dbeafe, color #1e40af] v2.0`",
+        // New directives
+        "@use" => "**@use** \u{2014} Selective import\n\nImport specific functions/defines from a file.\n\n```\n@use \"buttons.hl\" primary-button, secondary-button\n@use theme.hl card-style\n```\n\nOnly the named definitions are imported.",
+        // CSS shorthands
+        "truncate" => "**truncate** \u{2014} Truncate with ellipsis\n\nShorthand for: `overflow: hidden; text-overflow: ellipsis; white-space: nowrap`\n\nUsage: `@text [max-width 200, truncate] Long text here...`",
+        "line-clamp" => "**line-clamp** `<N>` \u{2014} Multi-line truncation\n\nClamps text to N lines with ellipsis.\n\nUsage: `@paragraph [line-clamp 3] Long paragraph...`",
+        "blur" => "**blur** `<value>` \u{2014} Apply blur filter\n\nShorthand for `filter: blur(Npx)`.\n\nUsage: `[blur 4]` \u{2192} `filter: blur(4px)`",
+        "backdrop-blur" => "**backdrop-blur** `<value>` \u{2014} Apply backdrop blur\n\nShorthand for `backdrop-filter: blur(Npx)`.\n\nUsage: `[backdrop-blur 10]` \u{2192} `backdrop-filter: blur(10px)`",
+        "no-scrollbar" => "**no-scrollbar** \u{2014} Hide scrollbar\n\nHides scrollbar while keeping overflow scrollable.\n\nSets `scrollbar-width: none` and `::-webkit-scrollbar { display: none }`.",
+        "skeleton" => "**skeleton** \u{2014} Loading skeleton\n\nAdds a shimmer animation for loading placeholders.\n\nUsage: `@el [width fill, height 20, rounded 4, skeleton]`",
+        "gradient" => "**gradient** `<from> <to> [angle]` \u{2014} Linear gradient\n\nShorthand for `background: linear-gradient(...)`.\n\nUsage:\n- `[gradient #fff #000]` \u{2192} top-to-bottom\n- `[gradient #fff #000 45deg]` \u{2192} 45\u{00b0} angle",
+        "direction" => "**direction** `<value>` \u{2014} Text direction (`ltr`, `rtl`).",
+        // Variable filters
+        "\\$|uppercase" => "**|uppercase** \u{2014} Convert variable to UPPERCASE.\n\nUsage: `$name|uppercase`",
+        "\\$|lowercase" => "**|lowercase** \u{2014} Convert variable to lowercase.\n\nUsage: `$name|lowercase`",
+        "\\$|capitalize" => "**|capitalize** \u{2014} Capitalize first letter.\n\nUsage: `$name|capitalize`",
+        "\\$|trim" => "**|trim** \u{2014} Strip leading/trailing whitespace.\n\nUsage: `$name|trim`",
+        "\\$|length" => "**|length** \u{2014} Get string length.\n\nUsage: `$name|length`",
+        "\\$|reverse" => "**|reverse** \u{2014} Reverse string.\n\nUsage: `$name|reverse`",
         _ => return None,
     };
 
@@ -2352,6 +2467,70 @@ fn code_actions(
                     }
                 }
             }
+        }
+
+        // Quick-fix: add missing type to @input
+        if msg.contains("@input missing 'type'") {
+            let line = diag.range.start.line as usize;
+            let lines: Vec<&str> = text.lines().collect();
+            if let Some(source_line) = lines.get(line) {
+                if let Some(bracket_pos) = source_line.find('[') {
+                    let insert_pos = bracket_pos + 1;
+                    let edit = TextEdit {
+                        range: Range::new(
+                            Position::new(diag.range.start.line, insert_pos as u32),
+                            Position::new(diag.range.start.line, insert_pos as u32),
+                        ),
+                        new_text: "type text, ".into(),
+                    };
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Add type=\"text\" attribute".into(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }));
+                } else if source_line.contains("@input") {
+                    if let Some(pos) = source_line.find("@input") {
+                        let after = pos + "@input".len();
+                        let edit = TextEdit {
+                            range: Range::new(
+                                Position::new(diag.range.start.line, after as u32),
+                                Position::new(diag.range.start.line, after as u32),
+                            ),
+                            new_text: " [type text]".into(),
+                        };
+                        let mut changes = HashMap::new();
+                        changes.insert(uri.clone(), vec![edit]);
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: "Add type=\"text\" attribute".into(),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            diagnostics: Some(vec![diag.clone()]),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }));
+                    }
+                }
+            }
+        }
+
+        // Quick-fix: low contrast ratio — suggest swapping to a high-contrast pair
+        if msg.contains("low contrast ratio") {
+            actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                title: "Acknowledged: low contrast ratio".into(),
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: Some(vec![diag.clone()]),
+                is_preferred: Some(false),
+                ..Default::default()
+            }));
         }
 
         // Quick-fix: auto-import suggestion for unknown element @name

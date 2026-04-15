@@ -203,6 +203,8 @@ Commands:
   init [dir]            Create a new project (defaults to current directory)
   new <page-name>       Create a new .hl page from a template
   build <dir> [-o <out>]  Compile all .hl files recursively (parallel)
+  serve [dir|file] [-p N] [--open]  Start dev server with hot reload
+  watch [dir|file] [-o out]  Watch for changes and recompile
   check <file.hl | dir> Check for errors without writing output
   convert <file.html>   Convert an HTML file to .hl format (stdout)
   fmt <file.hl>         Format a .hl file (normalizes indentation)
@@ -522,6 +524,69 @@ fn open_in_browser(port: u16) {
         "xdg-open"
     };
     let _ = std::process::Command::new(cmd).arg(&url).spawn();
+}
+
+// ---------------------------------------------------------------------------
+// Config file support (htmlang.toml)
+// ---------------------------------------------------------------------------
+
+struct ProjectConfig {
+    output: Option<String>,
+    port: u16,
+    variables: Vec<(String, String)>,
+    breakpoints: Vec<(String, String)>,
+}
+
+fn load_config(target: &Path) -> ProjectConfig {
+    let mut config = ProjectConfig {
+        output: None,
+        port: 3000,
+        variables: Vec::new(),
+        breakpoints: Vec::new(),
+    };
+
+    let config_path = if target.is_dir() {
+        target.join("htmlang.toml")
+    } else {
+        target.parent().unwrap_or(Path::new(".")).join("htmlang.toml")
+    };
+
+    let content = match fs::read_to_string(&config_path) {
+        Ok(s) => s,
+        Err(_) => return config,
+    };
+
+    let mut section = "";
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            section = &trimmed[1..trimmed.len() - 1];
+            continue;
+        }
+        if let Some((key, value)) = trimmed.split_once('=') {
+            let key = key.trim();
+            let value = value.trim().trim_matches('"');
+            match section {
+                "" => match key {
+                    "output" => config.output = Some(value.to_string()),
+                    "port" => config.port = value.parse().unwrap_or(3000),
+                    _ => {}
+                },
+                "variables" => {
+                    config.variables.push((key.to_string(), value.to_string()));
+                }
+                "breakpoints" => {
+                    config.breakpoints.push((key.to_string(), value.to_string()));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    config
 }
 
 fn main() {
@@ -938,6 +1003,120 @@ fn main() {
                 // Fallback: just report the built files in tmp_dir
                 eprintln!("files available in {}", tmp_dir.display());
             }
+        }
+        return;
+    }
+
+    // Handle "serve" standalone subcommand
+    if args.len() >= 2 && args[1] == "serve" {
+        let mut serve_target = None;
+        let mut serve_port: u16 = 3000;
+        let mut serve_open = false;
+        let mut si = 2;
+        while si < args.len() {
+            match args[si].as_str() {
+                "-p" | "--port" => {
+                    si += 1;
+                    serve_port = args.get(si).and_then(|p| p.parse().ok()).unwrap_or(3000);
+                }
+                "--open" => serve_open = true,
+                _ if serve_target.is_none() => serve_target = Some(args[si].clone()),
+                _ => {
+                    eprintln!("unknown argument: {}", args[si]);
+                    process::exit(1);
+                }
+            }
+            si += 1;
+        }
+        let target = serve_target.unwrap_or_else(|| ".".to_string());
+        let target_path = Path::new(&target);
+        // Load config
+        let config = load_config(target_path);
+        let effective_port = if serve_port != 3000 { serve_port } else { config.port };
+
+        // Do initial compile
+        if target_path.is_dir() {
+            let hl_files = collect_hl_files_recursive(target_path);
+            for file in &hl_files {
+                let path_str = file.to_string_lossy().to_string();
+                let effective_out = config.output.as_ref().map(|o| {
+                    let rel = file.strip_prefix(target_path).unwrap_or(file);
+                    let out_p = Path::new(o).join(rel).with_extension("html");
+                    if let Some(parent) = out_p.parent() { let _ = fs::create_dir_all(parent); }
+                    out_p.to_string_lossy().to_string()
+                });
+                compile(&path_str, true, true, false, effective_out.as_deref(), false, None);
+            }
+            let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
+            let serve_dir = config.output.as_ref().map(|o| PathBuf::from(o)).unwrap_or_else(|| target_path.to_path_buf());
+            let index_path = serve_dir.join("index.html");
+            let server_tx = tx.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
+                rt.block_on(htmlang::serve::run(effective_port, index_path, server_tx));
+            });
+            if serve_open { open_in_browser(effective_port); }
+            watch_loop(target_path, &hl_files, &[], true, true, Some(tx));
+        } else {
+            let (_, included) = compile(&target, true, true, false, None, false, None);
+            let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
+            let out_path = Path::new(&target).with_extension("html");
+            let server_tx = tx.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
+                rt.block_on(htmlang::serve::run(effective_port, out_path, server_tx));
+            });
+            if serve_open { open_in_browser(effective_port); }
+            let files = vec![PathBuf::from(&target)];
+            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, true, true, Some(tx));
+        }
+        return;
+    }
+
+    // Handle "watch" standalone subcommand
+    if args.len() >= 2 && args[1] == "watch" {
+        let mut watch_target = None;
+        let mut watch_output = None;
+        let mut wi = 2;
+        while wi < args.len() {
+            match args[wi].as_str() {
+                "-o" | "--output" => {
+                    wi += 1;
+                    watch_output = args.get(wi).cloned();
+                }
+                _ if watch_target.is_none() => watch_target = Some(args[wi].clone()),
+                _ => {
+                    eprintln!("unknown argument: {}", args[wi]);
+                    process::exit(1);
+                }
+            }
+            wi += 1;
+        }
+        let target = watch_target.unwrap_or_else(|| ".".to_string());
+        let target_path = Path::new(&target);
+        let config = load_config(target_path);
+        let effective_output = watch_output.or(config.output);
+
+        if target_path.is_dir() {
+            let hl_files = collect_hl_files_recursive(target_path);
+            if let Some(ref out) = effective_output { let _ = fs::create_dir_all(out); }
+            let mut all_included = Vec::new();
+            for file in &hl_files {
+                let path_str = file.to_string_lossy().to_string();
+                let effective_out = effective_output.as_ref().map(|o| {
+                    let rel = file.strip_prefix(target_path).unwrap_or(file);
+                    let out_p = Path::new(o).join(rel).with_extension("html");
+                    if let Some(parent) = out_p.parent() { let _ = fs::create_dir_all(parent); }
+                    out_p.to_string_lossy().to_string()
+                });
+                let (_, included) = compile(&path_str, false, false, false, effective_out.as_deref(), false, None);
+                all_included.extend(included);
+            }
+            watch_loop(target_path, &hl_files, &all_included, false, false, None);
+        } else {
+            let (_, included) = compile(&target, false, false, false, effective_output.as_deref(), false, None);
+            let files = vec![PathBuf::from(&target)];
+            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, false, false, None);
         }
         return;
     }

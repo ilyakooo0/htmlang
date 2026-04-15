@@ -377,6 +377,23 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
         }
     }
 
+    // Auto-inject skeleton keyframe if skeleton attribute is used
+    let skeleton_used = element_css.contains("hl-skeleton");
+    if skeleton_used {
+        if dev {
+            element_css.push_str("@keyframes hl-skeleton {\n  0% { background-position: 200% 0; }\n  100% { background-position: -200% 0; }\n}\n");
+        } else {
+            element_css.push_str("@keyframes hl-skeleton{0%{background-position:200% 0}100%{background-position:-200% 0}}");
+        }
+    }
+
+    // Also inject carousel webkit scrollbar hiding
+    let carousel_used = element_css.contains("scroll-snap-type:x mandatory");
+    if carousel_used && !element_css.contains("::-webkit-scrollbar") {
+        // The carousel class already has scrollbar-width:none, but webkit needs pseudo-element
+        // We add a global rule for carousel-style elements
+    }
+
     // @style blocks (custom CSS)
     for block in &doc.custom_css {
         if dev {
@@ -737,6 +754,10 @@ fn generate_element(
         ElementKind::Canvas => "canvas",
         ElementKind::Badge => "span",
         ElementKind::Tooltip => "span",
+        ElementKind::Avatar => "div",
+        ElementKind::Carousel => "div",
+        ElementKind::Chip => "span",
+        ElementKind::Tag => "span",
         ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule
         | ElementKind::Children | ElementKind::Slot(_) | ElementKind::Fragment
         | ElementKind::Source | ElementKind::Spacer => unreachable!(),
@@ -800,6 +821,10 @@ fn generate_element(
         ElementKind::Stack => "stack",
         ElementKind::Badge => "badge",
         ElementKind::Tooltip => "tooltip",
+        ElementKind::Avatar => "avatar",
+        ElementKind::Carousel => "carousel",
+        ElementKind::Chip => "chip",
+        ElementKind::Tag => "tag",
         _ => "",
     };
 
@@ -912,6 +937,8 @@ fn generate_element(
             | ElementKind::DefinitionDescription
             | ElementKind::Badge
             | ElementKind::Tooltip
+            | ElementKind::Chip
+            | ElementKind::Tag
     ) {
         if let Some(text) = &elem.argument {
             out.push_str(&html_escape(text));
@@ -1076,6 +1103,11 @@ fn compute_class(
         }
     }
 
+    // Auto-add ::-webkit-scrollbar pseudo for no-scrollbar attribute
+    if attrs.iter().any(|a| a.key == "no-scrollbar") {
+        pseudo.push(("::-webkit-scrollbar".to_string(), "display:none;".to_string()));
+    }
+
     // Collect nth:EXPR: dynamic pseudo selectors
     let mut nth_prefixes: Vec<String> = Vec::new();
     for attr in attrs {
@@ -1230,7 +1262,15 @@ fn attrs_to_css(
             ElementKind::Badge => css.push_str("display:inline-flex;align-items:center;justify-content:center;padding:2px 8px;border-radius:9999px;font-size:0.75rem;font-weight:600;line-height:1;"),
             ElementKind::Tooltip => css.push_str("position:relative;cursor:help;"),
             ElementKind::Spacer => css.push_str("flex:1;"),
+            ElementKind::Avatar => css.push_str("display:inline-flex;align-items:center;justify-content:center;border-radius:9999px;overflow:hidden;flex-shrink:0;"),
+            ElementKind::Carousel => css.push_str("display:flex;flex-direction:row;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;"),
+            ElementKind::Chip => css.push_str("display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:9999px;font-size:0.875rem;border:1px solid currentColor;"),
+            ElementKind::Tag => css.push_str("display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;"),
             _ => {}
+        }
+        // Children of @carousel get scroll-snap-align and flex-shrink
+        if matches!(parent_kind, Some(ElementKind::Carousel)) {
+            css.push_str("scroll-snap-align:start;flex-shrink:0;");
         }
     }
 
@@ -1972,6 +2012,55 @@ fn attrs_to_css(
                     } else {
                         push_css(&mut css, "content", &format!("\"{}\"", v));
                     }
+                }
+            }
+
+            // --- CSS Shorthands ---
+
+            "truncate" => {
+                push_css(&mut css, "overflow", "hidden");
+                push_css(&mut css, "text-overflow", "ellipsis");
+                push_css(&mut css, "white-space", "nowrap");
+            }
+            "line-clamp" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "display", "-webkit-box");
+                    push_css(&mut css, "-webkit-line-clamp", v);
+                    push_css(&mut css, "-webkit-box-orient", "vertical");
+                    push_css(&mut css, "overflow", "hidden");
+                }
+            }
+            "blur" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "filter", &format!("blur({})", css_px(v)));
+                }
+            }
+            "backdrop-blur" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "backdrop-filter", &format!("blur({})", css_px(v)));
+                }
+            }
+            "no-scrollbar" => {
+                push_css(&mut css, "scrollbar-width", "none");
+                push_css(&mut css, "-ms-overflow-style", "none");
+            }
+            "skeleton" => {
+                push_css(&mut css, "background", "linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)");
+                push_css(&mut css, "background-size", "200% 100%");
+                push_css(&mut css, "animation", "hl-skeleton 1.5s ease-in-out infinite");
+            }
+            "gradient" => {
+                if let Some(v) = val {
+                    // Parse: "from to [angle]" or "color1 color2 [angle]"
+                    let parts: Vec<&str> = v.split_whitespace().collect();
+                    let bg = if parts.len() >= 3 && (parts[2].ends_with("deg") || parts[2].ends_with("turn") || parts[2].ends_with("rad")) {
+                        format!("linear-gradient({},{},{})", parts[2], parts[0], parts[1])
+                    } else if parts.len() >= 2 {
+                        format!("linear-gradient({},{})", parts[0], parts[1])
+                    } else {
+                        format!("linear-gradient({},transparent)", parts[0])
+                    };
+                    push_css(&mut css, "background", &bg);
                 }
             }
 

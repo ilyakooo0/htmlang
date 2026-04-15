@@ -2370,3 +2370,122 @@ fn no_warning_new_elements() {
         diags
     );
 }
+
+// --- New feature tests ---
+
+#[test]
+fn snapshot_variable_filters() {
+    snapshot_test("variable_filters");
+}
+
+#[test]
+fn snapshot_new_elements_5() {
+    snapshot_test("new_elements_5");
+}
+
+#[test]
+fn snapshot_css_shorthands() {
+    snapshot_test("css_shorthands");
+}
+
+#[test]
+fn test_variable_filters() {
+    let result = htmlang::parser::parse("@let name hello\n@text $name|uppercase");
+    assert!(result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error));
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("HELLO"), "uppercase filter should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@let name HELLO\n@text $name|lowercase");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("hello"), "lowercase filter should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@let name hello\n@text $name|capitalize");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("Hello"), "capitalize filter should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@let name hello\n@text $name|length");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("5"), "length filter should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@let name hello\n@text $name|reverse");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("olleh"), "reverse filter should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@let name hello world\n@text $name|truncate:5");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("hello..."), "truncate filter should work, got: {}", html);
+}
+
+#[test]
+fn test_new_elements_parse() {
+    // Avatar
+    let diags = parse_diagnostics("@avatar [width 48, height 48]\n  @text AB");
+    assert!(!diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error), "avatar: {:?}", diags);
+
+    // Carousel
+    let diags = parse_diagnostics("@carousel [gap 16]\n  @el Slide 1");
+    assert!(!diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error), "carousel: {:?}", diags);
+
+    // Chip
+    let diags = parse_diagnostics("@chip [background #eee] Tag");
+    assert!(!diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error), "chip: {:?}", diags);
+
+    // Tag
+    let diags = parse_diagnostics("@tag [color blue] v1.0");
+    assert!(!diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error), "tag: {:?}", diags);
+}
+
+#[test]
+fn test_css_shorthands_output() {
+    let result = htmlang::parser::parse("@text [truncate] Hello");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("text-overflow:ellipsis"), "truncate should add ellipsis, got: {}", html);
+    assert!(html.contains("white-space:nowrap"), "truncate should add nowrap");
+
+    let result = htmlang::parser::parse("@paragraph [line-clamp 3] Text");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("-webkit-line-clamp:3"), "line-clamp should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@el [blur 4] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("filter:blur(4px)"), "blur should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@el [backdrop-blur 10] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("backdrop-filter:blur(10px)"), "backdrop-blur should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@el [no-scrollbar] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("scrollbar-width:none"), "no-scrollbar should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@el [skeleton, width 100, height 20] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("hl-skeleton"), "skeleton should add animation, got: {}", html);
+    assert!(html.contains("@keyframes hl-skeleton"), "skeleton should add keyframes, got: {}", html);
+
+    let result = htmlang::parser::parse("@el [gradient #fff #000] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("linear-gradient(#fff,#000)"), "gradient should work, got: {}", html);
+
+    let result = htmlang::parser::parse("@el [gradient #fff #000 45deg] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("linear-gradient(45deg,#fff,#000)"), "gradient with angle should work, got: {}", html);
+}
+
+#[test]
+fn test_carousel_children_snap() {
+    let result = htmlang::parser::parse("@carousel\n  @el A\n  @el B");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("scroll-snap-align:start"), "carousel children should have snap-align, got: {}", html);
+}
+
+#[test]
+fn test_use_directive() {
+    // We can't test @use with actual files in unit tests easily, but we can verify
+    // the parser recognizes the directive without errors when it can't find the file
+    let result = htmlang::parser::parse("@use nonexistent.hl card");
+    let has_use_error = result.diagnostics.iter().any(|d|
+        d.message.contains("cannot use") && d.severity == htmlang::parser::Severity::Error
+    );
+    assert!(has_use_error, "@use should report error for missing file, got: {:?}", result.diagnostics);
+}

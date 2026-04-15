@@ -560,6 +560,107 @@ impl Parser {
             return Ok(None); // No nodes emitted
         }
 
+        // --- @use (selective import) ---
+
+        if let Some(rest) = content.strip_prefix("@use ") {
+            let rest = rest.trim();
+            // @use "./file.hl" fn1, fn2, define1
+            let (filename, names_str) = if rest.starts_with('"') {
+                if let Some(end_quote) = rest[1..].find('"') {
+                    let filename = &rest[1..end_quote + 1];
+                    let names = rest[end_quote + 2..].trim();
+                    (filename.to_string(), names.to_string())
+                } else {
+                    return Err(ParseError {
+                        line: line_num,
+                        message: "@use requires: @use \"file.hl\" name1, name2".to_string(),
+                    });
+                }
+            } else if let Some((filename, names)) = rest.split_once(' ') {
+                (filename.to_string(), names.to_string())
+            } else {
+                return Err(ParseError {
+                    line: line_num,
+                    message: "@use requires: @use file.hl name1, name2".to_string(),
+                });
+            };
+
+            let wanted: HashSet<String> = names_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            let filename = substitute_vars(&filename, &ctx.variables);
+            let resolved = match &ctx.base_path {
+                Some(base) => base.join(&filename),
+                None => PathBuf::from(&filename),
+            };
+
+            if ctx.include_stack.contains(&resolved) {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("circular use '{}'", filename),
+                    severity: Severity::Error,
+                    source_line: Some(content.clone()),
+                });
+                return Ok(None);
+            }
+
+            let use_text = if let Some(cached) = ctx.file_cache.get(&resolved) {
+                cached.clone()
+            } else {
+                match std::fs::read_to_string(&resolved) {
+                    Ok(text) => {
+                        ctx.file_cache.insert(resolved.clone(), text.clone());
+                        text
+                    }
+                    Err(e) => {
+                        ctx.diagnostics.push(Diagnostic {
+                            line: line_num,
+                            message: format!("cannot use '{}': {}", filename, e),
+                            severity: Severity::Error,
+                            source_line: Some(content.clone()),
+                        });
+                        return Ok(None);
+                    }
+                }
+            };
+
+            ctx.included_files.push(resolved.clone());
+            ctx.include_stack.push(resolved.clone());
+            let saved_base = ctx.base_path.clone();
+            ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
+
+            // Parse the file fully, then filter to only keep wanted definitions
+            let saved_fns = ctx.functions.clone();
+            let saved_defines = ctx.defines.clone();
+
+            let use_lines = preprocess(&use_text);
+            let mut use_parser = Parser { lines: use_lines, pos: 0 };
+            let _discarded = use_parser.parse_children(0, ctx);
+
+            // Keep only the wanted functions/defines, restore everything else
+            let mut new_fns = HashMap::new();
+            let mut new_defines = HashMap::new();
+            for name in &wanted {
+                if let Some(f) = ctx.functions.get(name) {
+                    new_fns.insert(name.clone(), f.clone());
+                }
+                if let Some(d) = ctx.defines.get(name) {
+                    new_defines.insert(name.clone(), d.clone());
+                }
+            }
+            ctx.functions = saved_fns;
+            ctx.defines = saved_defines;
+            ctx.functions.extend(new_fns);
+            ctx.defines.extend(new_defines);
+
+            ctx.base_path = saved_base;
+            ctx.include_stack.pop();
+            return Ok(None);
+        }
+
         // --- @if / @else ---
 
         if let Some(rest) = content.strip_prefix("@if ") {
@@ -1269,6 +1370,7 @@ const KNOWN_ELEMENTS: &[&str] = &[
     "picture", "source", "time", "mark", "kbd", "abbr", "datalist",
     "iframe", "output", "canvas",
     "grid", "stack", "spacer", "badge", "tooltip",
+    "avatar", "carousel", "chip", "tag",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
@@ -1276,6 +1378,7 @@ const KNOWN_DIRECTIVES: &[&str] = &[
     "if", "else", "each", "meta", "head", "style",
     "match", "case", "default", "warn", "debug",
     "unless", "og", "breakpoint", "lang", "favicon",
+    "use",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -1347,6 +1450,10 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "spacer" => Ok(ElementKind::Spacer),
         "badge" => Ok(ElementKind::Badge),
         "tooltip" => Ok(ElementKind::Tooltip),
+        "avatar" => Ok(ElementKind::Avatar),
+        "carousel" => Ok(ElementKind::Carousel),
+        "chip" => Ok(ElementKind::Chip),
+        "tag" => Ok(ElementKind::Tag),
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
                 .iter()
@@ -1501,6 +1608,8 @@ const KNOWN_ATTRS: &[&str] = &[
     "formaction", "formmethod", "formtarget", "target",
     // Pseudo-element content
     "content",
+    // CSS shorthands
+    "truncate", "line-clamp", "blur", "backdrop-blur", "no-scrollbar", "skeleton", "gradient",
 ];
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
@@ -2104,6 +2213,10 @@ fn element_kind_name(kind: &ElementKind) -> &'static str {
         ElementKind::Spacer => "@spacer",
         ElementKind::Badge => "@badge",
         ElementKind::Tooltip => "@tooltip",
+        ElementKind::Avatar => "@avatar",
+        ElementKind::Carousel => "@carousel",
+        ElementKind::Chip => "@chip",
+        ElementKind::Tag => "@tag",
     }
 }
 
@@ -2118,7 +2231,7 @@ fn is_container(kind: &ElementKind) -> bool {
         | ElementKind::Dialog | ElementKind::DefinitionList | ElementKind::DefinitionTerm
         | ElementKind::DefinitionDescription | ElementKind::Fieldset | ElementKind::Datalist
         | ElementKind::Iframe | ElementKind::Canvas
-        | ElementKind::Grid | ElementKind::Stack
+        | ElementKind::Grid | ElementKind::Stack | ElementKind::Carousel
     )
 }
 
@@ -2364,8 +2477,33 @@ fn substitute_vars(input: &str, vars: &HashMap<String, String>) -> String {
                 end += 1;
             }
             let name: String = chars[start..end].iter().collect();
+
+            // Collect pipe filters: $name|filter1|filter2:arg
+            let mut filters: Vec<String> = Vec::new();
+            while end < chars.len() && chars[end] == '|' {
+                end += 1; // skip '|'
+                let filter_start = end;
+                while end < chars.len()
+                    && chars[end] != '|'
+                    && chars[end] != ' '
+                    && chars[end] != ','
+                    && chars[end] != ']'
+                    && chars[end] != '}'
+                {
+                    end += 1;
+                }
+                let filter: String = chars[filter_start..end].iter().collect();
+                if !filter.is_empty() {
+                    filters.push(filter);
+                }
+            }
+
             if let Some(value) = vars.get(&name) {
-                result.push_str(value);
+                let mut val = value.clone();
+                for filter in &filters {
+                    val = apply_filter(&val, filter);
+                }
+                result.push_str(&val);
             } else {
                 result.push('$');
                 result.push_str(&name);
@@ -2378,6 +2516,44 @@ fn substitute_vars(input: &str, vars: &HashMap<String, String>) -> String {
     }
 
     result
+}
+
+fn apply_filter(value: &str, filter: &str) -> String {
+    if let Some(arg) = filter.strip_prefix("truncate:") {
+        if let Ok(n) = arg.parse::<usize>() {
+            if value.len() > n {
+                return format!("{}...", &value[..n]);
+            }
+        }
+        return value.to_string();
+    }
+    if let Some(rest) = filter.strip_prefix("replace:") {
+        if let Some((old, new)) = rest.split_once(':') {
+            return value.replace(old, new);
+        }
+        return value.to_string();
+    }
+    if let Some(arg) = filter.strip_prefix("default:") {
+        if value.is_empty() {
+            return arg.to_string();
+        }
+        return value.to_string();
+    }
+    match filter {
+        "uppercase" | "upper" => value.to_uppercase(),
+        "lowercase" | "lower" => value.to_lowercase(),
+        "capitalize" | "cap" => {
+            let mut chars = value.chars();
+            match chars.next() {
+                Some(c) => format!("{}{}", c.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        }
+        "trim" => value.trim().to_string(),
+        "length" | "len" => value.len().to_string(),
+        "reverse" => value.chars().rev().collect(),
+        _ => value.to_string(),
+    }
 }
 
 // ---------------------------------------------------------------------------

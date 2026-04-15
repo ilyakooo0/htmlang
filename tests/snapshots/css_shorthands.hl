@@ -1,0 +1,33 @@
+@page CSS Shorthands
+
+@column [spacing 20]
+  -- Truncate
+  @text [max-width 200, truncate] This text will be truncated with an ellipsis
+
+  -- Line clamp
+  @paragraph [line-clamp 3]
+    This is a long paragraph that spans multiple lines and should be clamped at three lines.
+
+  -- Blur
+  @el [blur 4, padding 20]
+    Blurred content
+
+  -- Backdrop blur
+  @el [backdrop-blur 10, padding 20, background rgba(255,255,255,0.5)]
+    Frosted glass effect
+
+  -- No scrollbar
+  @el [overflow-x auto, no-scrollbar, max-width 300]
+    @row [spacing 20]
+      @el [width 200, padding 20] Item 1
+      @el [width 200, padding 20] Item 2
+      @el [width 200, padding 20] Item 3
+
+  -- Skeleton
+  @el [width fill, height 20, rounded 4, skeleton]
+
+  -- Gradient
+  @el [gradient #3b82f6 #8b5cf6, padding 20, rounded 8]
+    @text [color white] Gradient background
+  @el [gradient #ff6b6b #feca57 45deg, padding 20, rounded 8]
+    @text [color white] Angled gradient
