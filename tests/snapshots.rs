@@ -943,3 +943,328 @@ fn string_interpolation_in_bare_text() {
     let output = compile("@let greeting Hi\n@el\n  $greeting there");
     assert!(output.contains("Hi there"));
 }
+
+// ---------------------------------------------------------------------------
+// Snapshot tests for batch 3 features
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_new_elements() {
+    snapshot_test("new_elements");
+}
+
+#[test]
+fn snapshot_dark_mode() {
+    snapshot_test("dark_mode");
+}
+
+#[test]
+fn snapshot_new_css() {
+    snapshot_test("new_css");
+}
+
+#[test]
+fn snapshot_string_interpolation() {
+    snapshot_test("string_interpolation");
+}
+
+#[test]
+fn snapshot_each_destructuring() {
+    snapshot_test("each_destructuring");
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: new elements
+// ---------------------------------------------------------------------------
+
+#[test]
+fn form_renders_form_tag() {
+    let output = compile("@page T\n@form [method post] /submit\n  @input [type text]");
+    assert!(output.contains("<form"));
+    assert!(output.contains("action=\"/submit\""));
+    assert!(output.contains("method=\"post\""));
+}
+
+#[test]
+fn details_summary_renders() {
+    let output = compile("@page T\n@details [open]\n  @summary Click me\n  @text Content");
+    assert!(output.contains("<details"));
+    assert!(output.contains(" open"));
+    assert!(output.contains("<summary"));
+    assert!(output.contains("Click me"));
+}
+
+#[test]
+fn blockquote_renders() {
+    let output = compile("@page T\n@blockquote\n  @text A quote\n  @cite Source");
+    assert!(output.contains("<blockquote"));
+    assert!(output.contains("<cite"));
+    assert!(output.contains("Source"));
+}
+
+#[test]
+fn code_renders_monospace() {
+    let output = compile("@page T\n@code hello");
+    assert!(output.contains("<code"));
+    assert!(output.contains("font-family:ui-monospace,monospace"));
+}
+
+#[test]
+fn pre_renders_with_whitespace() {
+    let output = compile("@page T\n@pre\n  @text formatted");
+    assert!(output.contains("<pre"));
+    assert!(output.contains("white-space:pre"));
+}
+
+#[test]
+fn hr_renders_self_closing() {
+    let output = compile("@page T\n@hr");
+    assert!(output.contains("<hr"));
+}
+
+#[test]
+fn divider_alias_for_hr() {
+    let output = compile("@page T\n@divider");
+    assert!(output.contains("<hr"));
+}
+
+#[test]
+fn figure_figcaption_renders() {
+    let output = compile("@page T\n@figure\n  @image [alt test] photo.jpg\n  @figcaption Caption");
+    assert!(output.contains("<figure"));
+    assert!(output.contains("<figcaption"));
+    assert!(output.contains("Caption"));
+}
+
+#[test]
+fn progress_renders() {
+    let output = compile("@page T\n@progress [value 70, max 100]");
+    assert!(output.contains("<progress"));
+    assert!(output.contains("value=\"70\""));
+    assert!(output.contains("max=\"100\""));
+}
+
+#[test]
+fn meter_renders() {
+    let output = compile("@page T\n@meter [value 6, min 0, max 10]");
+    assert!(output.contains("<meter"));
+    assert!(output.contains("value=\"6\""));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: dark mode
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dark_mode_generates_media_query() {
+    let output = compile("@page T\n@el [background white, dark:background #333]");
+    assert!(output.contains("prefers-color-scheme:dark"));
+    assert!(output.contains("background:#333"));
+}
+
+#[test]
+fn print_generates_media_query() {
+    let output = compile("@page T\n@el [display flex, print:display none]");
+    assert!(output.contains("@media print"));
+    assert!(output.contains("display:none"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: new CSS attributes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn css_margin() {
+    let output = compile("@page T\n@el [margin 20]");
+    assert!(output.contains("margin:20px"));
+}
+
+#[test]
+fn css_margin_x() {
+    let output = compile("@page T\n@el [margin-x 10]");
+    assert!(output.contains("margin-left:10px"));
+    assert!(output.contains("margin-right:10px"));
+}
+
+#[test]
+fn css_margin_y() {
+    let output = compile("@page T\n@el [margin-y 10]");
+    assert!(output.contains("margin-top:10px"));
+    assert!(output.contains("margin-bottom:10px"));
+}
+
+#[test]
+fn css_filter() {
+    let output = compile("@page T\n@el [filter blur(5px)]");
+    assert!(output.contains("filter:blur(5px)"));
+}
+
+#[test]
+fn css_object_fit() {
+    let output = compile("@page T\n@image [object-fit cover, width 200] test.jpg");
+    assert!(output.contains("object-fit:cover"));
+}
+
+#[test]
+fn css_text_shadow() {
+    let output = compile("@page T\n@text [text-shadow 1px 1px black] Hello");
+    assert!(output.contains("text-shadow:1px 1px black"));
+}
+
+#[test]
+fn css_text_overflow() {
+    let output = compile("@page T\n@text [text-overflow ellipsis] Hello");
+    assert!(output.contains("text-overflow:ellipsis"));
+}
+
+#[test]
+fn css_pointer_events() {
+    let output = compile("@page T\n@el [pointer-events none]");
+    assert!(output.contains("pointer-events:none"));
+}
+
+#[test]
+fn css_user_select() {
+    let output = compile("@page T\n@el [user-select none]");
+    assert!(output.contains("user-select:none"));
+}
+
+#[test]
+fn css_justify_content() {
+    let output = compile("@page T\n@row [justify-content space-between]");
+    assert!(output.contains("justify-content:space-between"));
+}
+
+#[test]
+fn css_align_items() {
+    let output = compile("@page T\n@row [align-items center]");
+    assert!(output.contains("align-items:center"));
+}
+
+#[test]
+fn css_order() {
+    let output = compile("@page T\n@el [order 2]");
+    assert!(output.contains("order:2"));
+}
+
+#[test]
+fn css_background_size() {
+    let output = compile("@page T\n@el [background-size cover]");
+    assert!(output.contains("background-size:cover"));
+}
+
+#[test]
+fn css_word_break() {
+    let output = compile("@page T\n@el [word-break break-all]");
+    assert!(output.contains("word-break:break-all"));
+}
+
+#[test]
+fn css_overflow_wrap() {
+    let output = compile("@page T\n@el [overflow-wrap break-word]");
+    assert!(output.contains("overflow-wrap:break-word"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: string interpolation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn let_string_interpolation() {
+    let output = compile("@let name World\n@let greeting \"Hello $name\"\n@text $greeting");
+    assert!(output.contains("Hello World"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: @each destructuring
+// ---------------------------------------------------------------------------
+
+#[test]
+fn each_destructuring_pairs() {
+    let output = compile("@each $name, $role in Alice Admin, Bob User\n  @text $name is $role");
+    assert!(output.contains("Alice is Admin"));
+    assert!(output.contains("Bob is User"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: diagnostics
+// ---------------------------------------------------------------------------
+
+#[test]
+fn warning_missing_alt_on_image() {
+    let diags = parse_diagnostics("@image photo.jpg");
+    assert!(
+        diags.iter().any(|d| d.message.contains("alt") && d.message.contains("accessibility")),
+        "expected missing alt warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_with_alt_on_image() {
+    let diags = parse_diagnostics("@image [alt A photo] photo.jpg");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("missing") && d.message.contains("alt")),
+        "should not warn when alt is present, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_invalid_hex_color() {
+    let diags = parse_diagnostics("@el [color #ggg]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("invalid hex color")),
+        "expected invalid hex color warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_valid_hex_color() {
+    let diags = parse_diagnostics("@el [color #ff0000]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("invalid hex color")),
+        "should not warn on valid hex color, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_duplicate_attribute() {
+    let diags = parse_diagnostics("@el [padding 10, padding 20]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("duplicate attribute")),
+        "expected duplicate attribute warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_different_attributes() {
+    let diags = parse_diagnostics("@el [padding 10, margin 20]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("duplicate")),
+        "should not warn on different attributes, got: {:?}",
+        diags
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: formatter improvements
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fmt_sorts_attributes() {
+    let formatted = htmlang::fmt::format("@el [color red, width 200, padding 10]");
+    // width (sizing) should come before padding (spacing) which should come before color (visual)
+    assert!(formatted.contains("[width 200, padding 10, color red]"));
+}
+
+#[test]
+fn fmt_multiline_brackets() {
+    let input = "@el [\n  color red,\n  width 200\n]\n  @text hello";
+    let formatted = htmlang::fmt::format(input);
+    assert!(formatted.contains("[width 200, color red]"));
+    assert!(formatted.contains("  @text hello"));
+}

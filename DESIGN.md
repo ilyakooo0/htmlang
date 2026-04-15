@@ -38,6 +38,18 @@ A minimalist layout language inspired by elm-ui that compiles to static HTML.
 | `@th`        | th               | Table header cell              |
 | `@video`     | video            | Video element                  |
 | `@audio`     | audio            | Audio element                  |
+| `@form`      | form             | Form container                 |
+| `@details`   | details          | Disclosure widget              |
+| `@summary`   | summary          | Summary for `@details`         |
+| `@blockquote`| blockquote       | Block quotation                |
+| `@cite`      | cite             | Citation/source reference      |
+| `@code`      | code             | Inline code (monospace)        |
+| `@pre`       | pre              | Preformatted text              |
+| `@hr`        | hr               | Horizontal rule (self-closing) |
+| `@figure`    | figure           | Figure with optional caption   |
+| `@figcaption`| figcaption       | Caption for `@figure`          |
+| `@progress`  | progress         | Progress bar                   |
+| `@meter`     | meter            | Meter/gauge element            |
 
 Bare lines (not starting with `@` or `[`) are text nodes.
 
@@ -126,6 +138,15 @@ Defines a variable. Referenced with `$name`.
 @let gap 20
 
 @el [background $primary, spacing $gap]
+```
+
+Quoted values support string interpolation:
+
+```
+@let name World
+@let greeting "Hello $name"   -- "Hello World"
+@let base /api
+@let url "$base/users"        -- "/api/users"
 ```
 
 ### `@include`
@@ -321,6 +342,84 @@ All numeric values default to pixels. You can use CSS units explicitly:
 
 Supported units: `%`, `rem`, `em`, `vh`, `vw`, `vmin`, `vmax`, `dvh`, `svh`, `ch`, `ex`, `cm`, `mm`, `in`, `pt`, `pc`, `fr`.
 
+## New elements
+
+### `@form`
+
+Form container. Argument is the `action` URL.
+
+```
+@form [method post] /submit
+  @label [for email] Email
+  @input [type email, name email, required]
+  @button [type submit] Send
+```
+
+### `@details` / `@summary`
+
+Native disclosure widget. Use `[open]` to expand by default.
+
+```
+@details [open]
+  @summary FAQ Question
+  @text The answer is here.
+```
+
+### `@blockquote` / `@cite`
+
+Semantic quotation with optional citation.
+
+```
+@blockquote [padding 20, border-left 4 #ccc]
+  @text To be or not to be
+  @cite Shakespeare
+```
+
+### `@code` / `@pre`
+
+Code and preformatted text. `@code` renders as `<code>` with monospace font. `@pre` preserves whitespace.
+
+```
+@pre
+  @code console.log("hello")
+```
+
+### `@hr`
+
+Horizontal rule / divider (self-closing). Alias: `@divider`.
+
+```
+@hr [border-top 1 #e5e7eb]
+```
+
+### `@figure` / `@figcaption`
+
+Figure with optional caption.
+
+```
+@figure
+  @image [alt Sunset, width fill] sunset.jpg
+  @figcaption A beautiful sunset
+```
+
+### `@progress` / `@meter`
+
+Progress bar and meter elements. Use `value`, `max`, `min` attributes.
+
+```
+@progress [value 70, max 100]
+@meter [value 6, min 0, max 10, low 3, high 8]
+```
+
+## `@each` destructuring
+
+When `@each` has more than one variable and items contain spaces, values are destructured:
+
+```
+@each $name, $url in Home /, About /about, Contact /contact
+  @link $url $name
+```
+
 `var()` and `calc()` expressions are also passed through as-is.
 
 ## Attributes reference
@@ -404,6 +503,36 @@ Supported units: `%`, `rem`, `em`, `vh`, `vw`, `vmin`, `vmax`, `dvh`, `svh`, `ch
 | `transform VALUE`      | CSS transform (e.g., rotate(45deg)) |
 | `backdrop-filter VALUE`| Backdrop filter (e.g., blur(10px)) |
 
+### Margin
+
+| Attribute              | Effect                           |
+|------------------------|----------------------------------|
+| `margin N`             | Uniform margin                   |
+| `margin Y X`          | Vertical + horizontal margin     |
+| `margin T R B L`      | Per-side margin                  |
+| `margin-x N`          | Horizontal margin                |
+| `margin-y N`          | Vertical margin                  |
+
+### Additional Style
+
+| Attribute              | Effect                           |
+|------------------------|----------------------------------|
+| `filter VALUE`         | CSS filter (blur, brightness)    |
+| `object-fit VALUE`     | Object fit (cover/contain/fill)  |
+| `object-position VALUE`| Object position within container|
+| `text-shadow VALUE`    | Text shadow                      |
+| `text-overflow VALUE`  | Text overflow (ellipsis/clip)    |
+| `pointer-events VALUE` | Pointer events (none/auto)      |
+| `user-select VALUE`    | User selection (none/text/all)  |
+| `justify-content VALUE`| Main axis alignment             |
+| `align-items VALUE`    | Cross axis alignment            |
+| `order N`              | Flex/grid item order            |
+| `background-size VALUE`| Background size                 |
+| `background-position VALUE`| Background position         |
+| `background-repeat VALUE`| Background repeat             |
+| `word-break VALUE`     | Word break (break-all/keep-all) |
+| `overflow-wrap VALUE`  | Overflow wrap (break-word)      |
+
 ### Pseudo-states
 
 Prefix any style attribute with `hover:`, `active:`, or `focus:` to apply it on that state.
@@ -414,6 +543,28 @@ Prefix any style attribute with `hover:`, `active:`, or `focus:` to apply it on 
 ```
 
 All style attributes support state prefixes: `hover:color`, `active:rounded`, `focus:border`, etc.
+
+### Dark mode
+
+Prefix any style attribute with `dark:` to apply it when the user's system is in dark mode.
+
+```
+@el [background white, dark:background #1a1a2e, color #333, dark:color #eee]
+  @text Theme-aware content
+```
+
+This generates a `@media (prefers-color-scheme: dark)` rule.
+
+### Print styles
+
+Prefix any style attribute with `print:` to apply it when printing.
+
+```
+@nav [print:display none]
+  @text Navigation (hidden in print)
+```
+
+This generates a `@media print` rule.
 
 ### Flow & Grid
 
@@ -433,9 +584,21 @@ All style attributes support state prefixes: `hover:color`, `active:rounded`, `f
 | `id NAME`              | HTML id attribute                |
 | `class NAME`           | HTML class attribute             |
 
+## Asset inlining
+
+SVG images can be inlined directly into the HTML output using the `[inline]` attribute:
+
+```
+@image [inline, width 24, height 24] icon.svg
+```
+
+This reads the SVG file and embeds its content directly, keeping the output self-contained.
+
 ## CLI
 
 ```
+htmlang init                 # scaffold a new project
+htmlang init my-site         # scaffold in a new directory
 htmlang page.hl              # compile page.hl → page.html
 htmlang site/                # compile all .hl files in directory
 htmlang --watch page.hl      # compile and watch for changes

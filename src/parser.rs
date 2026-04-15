@@ -315,8 +315,15 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@let ") {
             let rest = rest.trim();
             if let Some((name, value)) = rest.split_once(' ') {
-                track_var_refs(value.trim(), &mut ctx.used_variables);
-                let value = substitute_vars(value.trim(), &ctx.variables);
+                let value = value.trim();
+                // Support quoted string interpolation: @let greeting "Hello $name"
+                let value = if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+                    &value[1..value.len()-1]
+                } else {
+                    value
+                };
+                track_var_refs(value, &mut ctx.used_variables);
+                let value = substitute_vars(value, &ctx.variables);
                 if name.starts_with("--") {
                     // CSS custom property
                     ctx.css_vars.push((name.to_string(), value.clone()));
@@ -607,22 +614,21 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@each ") {
             let rest = rest.trim();
             // Support: @each $var in list  OR  @each $var, $index in list
-            let (var_name, index_var, list_str) = if let Some((before_in, after_in)) = rest.split_once(" in ") {
+            // OR  @each $name, $url in Alice /alice, Bob /bob (destructuring)
+            let (var_names, list_str) = if let Some((before_in, after_in)) = rest.split_once(" in ") {
                 let before_in = before_in.trim();
-                if let Some((var_part, idx_part)) = before_in.split_once(',') {
-                    let var = var_part.trim().strip_prefix('$').unwrap_or(var_part.trim()).to_string();
-                    let idx = idx_part.trim().strip_prefix('$').unwrap_or(idx_part.trim()).to_string();
-                    (var, Some(idx), after_in.trim().to_string())
-                } else {
-                    let var = before_in.strip_prefix('$').unwrap_or(before_in).to_string();
-                    (var, None, after_in.trim().to_string())
-                }
+                let vars: Vec<String> = before_in.split(',')
+                    .map(|v| v.trim().strip_prefix('$').unwrap_or(v.trim()).to_string())
+                    .collect();
+                (vars, after_in.trim().to_string())
             } else {
                 return Err(ParseError {
                     line: line_num,
                     message: "@each requires: @each $var in list".to_string(),
                 });
             };
+            let var_name = var_names[0].clone();
+            let index_var = var_names.get(1).cloned();
 
             let list_str = substitute_vars(&list_str, &ctx.variables);
             track_var_refs(&list_str, &mut ctx.used_variables);
@@ -665,10 +671,22 @@ impl Parser {
             let saved_vars = ctx.variables.clone();
             let mut all_nodes = Vec::new();
 
+            let has_extra_vars = var_names.len() > 2
+                || (var_names.len() == 2 && items.first().map_or(false, |it| it.contains(' ')));
+
             for (i, item) in items.iter().enumerate() {
-                ctx.variables.insert(var_name.clone(), item.clone());
-                if let Some(ref idx_name) = index_var {
-                    ctx.variables.insert(idx_name.clone(), i.to_string());
+                if has_extra_vars {
+                    // Destructuring: split item by spaces and assign to each variable
+                    let parts: Vec<&str> = item.splitn(var_names.len(), ' ').collect();
+                    for (vi, vn) in var_names.iter().enumerate() {
+                        let val = parts.get(vi).unwrap_or(&"").to_string();
+                        ctx.variables.insert(vn.clone(), val);
+                    }
+                } else {
+                    ctx.variables.insert(var_name.clone(), item.clone());
+                    if let Some(ref idx_name) = index_var {
+                        ctx.variables.insert(idx_name.clone(), i.to_string());
+                    }
                 }
                 let mut body_parser = Parser {
                     lines: adjusted.clone(),
@@ -1126,6 +1144,8 @@ const KNOWN_ELEMENTS: &[&str] = &[
     "list", "item", "li",
     "table", "thead", "tbody", "tr", "td", "th",
     "video", "audio",
+    "form", "details", "summary", "blockquote", "cite", "code", "pre", "hr", "divider",
+    "figure", "figcaption", "progress", "meter",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
@@ -1168,6 +1188,18 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "th" => Ok(ElementKind::TableHeaderCell),
         "video" => Ok(ElementKind::Video),
         "audio" => Ok(ElementKind::Audio),
+        "form" => Ok(ElementKind::Form),
+        "details" => Ok(ElementKind::Details),
+        "summary" => Ok(ElementKind::Summary),
+        "blockquote" => Ok(ElementKind::Blockquote),
+        "cite" => Ok(ElementKind::Cite),
+        "code" => Ok(ElementKind::Code),
+        "pre" => Ok(ElementKind::Pre),
+        "hr" | "divider" => Ok(ElementKind::HorizontalRule),
+        "figure" => Ok(ElementKind::Figure),
+        "figcaption" => Ok(ElementKind::FigCaption),
+        "progress" => Ok(ElementKind::Progress),
+        "meter" => Ok(ElementKind::Meter),
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
                 .iter()
@@ -1266,6 +1298,27 @@ const KNOWN_ATTRS: &[&str] = &[
     "ordered",
     // Media src (explicit attribute form)
     "src",
+    // New elements
+    "open", "novalidate", "low", "high", "optimum",
+    "colspan", "rowspan", "scope",
+    // Margin
+    "margin", "margin-x", "margin-y",
+    // Filter & object
+    "filter", "object-fit", "object-position",
+    // Text extras
+    "text-shadow", "text-overflow",
+    // Interaction
+    "pointer-events", "user-select",
+    // Flexbox/grid alignment
+    "justify-content", "align-items",
+    // Flex item
+    "order",
+    // Background extras
+    "background-size", "background-position", "background-repeat",
+    // Text wrapping
+    "word-break", "overflow-wrap",
+    // Asset inlining
+    "inline",
 ];
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
@@ -1303,6 +1356,10 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
         .or_else(|| base_key.strip_prefix("md:"))
         .or_else(|| base_key.strip_prefix("lg:"))
         .or_else(|| base_key.strip_prefix("xl:"))
+        .unwrap_or(base_key);
+    let base_key = base_key
+        .strip_prefix("dark:")
+        .or_else(|| base_key.strip_prefix("print:"))
         .unwrap_or(base_key);
 
     if let Some(val) = &attr.value {
@@ -1423,8 +1480,17 @@ fn parse_attr_brackets_inner(
     Ok((attrs, remaining))
 }
 
+fn is_valid_hex_color(s: &str) -> bool {
+    if !s.starts_with('#') {
+        return true; // Not a hex color, skip
+    }
+    let hex = &s[1..];
+    matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validate: bool) -> Vec<Attribute> {
     let mut attrs = Vec::new();
+    let mut seen_keys: Vec<String> = Vec::new();
 
     for part in split_commas(input) {
         let part = part.trim();
@@ -1458,6 +1524,35 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
             }
         };
 
+        // Warn on duplicate attributes
+        if validate {
+            let stripped = strip_all_prefixes(&attr.key).to_string();
+            if seen_keys.contains(&stripped) {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("duplicate attribute '{}'", attr.key),
+                    severity: Severity::Warning,
+                    source_line: None,
+                });
+            } else {
+                seen_keys.push(stripped);
+            }
+
+            // Color validation for hex colors
+            if matches!(strip_all_prefixes(&attr.key), "background" | "color") {
+                if let Some(ref val) = attr.value {
+                    if val.starts_with('#') && !is_valid_hex_color(val) {
+                        ctx.diagnostics.push(Diagnostic {
+                            line: line_num,
+                            message: format!("invalid hex color '{}'", val),
+                            severity: Severity::Warning,
+                            source_line: None,
+                        });
+                    }
+                }
+            }
+        }
+
         // Warn on unknown attributes
         if validate {
             let base_key = attr.key.as_str();
@@ -1473,6 +1568,11 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
                 .or_else(|| base_key.strip_prefix("md:"))
                 .or_else(|| base_key.strip_prefix("lg:"))
                 .or_else(|| base_key.strip_prefix("xl:"))
+                .unwrap_or(base_key);
+            // Strip media prefixes (dark:, print:)
+            let base_key = base_key
+                .strip_prefix("dark:")
+                .or_else(|| base_key.strip_prefix("print:"))
                 .unwrap_or(base_key);
             if !KNOWN_ATTRS.contains(&base_key)
                 && !base_key.starts_with("aria-")
@@ -1665,10 +1765,13 @@ fn strip_all_prefixes(key: &str) -> &str {
         .or_else(|| key.strip_prefix("active:"))
         .or_else(|| key.strip_prefix("focus:"))
         .unwrap_or(key);
-    key.strip_prefix("sm:")
+    let key = key.strip_prefix("sm:")
         .or_else(|| key.strip_prefix("md:"))
         .or_else(|| key.strip_prefix("lg:"))
         .or_else(|| key.strip_prefix("xl:"))
+        .unwrap_or(key);
+    key.strip_prefix("dark:")
+        .or_else(|| key.strip_prefix("print:"))
         .unwrap_or(key)
 }
 
@@ -1713,6 +1816,18 @@ fn element_kind_name(kind: &ElementKind) -> &'static str {
         ElementKind::TableHeaderCell => "@th",
         ElementKind::Video => "@video",
         ElementKind::Audio => "@audio",
+        ElementKind::Form => "@form",
+        ElementKind::Details => "@details",
+        ElementKind::Summary => "@summary",
+        ElementKind::Blockquote => "@blockquote",
+        ElementKind::Cite => "@cite",
+        ElementKind::Code => "@code",
+        ElementKind::Pre => "@pre",
+        ElementKind::HorizontalRule => "@hr",
+        ElementKind::Figure => "@figure",
+        ElementKind::FigCaption => "@figcaption",
+        ElementKind::Progress => "@progress",
+        ElementKind::Meter => "@meter",
     }
 }
 
@@ -1722,6 +1837,8 @@ fn is_container(kind: &ElementKind) -> bool {
         | ElementKind::Nav | ElementKind::Header | ElementKind::Footer
         | ElementKind::Main | ElementKind::Section | ElementKind::Article
         | ElementKind::Aside | ElementKind::List | ElementKind::ListItem
+        | ElementKind::Form | ElementKind::Details | ElementKind::Figure
+        | ElementKind::Blockquote
     )
 }
 
@@ -1842,6 +1959,18 @@ fn validate_tree(
                     });
                 }
             }
+            // Missing alt text on @image
+            if matches!(elem.kind, ElementKind::Image) {
+                if !elem.attrs.iter().any(|a| a.key == "alt") {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: "@image missing 'alt' attribute (accessibility)".to_string(),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+            }
+
             validate_tree(&elem.children, Some(&elem.kind), diagnostics);
         }
     }

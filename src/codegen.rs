@@ -22,6 +22,10 @@ struct StyleEntry {
     focus: String,
     /// Responsive overrides: (breakpoint_prefix, css)
     responsive: Vec<(String, String)>,
+    /// Dark mode overrides
+    dark: String,
+    /// Print overrides
+    print: String,
 }
 
 struct StyleCollector {
@@ -45,12 +49,16 @@ impl StyleCollector {
         active: String,
         focus: String,
         responsive: Vec<(String, String)>,
+        dark: String,
+        print: String,
     ) -> Option<String> {
         if base.is_empty()
             && hover.is_empty()
             && active.is_empty()
             && focus.is_empty()
             && responsive.is_empty()
+            && dark.is_empty()
+            && print.is_empty()
         {
             return None;
         }
@@ -59,7 +67,7 @@ impl StyleCollector {
             .map(|(bp, css)| format!("{}={}", bp, css))
             .collect::<Vec<_>>()
             .join("|");
-        let key = format!("{}|{}|{}|{}|{}", base, hover, active, focus, resp_key);
+        let key = format!("{}|{}|{}|{}|{}|{}|{}", base, hover, active, focus, resp_key, dark, print);
         if let Some(&idx) = self.index.get(&key) {
             return Some(self.entries[idx].class_name.clone());
         }
@@ -72,6 +80,8 @@ impl StyleCollector {
             active,
             focus,
             responsive,
+            dark,
+            print,
         });
         self.index.insert(key, idx);
         Some(name)
@@ -123,6 +133,44 @@ impl StyleCollector {
                         bp_width, bp_css
                     ));
                 }
+            }
+        }
+
+        // Dark mode rules
+        let mut dark_css = String::new();
+        for e in &self.entries {
+            if !e.dark.is_empty() {
+                if dev {
+                    dark_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.dark));
+                } else {
+                    dark_css.push_str(&format!(".{}{{{}}}", e.class_name, e.dark));
+                }
+            }
+        }
+        if !dark_css.is_empty() {
+            if dev {
+                css.push_str(&format!("@media (prefers-color-scheme: dark) {{\n{}}}\n", dark_css));
+            } else {
+                css.push_str(&format!("@media(prefers-color-scheme:dark){{{}}}", dark_css));
+            }
+        }
+
+        // Print rules
+        let mut print_css = String::new();
+        for e in &self.entries {
+            if !e.print.is_empty() {
+                if dev {
+                    print_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.print));
+                } else {
+                    print_css.push_str(&format!(".{}{{{}}}", e.class_name, e.print));
+                }
+            }
+        }
+        if !print_css.is_empty() {
+            if dev {
+                css.push_str(&format!("@media print {{\n{}}}\n", print_css));
+            } else {
+                css.push_str(&format!("@media print{{{}}}", print_css));
             }
         }
 
@@ -331,6 +379,8 @@ fn generate_node(
                 | Some(ElementKind::Nav) | Some(ElementKind::Header) | Some(ElementKind::Footer)
                 | Some(ElementKind::Main) | Some(ElementKind::Section) | Some(ElementKind::Article)
                 | Some(ElementKind::Aside) | Some(ElementKind::ListItem)
+                | Some(ElementKind::Form) | Some(ElementKind::Details) | Some(ElementKind::Figure)
+                | Some(ElementKind::Blockquote)
             );
             if needs_wrap {
                 out.push_str(&ctx.indent());
@@ -362,12 +412,21 @@ const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
     "loading", "decoding",
     // Media src (explicit attribute form)
     "src",
+    // Details
+    "open",
+    // Form
+    "novalidate",
+    // Progress/Meter
+    "low", "high", "optimum",
+    // Table
+    "colspan", "rowspan", "scope",
 ];
 
 /// Boolean HTML attributes (rendered without a value, e.g., `<input disabled>`).
 const BOOLEAN_HTML_ATTRS: &[&str] = &[
     "disabled", "required", "checked", "multiple",
     "controls", "autoplay", "loop", "muted",
+    "open", "novalidate",
 ];
 
 fn emit_html_passthrough_attrs(out: &mut String, attrs: &[Attribute]) {
@@ -400,7 +459,7 @@ fn generate_element(
     ctx: &mut GenContext,
 ) {
     // Self-closing elements
-    if matches!(elem.kind, ElementKind::Image | ElementKind::Input) {
+    if matches!(elem.kind, ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule) {
         generate_self_closing(elem, parent_kind, out, styles, ctx);
         return;
     }
@@ -444,7 +503,20 @@ fn generate_element(
         // Media
         ElementKind::Video => "video",
         ElementKind::Audio => "audio",
-        ElementKind::Image | ElementKind::Input | ElementKind::Children | ElementKind::Slot(_) => unreachable!(),
+        // Additional semantic elements
+        ElementKind::Form => "form",
+        ElementKind::Details => "details",
+        ElementKind::Summary => "summary",
+        ElementKind::Blockquote => "blockquote",
+        ElementKind::Cite => "cite",
+        ElementKind::Code => "code",
+        ElementKind::Pre => "pre",
+        ElementKind::Figure => "figure",
+        ElementKind::FigCaption => "figcaption",
+        ElementKind::Progress => "progress",
+        ElementKind::Meter => "meter",
+        ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule
+        | ElementKind::Children | ElementKind::Slot(_) => unreachable!(),
     };
 
     let kind_label = match elem.kind {
@@ -476,6 +548,15 @@ fn generate_element(
         ElementKind::TableHeaderCell => "th",
         ElementKind::Video => "video",
         ElementKind::Audio => "audio",
+        ElementKind::Form => "form",
+        ElementKind::Details => "details",
+        ElementKind::Summary => "summary",
+        ElementKind::Blockquote => "blockquote",
+        ElementKind::Cite => "cite",
+        ElementKind::Code => "code",
+        ElementKind::Pre => "pre",
+        ElementKind::Figure => "figure",
+        ElementKind::FigCaption => "figcaption",
         _ => "",
     };
 
@@ -508,6 +589,17 @@ fn generate_element(
         }
     }
 
+    // Form action
+    if elem.kind == ElementKind::Form {
+        if let Some(action) = &elem.argument {
+            out.push_str(" action=\"");
+            out.push_str(&html_escape(action));
+            out.push('"');
+        }
+    }
+
+    // Details open attribute (handled via HTML_PASSTHROUGH_ATTRS, no extra handling needed)
+
     emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
 
     if let Some(id) = id {
@@ -532,6 +624,10 @@ fn generate_element(
             | ElementKind::ListItem
             | ElementKind::TableCell
             | ElementKind::TableHeaderCell
+            | ElementKind::Summary
+            | ElementKind::Cite
+            | ElementKind::Code
+            | ElementKind::FigCaption
     ) {
         if let Some(text) = &elem.argument {
             out.push_str(&html_escape(text));
@@ -569,6 +665,7 @@ fn generate_self_closing(
     let (tag, kind_label) = match elem.kind {
         ElementKind::Image => ("img", "image"),
         ElementKind::Input => ("input", "input"),
+        ElementKind::HorizontalRule => ("hr", "hr"),
         _ => unreachable!(),
     };
 
@@ -600,6 +697,21 @@ fn generate_self_closing(
 
     // Image optimization: auto-add loading="lazy" and decoding="async"
     if elem.kind == ElementKind::Image {
+        // SVG inlining: @image [inline] logo.svg
+        if elem.attrs.iter().any(|a| a.key == "inline") {
+            if let Some(src) = &elem.argument {
+                if src.ends_with(".svg") {
+                    if let Ok(svg_content) = std::fs::read_to_string(src) {
+                        // Close the tag we opened, then emit inline SVG instead
+                        out.truncate(out.rfind('<').unwrap_or(0));
+                        out.push_str(&ctx.indent());
+                        out.push_str(svg_content.trim());
+                        out.push_str(ctx.nl());
+                        return;
+                    }
+                }
+            }
+        }
         if !elem.attrs.iter().any(|a| a.key == "loading") {
             out.push_str(" loading=\"lazy\"");
         }
@@ -655,7 +767,13 @@ fn compute_class(
         }
     }
 
-    styles.get_class(base, hover, active, focus, responsive)
+    // Dark mode
+    let dark = attrs_to_css(attrs, "dark:", kind, parent_kind);
+
+    // Print
+    let print = attrs_to_css(attrs, "print:", kind, parent_kind);
+
+    styles.get_class(base, hover, active, focus, responsive, dark, print)
 }
 
 fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option<&str>) {
@@ -687,10 +805,12 @@ fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option
 
 const STATE_PREFIXES: &[&str] = &["hover:", "active:", "focus:"];
 const RESPONSIVE_PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:"];
+const MEDIA_PREFIXES: &[&str] = &["dark:", "print:"];
 
 fn is_prefixed_attr(key: &str) -> bool {
     STATE_PREFIXES.iter().any(|p| key.starts_with(p))
         || RESPONSIVE_PREFIXES.iter().any(|p| key.starts_with(p))
+        || MEDIA_PREFIXES.iter().any(|p| key.starts_with(p))
 }
 
 fn attrs_to_css(
@@ -715,6 +835,18 @@ fn attrs_to_css(
             // Lists: reset browser defaults
             ElementKind::List => css.push_str("margin:0;padding-left:0;list-style:none;"),
             ElementKind::ListItem => css.push_str("display:flex;flex-direction:column;"),
+            // Form: flex column like @el
+            ElementKind::Form => css.push_str("display:flex;flex-direction:column;"),
+            // Details: flex column
+            ElementKind::Details => css.push_str("display:flex;flex-direction:column;"),
+            // Figure: flex column
+            ElementKind::Figure => css.push_str("display:flex;flex-direction:column;margin:0;"),
+            // Blockquote: flex column, reset browser margin
+            ElementKind::Blockquote => css.push_str("display:flex;flex-direction:column;margin:0;"),
+            // Pre: preserve whitespace
+            ElementKind::Pre => css.push_str("margin:0;white-space:pre;font-family:ui-monospace,monospace;"),
+            // Code: monospace font
+            ElementKind::Code => css.push_str("font-family:ui-monospace,monospace;"),
             _ => {}
         }
     }
@@ -1140,6 +1272,118 @@ fn attrs_to_css(
                 }
             }
 
+            // Margin
+            "margin" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "margin", &css_px_multi(v));
+                }
+            }
+            "margin-x" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "margin-left", &css_px(v));
+                    push_css(&mut css, "margin-right", &css_px(v));
+                }
+            }
+            "margin-y" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "margin-top", &css_px(v));
+                    push_css(&mut css, "margin-bottom", &css_px(v));
+                }
+            }
+
+            // Filter
+            "filter" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "filter", v);
+                }
+            }
+
+            // Object fit/position (for images)
+            "object-fit" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "object-fit", v);
+                }
+            }
+            "object-position" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "object-position", v);
+                }
+            }
+
+            // Text shadow
+            "text-shadow" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "text-shadow", v);
+                }
+            }
+
+            // Text overflow
+            "text-overflow" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "text-overflow", v);
+                }
+            }
+
+            // Interaction
+            "pointer-events" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "pointer-events", v);
+                }
+            }
+            "user-select" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "user-select", v);
+                }
+            }
+
+            // Flexbox/grid alignment
+            "justify-content" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "justify-content", v);
+                }
+            }
+            "align-items" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "align-items", v);
+                }
+            }
+
+            // Flex item order
+            "order" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "order", v);
+                }
+            }
+
+            // Background extras
+            "background-size" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "background-size", v);
+                }
+            }
+            "background-position" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "background-position", v);
+                }
+            }
+            "background-repeat" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "background-repeat", v);
+                }
+            }
+
+            // Text wrapping
+            "word-break" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "word-break", v);
+                }
+            }
+            "overflow-wrap" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "overflow-wrap", v);
+                }
+            }
+
             // Container queries
             "container" => {
                 push_css(&mut css, "container-type", "inline-size");
@@ -1162,7 +1406,9 @@ fn attrs_to_css(
             | "max" | "step" | "pattern" | "maxlength" | "rows" | "cols"
             | "multiple" | "alt" | "role" | "tabindex" | "title"
             | "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload"
-            | "loading" | "decoding" | "ordered" | "src" => {}
+            | "loading" | "decoding" | "ordered" | "src"
+            | "open" | "novalidate" | "low" | "high" | "optimum"
+            | "colspan" | "rowspan" | "scope" | "inline" => {}
 
             _ => {}
         }

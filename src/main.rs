@@ -110,9 +110,12 @@ Options:
   -V, --version     Show version
 
 Commands:
+  init [dir]        Create a new project (defaults to current directory)
   fmt <file.hl>     Format a .hl file (normalizes indentation)
 
 Examples:
+  htmlang init              Scaffold a new project
+  htmlang init my-site      Scaffold in a new directory
   htmlang page.hl           Compile page.hl to page.html
   htmlang site/             Compile all .hl files in directory
   htmlang -w page.hl        Recompile on file changes
@@ -125,6 +128,45 @@ Examples:
     );
 }
 
+fn init_project(dir: &str) {
+    let dir = Path::new(dir);
+    if dir.to_str() != Some(".") {
+        if let Err(e) = fs::create_dir_all(dir) {
+            eprintln!("error: cannot create directory '{}': {}", dir.display(), e);
+            process::exit(1);
+        }
+    }
+
+    let index_path = dir.join("index.hl");
+    if index_path.exists() {
+        eprintln!("error: {} already exists", index_path.display());
+        process::exit(1);
+    }
+
+    let template = r#"@page My Site
+@let primary #3b82f6
+
+@column [max-width 800, center-x, padding 40, spacing 20]
+  @text [bold, size 32] Hello, htmlang!
+
+  @paragraph [line-height 1.6]
+    Edit {@text [bold, color $primary] index.hl} and run
+    {@text [font monospace, size 14] htmlang -s .} to get started.
+
+  @row [spacing 10]
+    @el [padding 12 24, background $primary, rounded 8, cursor pointer, hover:background #2563eb, transition all 0.15s ease] > @link https://github.com/nicholasgasior/htmlang
+      @text [color white, bold] Documentation
+"#;
+
+    match fs::write(&index_path, template) {
+        Ok(()) => eprintln!("created {}", index_path.display()),
+        Err(e) => {
+            eprintln!("error: {}: {}", index_path.display(), e);
+            process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut watch = false;
@@ -133,6 +175,13 @@ fn main() {
     let mut check = false;
     let mut port: u16 = 3000;
     let mut input_path = None;
+
+    // Handle "init" subcommand
+    if args.len() >= 2 && args[1] == "init" {
+        let dir = if args.len() >= 3 { &args[2] } else { "." };
+        init_project(dir);
+        return;
+    }
 
     // Handle "fmt" subcommand
     if args.len() >= 3 && args[1] == "fmt" {

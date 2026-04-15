@@ -251,10 +251,10 @@ fn completions(text: &str, position: Position) -> Vec<CompletionItem> {
             return variable_completions(text, edit_range);
         }
 
-        // State prefix (hover:, active:, focus:)
+        // State prefix (hover:, active:, focus:) or media prefix (dark:, print:)
         if let Some(colon) = current_word.find(':') {
             let prefix = &current_word[..colon];
-            if matches!(prefix, "hover" | "active" | "focus") {
+            if matches!(prefix, "hover" | "active" | "focus" | "dark" | "print") {
                 return state_attr_completions(prefix, edit_range);
             }
         }
@@ -376,6 +376,20 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         // Media elements
         ("@video", "Video element"),
         ("@audio", "Audio element"),
+        // Additional elements
+        ("@form", "Form container (form)"),
+        ("@details", "Disclosure widget (details)"),
+        ("@summary", "Summary for @details"),
+        ("@blockquote", "Block quotation"),
+        ("@cite", "Citation/source reference"),
+        ("@code", "Inline code (monospace)"),
+        ("@pre", "Preformatted text block"),
+        ("@hr", "Horizontal rule/divider"),
+        ("@divider", "Horizontal rule (alias for @hr)"),
+        ("@figure", "Figure with optional caption"),
+        ("@figcaption", "Caption for @figure"),
+        ("@progress", "Progress bar (value, max attributes)"),
+        ("@meter", "Meter/gauge element (value, min, max)"),
     ]
     .iter()
     .map(|(name, detail)| item(name, CompletionItemKind::KEYWORD, detail, name, range))
@@ -537,6 +551,42 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("ordered", "Use ordered list (ol instead of ul)", false),
         // Media src
         ("src", "Source URL for media elements", true),
+        // Margin
+        ("margin", "Outer margin (1/2/3/4 values)", true),
+        ("margin-x", "Horizontal margin", true),
+        ("margin-y", "Vertical margin", true),
+        // Filter & object
+        ("filter", "CSS filter (blur, brightness, grayscale, etc.)", true),
+        ("object-fit", "Object fit for images (cover/contain/fill)", true),
+        ("object-position", "Object position within container", true),
+        // Text extras
+        ("text-shadow", "Text shadow (CSS value)", true),
+        ("text-overflow", "Text overflow (ellipsis/clip)", true),
+        // Interaction
+        ("pointer-events", "Pointer events (none/auto)", true),
+        ("user-select", "User selection (none/text/all)", true),
+        // Flexbox/grid alignment
+        ("justify-content", "Main axis alignment (center/space-between/etc.)", true),
+        ("align-items", "Cross axis alignment (center/baseline/etc.)", true),
+        // Flex item
+        ("order", "Flex/grid item order", true),
+        // Background extras
+        ("background-size", "Background size (cover/contain/auto)", true),
+        ("background-position", "Background position (center/top/etc.)", true),
+        ("background-repeat", "Background repeat (no-repeat/repeat/etc.)", true),
+        // Text wrapping
+        ("word-break", "Word break behavior (break-all/keep-all)", true),
+        ("overflow-wrap", "Overflow wrap (break-word/anywhere)", true),
+        // New element attrs
+        ("open", "Details initially open", false),
+        ("novalidate", "Disable form validation", false),
+        ("low", "Meter low threshold", true),
+        ("high", "Meter high threshold", true),
+        ("optimum", "Meter optimum value", true),
+        ("colspan", "Table cell column span", true),
+        ("rowspan", "Table cell row span", true),
+        ("scope", "Table header scope (col/row/colgroup/rowgroup)", true),
+        ("inline", "Inline SVG images into output", false),
         // State prefixes
         ("hover:", "Style on hover", false),
         ("active:", "Style on active/click", false),
@@ -546,6 +596,9 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("md:", "Style at 768px+ (medium)", false),
         ("lg:", "Style at 1024px+ (large)", false),
         ("xl:", "Style at 1280px+ (extra large)", false),
+        // Media prefixes
+        ("dark:", "Style in dark color scheme", false),
+        ("print:", "Style for print media", false),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -574,9 +627,13 @@ fn state_attr_completions(prefix: &str, range: Range) -> Vec<CompletionItem> {
         ("opacity", "Opacity (0-1)", true),
         ("cursor", "CSS cursor type", true),
         ("shadow", "Box shadow (CSS value)", true),
+        ("text-shadow", "Text shadow", true),
         ("transform", "CSS transform", true),
+        ("filter", "CSS filter", true),
         ("display", "Display mode", true),
         ("visibility", "Visibility", true),
+        ("pointer-events", "Pointer events", true),
+        ("user-select", "User selection", true),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -831,6 +888,19 @@ fn hover_builtin(word: &str) -> Option<String> {
         // Media elements
         "@video" => "**@video** \u{2014} Video\n\nRenders as `<video>`.\n\nUsage: `@video [controls] demo.mp4`",
         "@audio" => "**@audio** \u{2014} Audio\n\nRenders as `<audio>`.\n\nUsage: `@audio [controls] song.mp3`",
+        // Additional elements
+        "@form" => "**@form** \u{2014} Form\n\nRenders as `<form>`. Container for form elements.\n\nUsage: `@form [method post] /submit`",
+        "@details" => "**@details** \u{2014} Disclosure\n\nRenders as `<details>`. Use `[open]` for initially expanded.\n\nContains `@summary` for the toggle label.",
+        "@summary" => "**@summary** \u{2014} Summary\n\nRenders as `<summary>`. Toggle label inside `@details`.\n\nUsage: `@summary Click to expand`",
+        "@blockquote" => "**@blockquote** \u{2014} Block quotation\n\nRenders as `<blockquote>`. Semantic quotation container.",
+        "@cite" => "**@cite** \u{2014} Citation\n\nRenders as `<cite>`. Source or reference for a quotation.\n\nUsage: `@cite The Great Gatsby`",
+        "@code" => "**@code** \u{2014} Code\n\nRenders as `<code>` with monospace font.\n\nUsage: `@code console.log(\"hello\")`",
+        "@pre" => "**@pre** \u{2014} Preformatted\n\nRenders as `<pre>` with preserved whitespace and monospace font.",
+        "@hr" | "@divider" => "**@hr** \u{2014} Horizontal Rule\n\nRenders as self-closing `<hr>`. Visual divider.\n\nUsage: `@hr [border-top 1 #ccc]`",
+        "@figure" => "**@figure** \u{2014} Figure\n\nRenders as `<figure>`. Container for media with optional `@figcaption`.\n\n```\n@figure\n  @image photo.jpg\n  @figcaption A nice photo\n```",
+        "@figcaption" => "**@figcaption** \u{2014} Figure caption\n\nRenders as `<figcaption>`. Caption text inside `@figure`.",
+        "@progress" => "**@progress** \u{2014} Progress bar\n\nRenders as `<progress>`.\n\nUsage: `@progress [value 70, max 100]`",
+        "@meter" => "**@meter** \u{2014} Meter\n\nRenders as `<meter>`. Gauge for scalar measurement.\n\nUsage: `@meter [value 0.7, min 0, max 1, low 0.3, high 0.8]`",
         // Directives
         "@match" => "**@match** \u{2014} Pattern matching\n\nMatch a value against cases.\n\n```\n@match $theme\n  @case dark\n    @el [background #333]\n  @case light\n    @el [background white]\n  @default\n    @el [background gray]\n```",
         "@case" => "**@case** \u{2014} Match case\n\nA case inside `@match`. Matches when the value equals the case value.",
@@ -938,6 +1008,35 @@ fn hover_builtin(word: &str) -> Option<String> {
         "preload" => "**preload** `<value>` \u{2014} Media preload hint (`auto`, `metadata`, `none`).",
         "ordered" => "**ordered** \u{2014} Use ordered list (`<ol>` instead of `<ul>`).",
         "src" => "**src** `<url>` \u{2014} Source URL for media elements.",
+        // New CSS attributes
+        "margin" => "**margin** `<value>` | `<y> <x>` | `<t> <h> <b>` | `<t> <r> <b> <l>`\n\nOuter margin. Supports CSS units. Accepts 1\u{2013}4 values.",
+        "margin-x" => "**margin-x** `<value>` \u{2014} Horizontal margin (left + right).",
+        "margin-y" => "**margin-y** `<value>` \u{2014} Vertical margin (top + bottom).",
+        "filter" => "**filter** `<value>` \u{2014} CSS filter (e.g., `blur(5px)`, `brightness(1.2)`, `grayscale(1)`).",
+        "object-fit" => "**object-fit** `<value>` \u{2014} How content fits its container (`cover`, `contain`, `fill`, `none`, `scale-down`).",
+        "object-position" => "**object-position** `<value>` \u{2014} Position of content within container (e.g., `center`, `top left`).",
+        "text-shadow" => "**text-shadow** `<value>` \u{2014} Text shadow. Raw CSS value (e.g., `1px 1px 2px rgba(0,0,0,0.3)`).",
+        "text-overflow" => "**text-overflow** `<value>` \u{2014} Text overflow behavior (`ellipsis`, `clip`). Combine with `white-space nowrap` and `overflow hidden`.",
+        "pointer-events" => "**pointer-events** `<value>` \u{2014} Pointer event behavior (`none`, `auto`).",
+        "user-select" => "**user-select** `<value>` \u{2014} Text selection behavior (`none`, `text`, `all`, `auto`).",
+        "justify-content" => "**justify-content** `<value>` \u{2014} Main axis alignment (`center`, `space-between`, `space-around`, `flex-start`, `flex-end`).",
+        "align-items" => "**align-items** `<value>` \u{2014} Cross axis alignment (`center`, `flex-start`, `flex-end`, `stretch`, `baseline`).",
+        "order" => "**order** `<value>` \u{2014} Flex/grid item order (integer).",
+        "background-size" => "**background-size** `<value>` \u{2014} Background size (`cover`, `contain`, `auto`, or dimensions).",
+        "background-position" => "**background-position** `<value>` \u{2014} Background position (`center`, `top`, `bottom left`, etc.).",
+        "background-repeat" => "**background-repeat** `<value>` \u{2014} Background repeat (`no-repeat`, `repeat`, `repeat-x`, `repeat-y`).",
+        "word-break" => "**word-break** `<value>` \u{2014} Word breaking behavior (`break-all`, `keep-all`, `normal`).",
+        "overflow-wrap" => "**overflow-wrap** `<value>` \u{2014} Overflow wrapping (`break-word`, `anywhere`, `normal`).",
+        // New element attributes
+        "open" => "**open** \u{2014} Initially expand `@details` element.",
+        "novalidate" => "**novalidate** \u{2014} Disable form validation.",
+        "low" => "**low** `<value>` \u{2014} Low threshold for `@meter`.",
+        "high" => "**high** `<value>` \u{2014} High threshold for `@meter`.",
+        "optimum" => "**optimum** `<value>` \u{2014} Optimum value for `@meter`.",
+        "colspan" => "**colspan** `<value>` \u{2014} Number of columns a cell spans.",
+        "rowspan" => "**rowspan** `<value>` \u{2014} Number of rows a cell spans.",
+        "scope" => "**scope** `<value>` \u{2014} Header scope (`col`, `row`, `colgroup`, `rowgroup`).",
+        "inline" => "**inline** \u{2014} Inline SVG image content into the HTML output.",
         _ => return None,
     };
 

@@ -1,0 +1,6 @@
+@page Destructuring
+
+@each $name, $role in Alice Admin, Bob User, Carol Editor
+  @row [spacing 10]
+    @text [bold] $name
+    @text $role

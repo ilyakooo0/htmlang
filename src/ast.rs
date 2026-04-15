@@ -76,6 +76,19 @@ pub enum ElementKind {
     // Media elements
     Video,
     Audio,
+    // Additional semantic elements
+    Form,
+    Details,
+    Summary,
+    Blockquote,
+    Cite,
+    Code,
+    Pre,
+    HorizontalRule,
+    Figure,
+    FigCaption,
+    Progress,
+    Meter,
 }
 
 #[derive(Debug, Clone)]

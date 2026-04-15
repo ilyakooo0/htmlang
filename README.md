@@ -39,8 +39,10 @@ cargo install --path .
 ## Usage
 
 ```
+htmlang init                 # scaffold a new project
 htmlang page.hl              # writes page.html
 htmlang --watch page.hl      # recompile on change
+htmlang fmt page.hl          # format a file
 ```
 
 ## Editor support
@@ -61,6 +63,18 @@ A VS Code extension with syntax highlighting and LSP integration is available in
 | `@image`     | Image                        |
 | `@link`      | Anchor                       |
 | `@raw`       | Verbatim HTML escape hatch   |
+| `@form`      | Form container               |
+| `@details`   | Disclosure widget            |
+| `@summary`   | Summary for `@details`       |
+| `@blockquote`| Block quotation              |
+| `@cite`      | Citation reference           |
+| `@code`      | Inline code (monospace)      |
+| `@pre`       | Preformatted text            |
+| `@hr`        | Horizontal rule / divider    |
+| `@figure`    | Figure with caption          |
+| `@figcaption`| Caption for `@figure`        |
+| `@progress`  | Progress bar                 |
+| `@meter`     | Meter/gauge                  |
 
 ### Layout attributes
 
@@ -91,7 +105,7 @@ A VS Code extension with syntax highlighting and LSP integration is available in
     Overlay content
 ```
 
-### Pseudo-states
+### Pseudo-states and media prefixes
 
 Prefix any style attribute with `hover:`, `active:`, or `focus:`:
 
@@ -99,10 +113,17 @@ Prefix any style attribute with `hover:`, `active:`, or `focus:`:
 @el [background #3b82f6, hover:background #2563eb, active:background #1d4ed8]
 ```
 
+Use `dark:` for dark mode and `print:` for print styles:
+
+```
+@el [background white, dark:background #1a1a2e, print:display none]
+```
+
 ### Variables and defines
 
 ```
 @let primary #3b82f6              -- simple variable, used as $primary
+@let greeting "Hello $name"       -- quoted string interpolation
 @define card [padding 20, rounded 8]   -- attribute bundle, used as [$card]
 ```
 
@@ -144,6 +165,8 @@ Attribute lists can span multiple lines:
 - `@el [attrs] > @link url` single-child chaining
 - `[padding 20]` bare attributes as implicit `@el`
 - `@raw """..."""` for embedding arbitrary HTML/CSS/JS
+- `@image [inline] logo.svg` inlines SVG content
+- `@each $name, $url in Home /, About /about` destructuring
 
 ## Documentation
 

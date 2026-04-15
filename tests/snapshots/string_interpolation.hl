@@ -1,0 +1,10 @@
+@page Interpolation
+
+@let name World
+@let greeting "Hello $name"
+
+@text $greeting
+
+@let base /api
+@let url "$base/users"
+@link $url API Users
