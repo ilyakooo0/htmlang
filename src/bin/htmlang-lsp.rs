@@ -66,6 +66,8 @@ impl LanguageServer for Backend {
                     prepare_provider: Some(true),
                     work_done_progress_options: Default::default(),
                 })),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -177,6 +179,46 @@ impl LanguageServer for Backend {
         drop(docs);
 
         Ok(rename_at(&text, pos, &new_name, &uri))
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = &params.text_document.uri;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        let symbols = document_symbols(&text);
+        Ok(if symbols.is_empty() {
+            None
+        } else {
+            Some(DocumentSymbolResponse::Flat(symbols))
+        })
+    }
+
+    async fn code_action(
+        &self,
+        params: CodeActionParams,
+    ) -> Result<Option<CodeActionResponse>> {
+        let uri = params.text_document.uri.clone();
+        let docs = self.documents.read().await;
+        let text = match docs.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        let actions = code_actions(&text, &params.range, &params.context.diagnostics, &uri);
+        Ok(if actions.is_empty() {
+            None
+        } else {
+            Some(actions)
+        })
     }
 }
 
@@ -311,6 +353,7 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         ("@label", "Label element"),
         ("@raw", "Raw HTML escape hatch"),
         ("@children", "Slot for caller's children (inside @fn)"),
+        ("@slot", "Named slot inside @fn (e.g., @slot header)"),
     ]
     .iter()
     .map(|(name, detail)| item(name, CompletionItemKind::KEYWORD, detail, name, range))
@@ -332,6 +375,8 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@import", "Import definitions only (no DOM nodes)", "@import "),
         ("@meta", "Add a <meta> tag to <head>", "@meta "),
         ("@head", "Add raw content to <head>", "@head"),
+        ("@style", "Add raw CSS to stylesheet", "@style"),
+        ("@slot", "Named slot in @fn for caller content", "@slot "),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -411,6 +456,10 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("grid-rows", "Grid rows (number or template)", true),
         ("col-span", "Span columns in grid", true),
         ("row-span", "Span rows in grid", true),
+        // Container queries
+        ("container", "Enable container queries (inline-size)", false),
+        ("container-name", "Container name for @container queries", true),
+        ("container-type", "Container type (inline-size/size/normal)", true),
         // Identity
         ("id", "HTML id attribute", true),
         ("class", "HTML class attribute", true),
@@ -710,6 +759,8 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@import" => "**@import** \u{2014} Import definitions\n\nImports `@let`, `@define`, `@fn` from another .hl file without emitting DOM nodes.\n\nUsage: `@import theme.hl`",
         "@meta" => "**@meta** \u{2014} Meta tag\n\nAdds a `<meta>` tag to `<head>`.\n\nUsage: `@meta description A portfolio site`",
         "@head" => "**@head** \u{2014} Head content\n\nAdds raw content to `<head>` (fonts, icons, etc.).\n\n```\n@head\n  <link rel=\"icon\" href=\"favicon.ico\">\n```",
+        "@style" => "**@style** \u{2014} Custom CSS\n\nAdds raw CSS to the stylesheet.\n\n```\n@style\n  .custom { border: 1px solid red; }\n  @container sidebar (min-width: 400px) { ... }\n```",
+        "@slot" => "**@slot** \u{2014} Named slot\n\nDefines a named insertion point inside `@fn`. Callers fill it with `@slot name` + children.\n\n```\n@fn layout\n  @slot header\n  @children\n  @slot footer\n```",
         // Attributes
         "spacing" | "gap" => "**spacing** `<value>`\n\nGap between children. Supports CSS units (px, rem, em, %).\nMaps to CSS `gap`.",
         "padding" => "**padding** `<value>` | `<y> <x>` | `<t> <h> <b>` | `<t> <r> <b> <l>`\n\nInner padding. Supports CSS units. Accepts 1\u{2013}4 values.",
@@ -771,6 +822,9 @@ fn hover_builtin(word: &str) -> Option<String> {
         "id" => "**id** `<value>` \u{2014} HTML id attribute.",
         "class" => "**class** `<value>` \u{2014} HTML class attribute.",
         "animation" => "**animation** `<value>` \u{2014} CSS animation shorthand (e.g., `fade-in 0.3s ease`).\n\nDefine animations with `@keyframes`.",
+        "container" => "**container** \u{2014} Enable container queries (`container-type: inline-size`).",
+        "container-name" => "**container-name** `<value>` \u{2014} Name this container for `@container` queries.",
+        "container-type" => "**container-type** `<value>` \u{2014} Container type (`inline-size`, `size`, `normal`).",
         // Form attributes
         "type" => "**type** `<value>` \u{2014} Input type (`text`, `email`, `password`, `submit`, etc.).",
         "placeholder" => "**placeholder** `<value>` \u{2014} Placeholder text for inputs.",
@@ -1090,6 +1144,195 @@ fn rename_at(text: &str, position: Position, new_name: &str, uri: &Url) -> Optio
         changes: Some(changes),
         ..Default::default()
     })
+}
+
+// ---------------------------------------------------------------------------
+// Document symbols (outline view)
+// ---------------------------------------------------------------------------
+
+#[allow(deprecated)] // SymbolInformation::deprecated is deprecated but needed for the struct
+fn document_symbols(text: &str) -> Vec<SymbolInformation> {
+    let mut symbols = Vec::new();
+
+    for (i, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        let line_num = i as u32;
+
+        // @fn definitions
+        if let Some(rest) = trimmed.strip_prefix("@fn ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if let Some(name) = parts.first() {
+                let params = parts[1..].join(" ");
+                let detail = if params.is_empty() { None } else { Some(format!("({})", params)) };
+                symbols.push(SymbolInformation {
+                    name: format!("@{}", name),
+                    kind: SymbolKind::FUNCTION,
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: Url::parse("file:///").unwrap(), // replaced by caller
+                        range: Range::new(Position::new(line_num, 0), Position::new(line_num, line.len() as u32)),
+                    },
+                    container_name: detail,
+                });
+            }
+        }
+
+        // @let definitions
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
+            if let Some((name, value)) = rest.trim().split_once(' ') {
+                symbols.push(SymbolInformation {
+                    name: format!("${}", name),
+                    kind: SymbolKind::VARIABLE,
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: Url::parse("file:///").unwrap(),
+                        range: Range::new(Position::new(line_num, 0), Position::new(line_num, line.len() as u32)),
+                    },
+                    container_name: Some(format!("= {}", value.trim())),
+                });
+            }
+        }
+
+        // @define definitions
+        if let Some(rest) = trimmed.strip_prefix("@define ") {
+            if let Some(bracket) = rest.find('[') {
+                let name = rest[..bracket].trim();
+                symbols.push(SymbolInformation {
+                    name: format!("${}", name),
+                    kind: SymbolKind::CONSTANT,
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: Url::parse("file:///").unwrap(),
+                        range: Range::new(Position::new(line_num, 0), Position::new(line_num, line.len() as u32)),
+                    },
+                    container_name: Some("attribute bundle".to_string()),
+                });
+            }
+        }
+
+        // @keyframes definitions
+        if let Some(rest) = trimmed.strip_prefix("@keyframes ") {
+            let name = rest.trim();
+            if !name.is_empty() {
+                symbols.push(SymbolInformation {
+                    name: format!("@keyframes {}", name),
+                    kind: SymbolKind::EVENT,
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: Url::parse("file:///").unwrap(),
+                        range: Range::new(Position::new(line_num, 0), Position::new(line_num, line.len() as u32)),
+                    },
+                    container_name: Some("animation".to_string()),
+                });
+            }
+        }
+    }
+
+    symbols
+}
+
+// ---------------------------------------------------------------------------
+// Code actions (quick-fixes for typo suggestions)
+// ---------------------------------------------------------------------------
+
+fn code_actions(
+    text: &str,
+    _range: &Range,
+    diagnostics: &[Diagnostic],
+    uri: &Url,
+) -> Vec<CodeActionOrCommand> {
+    let mut actions = Vec::new();
+
+    for diag in diagnostics {
+        let msg = &diag.message;
+
+        // Extract "did you mean 'X'?" or "did you mean @X?" suggestions
+        if let Some(suggestion) = extract_suggestion(msg) {
+            let line = diag.range.start.line as usize;
+            let lines: Vec<&str> = text.lines().collect();
+            if let Some(source_line) = lines.get(line) {
+                // Determine what to replace
+                let (old_text, new_text) = if msg.contains("unknown element") {
+                    // Replace @wrong with @suggestion
+                    let old = extract_between(msg, "unknown element @", ",")
+                        .or_else(|| extract_between(msg, "unknown element @", ""));
+                    if let Some(old) = old {
+                        (format!("@{}", old), format!("@{}", suggestion))
+                    } else {
+                        continue;
+                    }
+                } else if msg.contains("unknown attribute") {
+                    // Replace wrong with suggestion in attribute list
+                    let old = extract_between(msg, "unknown attribute '", "'");
+                    if let Some(old) = old {
+                        (old.to_string(), suggestion.to_string())
+                    } else {
+                        continue;
+                    }
+                } else {
+                    continue;
+                };
+
+                if let Some(col) = source_line.find(&old_text) {
+                    let edit = TextEdit {
+                        range: Range::new(
+                            Position::new(diag.range.start.line, col as u32),
+                            Position::new(diag.range.start.line, (col + old_text.len()) as u32),
+                        ),
+                        new_text: new_text.clone(),
+                    };
+
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: format!("Replace with '{}'", new_text),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+    }
+
+    actions
+}
+
+fn extract_suggestion(msg: &str) -> Option<&str> {
+    // "did you mean @X?" or "did you mean 'X'?"
+    if let Some(idx) = msg.find("did you mean @") {
+        let start = idx + "did you mean @".len();
+        let rest = &msg[start..];
+        let end = rest.find('?').unwrap_or(rest.len());
+        return Some(&rest[..end]);
+    }
+    if let Some(idx) = msg.find("did you mean '") {
+        let start = idx + "did you mean '".len();
+        let rest = &msg[start..];
+        let end = rest.find('\'')?;
+        return Some(&rest[..end]);
+    }
+    None
+}
+
+fn extract_between<'a>(msg: &'a str, prefix: &str, suffix: &str) -> Option<&'a str> {
+    let start = msg.find(prefix)? + prefix.len();
+    let rest = &msg[start..];
+    if suffix.is_empty() {
+        Some(rest.trim())
+    } else {
+        let end = rest.find(suffix)?;
+        Some(&rest[..end])
+    }
 }
 
 // ---------------------------------------------------------------------------

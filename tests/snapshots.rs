@@ -172,6 +172,26 @@ fn snapshot_each_index() {
     snapshot_test("each_index");
 }
 
+#[test]
+fn snapshot_style_block() {
+    snapshot_test("style_block");
+}
+
+#[test]
+fn snapshot_named_slots() {
+    snapshot_test("named_slots");
+}
+
+#[test]
+fn snapshot_each_range() {
+    snapshot_test("each_range");
+}
+
+#[test]
+fn snapshot_container_queries() {
+    snapshot_test("container_queries");
+}
+
 // ---------------------------------------------------------------------------
 // Error case tests
 // ---------------------------------------------------------------------------
@@ -379,6 +399,192 @@ fn aria_data_attrs_accepted() {
     assert!(
         !diags.iter().any(|d| d.message.contains("unknown attribute")),
         "aria-*/data-* should not produce warnings, got: {:?}",
+        diags
+    );
+}
+
+// ---------------------------------------------------------------------------
+// New feature tests
+// ---------------------------------------------------------------------------
+
+// --- Unused variable/function/define warnings ---
+
+#[test]
+fn warning_unused_variable() {
+    let diags = parse_diagnostics("@let color red\n@el [padding 10]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("unused variable") && d.message.contains("color")),
+        "expected unused variable warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_used_variable() {
+    let diags = parse_diagnostics("@let color red\n@el [background $color]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unused variable")),
+        "should not warn about used variable, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_unused_function() {
+    let diags = parse_diagnostics("@fn card\n  @el [padding 10]\n@el");
+    assert!(
+        diags.iter().any(|d| d.message.contains("unused function") && d.message.contains("card")),
+        "expected unused function warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_used_function() {
+    let diags = parse_diagnostics("@fn card\n  @el [padding 10]\n@card");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unused function")),
+        "should not warn about used function, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_unused_define() {
+    let diags = parse_diagnostics("@define card-style [padding 10]\n@el");
+    assert!(
+        diags.iter().any(|d| d.message.contains("unused define")),
+        "expected unused define warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_used_define() {
+    let diags = parse_diagnostics("@define card-style [padding 10]\n@el [$card-style]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unused define")),
+        "should not warn about used define, got: {:?}",
+        diags
+    );
+}
+
+// --- Element-specific attribute validation ---
+
+#[test]
+fn warning_spacing_on_text() {
+    let diags = parse_diagnostics("@text [spacing 10] hello");
+    assert!(
+        diags.iter().any(|d| d.message.contains("spacing") && d.message.contains("no effect")),
+        "expected spacing on @text warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_spacing_on_row() {
+    let diags = parse_diagnostics("@row [spacing 10]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("spacing") && d.message.contains("no effect")),
+        "should not warn about spacing on @row, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_placeholder_on_row() {
+    let diags = parse_diagnostics("@row [placeholder test]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("placeholder") && d.message.contains("no effect")),
+        "expected placeholder on @row warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_for_on_non_label() {
+    let diags = parse_diagnostics("@el [for email]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("'for'") && d.message.contains("@label")),
+        "expected 'for' on non-label warning, got: {:?}",
+        diags
+    );
+}
+
+// --- @each ranges ---
+
+#[test]
+fn each_range_basic() {
+    let output = compile("@each $i in 1..3\n  @text $i");
+    assert!(output.contains("1"));
+    assert!(output.contains("2"));
+    assert!(output.contains("3"));
+}
+
+#[test]
+fn each_range_with_index() {
+    let output = compile("@each $n, $i in 1..3\n  @text $i");
+    assert!(output.contains("0"));
+    assert!(output.contains("1"));
+    assert!(output.contains("2"));
+}
+
+// --- Named slots ---
+
+#[test]
+fn named_slot_basic() {
+    let output = compile("@fn card\n  @el\n    @slot header\n    @children\n@card\n  @slot header\n    @text Title\n  @text Body");
+    assert!(output.contains("Title"));
+    assert!(output.contains("Body"));
+}
+
+#[test]
+fn named_slot_default_content() {
+    let output = compile("@fn card\n  @el\n    @slot header\n      @text Default\n    @children\n@card\n  @text Body");
+    assert!(output.contains("Default"));
+    assert!(output.contains("Body"));
+}
+
+// --- @style block ---
+
+#[test]
+fn style_block_output() {
+    let output = compile("@page Test\n@style\n  .custom { color: red; }\n@el [class custom]\n  @text styled");
+    assert!(output.contains(".custom{color:red;}") || output.contains(".custom { color: red; }"));
+    assert!(output.contains("styled"));
+}
+
+// --- Container queries ---
+
+#[test]
+fn container_attr() {
+    let output = compile("@page T\n@el [container]");
+    assert!(output.contains("container-type:inline-size"));
+}
+
+#[test]
+fn container_name_attr() {
+    let output = compile("@page T\n@el [container-name sidebar]");
+    assert!(output.contains("container-name:sidebar"));
+}
+
+// --- Variable scoping in @if ---
+
+#[test]
+fn if_block_scopes_variables() {
+    let output = compile("@let x before\n@if true\n  @let x inside\n@text $x");
+    // $x should be "before" outside the @if block
+    assert!(output.contains("before"));
+}
+
+// --- CSS custom vars not warned as unused ---
+
+#[test]
+fn css_var_not_warned_unused() {
+    let diags = parse_diagnostics("@let --primary blue");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unused")),
+        "CSS vars should not be warned as unused, got: {:?}",
         diags
     );
 }

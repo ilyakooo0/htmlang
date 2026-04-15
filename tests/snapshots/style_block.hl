@@ -1,0 +1,8 @@
+@page Style Test
+
+@style
+  .highlight { background: yellow; border: 2px solid orange; }
+  .highlight:hover { background: gold; }
+
+@el [class highlight]
+  @text Custom styled

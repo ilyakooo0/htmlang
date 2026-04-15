@@ -1,0 +1,13 @@
+@fn layout
+  @el [padding 20]
+    @slot header
+      @text Default Header
+    @children
+    @slot footer
+
+@layout
+  @slot header
+    @text [bold] Custom Header
+  @slot footer
+    @text Footer content
+  @text Main body

@@ -1,0 +1,5 @@
+@page Container Test
+
+@el [container, container-name sidebar]
+  @el [width 200]
+    @text Sidebar content

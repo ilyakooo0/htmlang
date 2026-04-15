@@ -10,6 +10,7 @@ pub struct Document {
     pub defines: HashMap<String, Vec<Attribute>>,
     pub keyframes: Vec<(String, String)>,
     pub css_vars: Vec<(String, String)>,
+    pub custom_css: Vec<String>,
     pub nodes: Vec<Node>,
 }
 
@@ -52,6 +53,8 @@ pub enum ElementKind {
     Textarea,
     Option,
     Label,
+    // Slots
+    Slot(String),
 }
 
 #[derive(Debug, Clone)]

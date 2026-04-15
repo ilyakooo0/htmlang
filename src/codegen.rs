@@ -203,6 +203,22 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
         }
     }
 
+    // @style blocks (custom CSS)
+    for block in &doc.custom_css {
+        if dev {
+            element_css.push_str(block);
+            element_css.push('\n');
+        } else {
+            // Minify: collapse whitespace
+            let minified: String = block
+                .lines()
+                .map(|l| l.trim())
+                .collect::<Vec<_>>()
+                .join("");
+            element_css.push_str(&minified);
+        }
+    }
+
     // Build meta tags string
     let meta_html = if doc.meta_tags.is_empty() {
         String::new()
@@ -379,6 +395,9 @@ fn generate_element(
     if elem.kind == ElementKind::Children {
         return;
     }
+    if matches!(elem.kind, ElementKind::Slot(_)) {
+        return;
+    }
 
     let tag = match elem.kind {
         ElementKind::Row | ElementKind::Column | ElementKind::El => "div",
@@ -390,7 +409,7 @@ fn generate_element(
         ElementKind::Textarea => "textarea",
         ElementKind::Option => "option",
         ElementKind::Label => "label",
-        ElementKind::Image | ElementKind::Input | ElementKind::Children => unreachable!(),
+        ElementKind::Image | ElementKind::Input | ElementKind::Children | ElementKind::Slot(_) => unreachable!(),
     };
 
     let kind_label = match elem.kind {
@@ -976,6 +995,21 @@ fn attrs_to_css(
             "animation" => {
                 if let Some(v) = val {
                     push_css(&mut css, "animation", v);
+                }
+            }
+
+            // Container queries
+            "container" => {
+                push_css(&mut css, "container-type", "inline-size");
+            }
+            "container-name" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "container-name", v);
+                }
+            }
+            "container-type" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "container-type", v);
                 }
             }
 

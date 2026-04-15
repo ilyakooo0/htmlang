@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -73,12 +73,25 @@ struct ParseContext {
     functions: HashMap<String, FnDef>,
     keyframes: Vec<(String, String)>,
     css_vars: Vec<(String, String)>,
+    custom_css: Vec<String>,
     diagnostics: Vec<Diagnostic>,
     base_path: Option<PathBuf>,
     included_files: Vec<PathBuf>,
     include_stack: Vec<PathBuf>,
     fn_call_stack: Vec<String>,
     file_cache: HashMap<PathBuf, String>,
+    /// Track which @let variables are referenced (for unused warnings)
+    used_variables: HashSet<String>,
+    /// Track which @fn functions are called (for unused warnings)
+    used_functions: HashSet<String>,
+    /// Track which @define bundles are referenced (for unused warnings)
+    used_defines: HashSet<String>,
+    /// Line numbers of @let definitions (name -> line)
+    let_lines: HashMap<String, usize>,
+    /// Line numbers of @fn definitions (name -> line)
+    fn_lines: HashMap<String, usize>,
+    /// Line numbers of @define definitions (name -> line)
+    define_lines: HashMap<String, usize>,
 }
 
 struct Parser {
@@ -102,15 +115,23 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
         functions: HashMap::new(),
         keyframes: Vec::new(),
         css_vars: Vec::new(),
+        custom_css: Vec::new(),
         diagnostics: Vec::new(),
         base_path: base_path.map(|p| p.to_path_buf()),
         included_files: Vec::new(),
         include_stack: Vec::new(),
         fn_call_stack: Vec::new(),
         file_cache: HashMap::new(),
+        used_variables: HashSet::new(),
+        used_functions: HashSet::new(),
+        used_defines: HashSet::new(),
+        let_lines: HashMap::new(),
+        fn_lines: HashMap::new(),
+        define_lines: HashMap::new(),
     };
     let nodes = parser.parse_children(0, &mut ctx);
     validate_tree(&nodes, None, &mut ctx.diagnostics);
+    check_unused(&mut ctx);
     ParseResult {
         document: Document {
             page_title: ctx.page_title,
@@ -120,6 +141,7 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
             defines: ctx.defines,
             keyframes: ctx.keyframes,
             css_vars: ctx.css_vars,
+            custom_css: ctx.custom_css,
             nodes,
         },
         diagnostics: ctx.diagnostics,
@@ -293,12 +315,14 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@let ") {
             let rest = rest.trim();
             if let Some((name, value)) = rest.split_once(' ') {
+                track_var_refs(value.trim(), &mut ctx.used_variables);
                 let value = substitute_vars(value.trim(), &ctx.variables);
                 if name.starts_with("--") {
                     // CSS custom property
                     ctx.css_vars.push((name.to_string(), value.clone()));
                 }
                 ctx.variables.insert(name.to_string(), value);
+                ctx.let_lines.entry(name.to_string()).or_insert(line_num);
             }
             return Ok(None);
         }
@@ -335,6 +359,29 @@ impl Parser {
             return Ok(None);
         }
 
+        // --- @style block (raw CSS) ---
+        if content.trim() == "@style" {
+            let mut style_content = String::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                match &self.lines[self.pos].content {
+                    LineContent::Normal(s) => {
+                        style_content.push_str(s.trim());
+                        style_content.push('\n');
+                    }
+                    LineContent::Raw(s) => {
+                        style_content.push_str(s);
+                        style_content.push('\n');
+                    }
+                }
+                self.pos += 1;
+            }
+            let trimmed = style_content.trim().to_string();
+            if !trimmed.is_empty() {
+                ctx.custom_css.push(trimmed);
+            }
+            return Ok(None);
+        }
+
         if let Some(rest) = content.strip_prefix("@define ") {
             let rest = rest.trim();
             if let Some(bracket_start) = rest.find('[') {
@@ -342,6 +389,7 @@ impl Parser {
                 let attrs_str = &rest[bracket_start..];
                 let (attrs, _) = parse_attr_brackets(attrs_str, line_num, ctx)?;
                 ctx.defines.insert(name.to_string(), attrs);
+                ctx.define_lines.entry(name.to_string()).or_insert(line_num);
             }
             return Ok(None);
         }
@@ -536,11 +584,14 @@ impl Parser {
                 })
                 .collect();
 
+            // Scope variables: @let inside @if doesn't leak out
+            let saved_vars = ctx.variables.clone();
             let mut body_parser = Parser {
                 lines: adjusted,
                 pos: 0,
             };
             let nodes = body_parser.parse_children(0, ctx);
+            ctx.variables = saved_vars;
             return Ok(Some(nodes));
         }
 
@@ -574,11 +625,21 @@ impl Parser {
             };
 
             let list_str = substitute_vars(&list_str, &ctx.variables);
-            let items: Vec<String> = list_str
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
+            track_var_refs(&list_str, &mut ctx.used_variables);
+            // Support range syntax: @each $i in 1..5
+            let items: Vec<String> = if let Some((start_s, end_s)) = list_str.split_once("..") {
+                if let (Ok(start), Ok(end)) = (start_s.trim().parse::<i64>(), end_s.trim().parse::<i64>()) {
+                    if start <= end {
+                        (start..=end).map(|n| n.to_string()).collect()
+                    } else {
+                        (end..=start).rev().map(|n| n.to_string()).collect()
+                    }
+                } else {
+                    list_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                }
+            } else {
+                list_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+            };
 
             // Collect body lines
             let mut body_lines = Vec::new();
@@ -674,6 +735,7 @@ impl Parser {
                 self.pos += 1;
             }
 
+            ctx.fn_lines.entry(name.clone()).or_insert(line_num);
             ctx.functions.insert(name, FnDef { params, defaults, body_lines });
             return Ok(None);
         }
@@ -683,6 +745,7 @@ impl Parser {
         if content.starts_with('@') {
             let name = extract_element_name(&content);
             if ctx.functions.contains_key(name) {
+                ctx.used_functions.insert(name.to_string());
                 let nodes =
                     self.expand_fn_call(name, &content, current_indent, line_num, ctx)?;
                 return Ok(Some(nodes));
@@ -737,8 +800,21 @@ impl Parser {
         // Clone function definition (releases borrow on ctx)
         let fn_def = ctx.functions.get(name).unwrap().clone();
 
-        // Parse caller's children
-        let caller_children = self.parse_children(current_indent + 1, ctx);
+        // Parse caller's children, separating named slots from default children
+        let all_caller_children = self.parse_children(current_indent + 1, ctx);
+        let mut slot_contents: HashMap<String, Vec<Node>> = HashMap::new();
+        let mut caller_children = Vec::new();
+        for child in all_caller_children {
+            if let Node::Element(ref elem) = child {
+                if let ElementKind::Slot(ref slot_name) = elem.kind {
+                    if !slot_name.is_empty() {
+                        slot_contents.entry(slot_name.clone()).or_default().extend(elem.children.clone());
+                        continue;
+                    }
+                }
+            }
+            caller_children.push(child);
+        }
 
         // Save variable state, inject function parameters
         let saved_vars = ctx.variables.clone();
@@ -781,8 +857,8 @@ impl Parser {
         ctx.variables = saved_vars;
         ctx.fn_call_stack.pop();
 
-        // Replace @children with caller's children
-        Ok(replace_children_nodes(body_nodes, &caller_children))
+        // Replace @children with caller's children and @slot with slot content
+        Ok(replace_children_and_slots(body_nodes, &caller_children, &slot_contents))
     }
 
     fn parse_element_line(
@@ -819,15 +895,30 @@ impl Parser {
 // @children replacement
 // ---------------------------------------------------------------------------
 
-fn replace_children_nodes(nodes: Vec<Node>, caller_children: &[Node]) -> Vec<Node> {
+fn replace_children_and_slots(
+    nodes: Vec<Node>,
+    caller_children: &[Node],
+    slot_contents: &HashMap<String, Vec<Node>>,
+) -> Vec<Node> {
     let mut result = Vec::new();
     for node in nodes {
         match node {
             Node::Element(elem) if elem.kind == ElementKind::Children => {
                 result.extend(caller_children.iter().cloned());
             }
+            Node::Element(elem) if matches!(&elem.kind, ElementKind::Slot(name) if !name.is_empty()) => {
+                if let ElementKind::Slot(ref name) = elem.kind {
+                    if let Some(content) = slot_contents.get(name) {
+                        result.extend(content.iter().cloned());
+                    }
+                    // If no content provided for this slot, use the slot's own children as default
+                    else if !elem.children.is_empty() {
+                        result.extend(elem.children);
+                    }
+                }
+            }
             Node::Element(mut elem) => {
-                elem.children = replace_children_nodes(elem.children, caller_children);
+                elem.children = replace_children_and_slots(elem.children, caller_children, slot_contents);
                 result.push(Node::Element(elem));
             }
             other => result.push(other),
@@ -905,6 +996,13 @@ fn parse_single_element(
         Some(substitute_vars(&rest, &ctx.variables))
     };
 
+    // For @slot, the argument is the slot name
+    let kind = if let ElementKind::Slot(_) = kind {
+        ElementKind::Slot(argument.clone().unwrap_or_default())
+    } else {
+        kind
+    };
+
     Ok(Element {
         kind,
         attrs,
@@ -916,12 +1014,12 @@ fn parse_single_element(
 
 const KNOWN_ELEMENTS: &[&str] = &[
     "row", "column", "col", "el", "text", "paragraph", "p", "image", "img", "link", "children",
-    "input", "button", "select", "textarea", "option", "label",
+    "input", "button", "select", "textarea", "option", "label", "slot",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
     "page", "let", "define", "fn", "include", "import", "raw", "keyframes",
-    "if", "else", "each", "meta", "head",
+    "if", "else", "each", "meta", "head", "style",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -940,6 +1038,7 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "textarea" => Ok(ElementKind::Textarea),
         "option" | "opt" => Ok(ElementKind::Option),
         "label" => Ok(ElementKind::Label),
+        "slot" => Ok(ElementKind::Slot(String::new())), // slot name filled in by parse_single_element
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
                 .iter()
@@ -1015,6 +1114,8 @@ const KNOWN_ATTRS: &[&str] = &[
     "transform", "backdrop-filter",
     // Grid
     "grid", "grid-cols", "grid-rows", "col-span", "row-span",
+    // Container queries
+    "container", "container-name", "container-type",
     // Identity
     "id", "class",
     // Animation
@@ -1195,12 +1296,14 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
         if part.starts_with('$') {
             let name = &part[1..];
             if let Some(define_attrs) = ctx.defines.get(name) {
+                ctx.used_defines.insert(name.to_string());
                 attrs.extend(define_attrs.clone());
                 continue;
             }
         }
 
         // Substitute variables in value
+        track_var_refs(part, &mut ctx.used_variables);
         let part = substitute_vars(part, &ctx.variables);
 
         let attr = if let Some((key, value)) = part.split_once(' ') {
@@ -1429,6 +1532,37 @@ fn strip_all_prefixes(key: &str) -> &str {
         .unwrap_or(key)
 }
 
+/// Attributes that only make sense on container elements (@row, @column, @el).
+const CONTAINER_ONLY_ATTRS: &[&str] = &[
+    "spacing", "gap", "gap-x", "gap-y", "wrap",
+    "grid", "grid-cols", "grid-rows",
+    "container", "container-name", "container-type",
+];
+
+fn element_kind_name(kind: &ElementKind) -> &'static str {
+    match kind {
+        ElementKind::Row => "@row",
+        ElementKind::Column => "@column",
+        ElementKind::El => "@el",
+        ElementKind::Text => "@text",
+        ElementKind::Paragraph => "@paragraph",
+        ElementKind::Image => "@image",
+        ElementKind::Link => "@link",
+        ElementKind::Children => "@children",
+        ElementKind::Input => "@input",
+        ElementKind::Button => "@button",
+        ElementKind::Select => "@select",
+        ElementKind::Textarea => "@textarea",
+        ElementKind::Option => "@option",
+        ElementKind::Label => "@label",
+        ElementKind::Slot(_) => "@slot",
+    }
+}
+
+fn is_container(kind: &ElementKind) -> bool {
+    matches!(kind, ElementKind::Row | ElementKind::Column | ElementKind::El)
+}
+
 fn validate_tree(
     nodes: &[Node],
     parent_kind: Option<&ElementKind>,
@@ -1460,6 +1594,62 @@ fn validate_tree(
                             source_line: None,
                         });
                     }
+                }
+
+                // Container-only attributes on non-container elements
+                if CONTAINER_ONLY_ATTRS.contains(&base) && !is_container(&elem.kind) {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: format!(
+                            "'{}' has no effect on {} (only works on @row, @column, @el)",
+                            base, element_kind_name(&elem.kind)
+                        ),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+
+                // Form-specific: placeholder only on @input/@textarea
+                if base == "placeholder"
+                    && !matches!(elem.kind, ElementKind::Input | ElementKind::Textarea)
+                {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: format!(
+                            "'placeholder' has no effect on {} (only works on @input, @textarea)",
+                            element_kind_name(&elem.kind)
+                        ),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+
+                // 'for' only on @label
+                if base == "for" && !matches!(elem.kind, ElementKind::Label) {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: format!(
+                            "'for' has no effect on {} (only works on @label)",
+                            element_kind_name(&elem.kind)
+                        ),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+
+                // 'rows'/'cols' only on @textarea
+                if (base == "rows" || base == "cols")
+                    && !matches!(elem.kind, ElementKind::Textarea)
+                {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: format!(
+                            "'{}' has no effect on {} (only works on @textarea)",
+                            base, element_kind_name(&elem.kind)
+                        ),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
                 }
             }
             validate_tree(&elem.children, Some(&elem.kind), diagnostics);
@@ -1507,4 +1697,81 @@ fn substitute_vars(input: &str, vars: &HashMap<String, String>) -> String {
     }
 
     result
+}
+
+// ---------------------------------------------------------------------------
+// Variable usage tracking
+// ---------------------------------------------------------------------------
+
+/// Scan a string for $name references and record them in the used set.
+fn track_var_refs(input: &str, used: &mut HashSet<String>) {
+    if !input.contains('$') {
+        return;
+    }
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '$'
+            && i + 1 < chars.len()
+            && (chars[i + 1].is_alphanumeric() || chars[i + 1] == '_' || chars[i + 1] == '-')
+        {
+            let start = i + 1;
+            let mut end = start;
+            while end < chars.len()
+                && (chars[end].is_alphanumeric() || chars[end] == '-' || chars[end] == '_')
+            {
+                end += 1;
+            }
+            let name: String = chars[start..end].iter().collect();
+            used.insert(name);
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Unused definition warnings
+// ---------------------------------------------------------------------------
+
+fn check_unused(ctx: &mut ParseContext) {
+    // Check unused @let variables
+    for (name, &line) in &ctx.let_lines {
+        if name.starts_with("--") {
+            continue; // CSS vars are always used
+        }
+        if !ctx.used_variables.contains(name) {
+            ctx.diagnostics.push(Diagnostic {
+                line,
+                message: format!("unused variable '${}' (defined but never referenced)", name),
+                severity: Severity::Warning,
+                source_line: None,
+            });
+        }
+    }
+
+    // Check unused @define bundles
+    for (name, &line) in &ctx.define_lines {
+        if !ctx.used_defines.contains(name) {
+            ctx.diagnostics.push(Diagnostic {
+                line,
+                message: format!("unused define '${}' (defined but never referenced)", name),
+                severity: Severity::Warning,
+                source_line: None,
+            });
+        }
+    }
+
+    // Check unused @fn functions
+    for (name, &line) in &ctx.fn_lines {
+        if !ctx.used_functions.contains(name) {
+            ctx.diagnostics.push(Diagnostic {
+                line,
+                message: format!("unused function '@{}' (defined but never called)", name),
+                severity: Severity::Warning,
+                source_line: None,
+            });
+        }
+    }
 }
