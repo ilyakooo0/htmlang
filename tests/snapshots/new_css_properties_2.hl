@@ -1,0 +1,36 @@
+@page New CSS Properties 2
+
+@el [clip-path polygon(50% 0%, 0% 100%, 100% 100%)]
+  @text Triangle
+
+@el [mix-blend-mode multiply, background red]
+  @text Blended
+
+@el [background-blend-mode overlay, background-image linear-gradient(red, blue)]
+  @text Background blend
+
+@el [writing-mode vertical-rl]
+  @text Vertical text
+
+@column [column-count 3, column-gap 20]
+  @text Multi-column layout content here
+
+@paragraph [text-indent 2em]
+  Indented first line of the paragraph.
+
+@paragraph [hyphens auto]
+  A very long word that might need hyphenation in narrow containers.
+
+@row
+  @el [flex-grow 1] Grow
+  @el [flex-shrink 0] No shrink
+  @el [flex-basis 200] Fixed basis
+
+@el [isolation isolate]
+  @text Isolated stacking
+
+@el [grid, place-content center]
+  @text Centered grid content
+
+@el [background-image url(bg.png), background-size cover]
+  @text With background image

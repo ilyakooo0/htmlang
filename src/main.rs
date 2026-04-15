@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process;
 
-fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool) -> (bool, Vec<PathBuf>) {
+fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
@@ -33,7 +33,10 @@ fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool) -
         .iter()
         .any(|d| d.severity == htmlang::parser::Severity::Error);
 
-    let out_path = Path::new(input_path).with_extension("html");
+    let out_path = match output_path {
+        Some(p) => PathBuf::from(p),
+        None => Path::new(input_path).with_extension("html"),
+    };
 
     if !check_only {
         if has_errors {
@@ -100,18 +103,21 @@ htmlang {} - a minimalist layout language that compiles to static HTML
 
 Usage: htmlang [options] <file.hl | directory>
 
+Commands:
+  init [dir]        Create a new project (defaults to current directory)
+  build <dir> [-o <out>]  Compile all .hl files recursively
+  fmt <file.hl>     Format a .hl file (normalizes indentation)
+  sitemap <dir>     Generate sitemap.xml from .hl files
+
 Options:
   -w, --watch       Watch for changes and recompile
   -s, --serve       Start dev server with hot reload (implies --watch)
   -p, --port <N>    Port for dev server (default: 3000)
+  -o, --output <path>  Output file/directory path
   -d, --dev         Development mode
   -c, --check       Check for errors without writing output
   -h, --help        Show this help
   -V, --version     Show version
-
-Commands:
-  init [dir]        Create a new project (defaults to current directory)
-  fmt <file.hl>     Format a .hl file (normalizes indentation)
 
 Examples:
   htmlang init              Scaffold a new project
@@ -123,7 +129,9 @@ Examples:
   htmlang -s site/          Serve a multi-page site
   htmlang -s -p 8080 page.hl
   htmlang -c page.hl        Lint without writing output
-  htmlang fmt page.hl       Format a file",
+  htmlang fmt page.hl       Format a file
+  htmlang build src/ -o dist/  Compile all .hl files to dist/
+  htmlang sitemap src/      Generate sitemap.xml",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -167,6 +175,55 @@ fn init_project(dir: &str) {
     }
 }
 
+fn collect_hl_files_recursive(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    collect_hl_recursive_inner(dir, &mut files);
+    files.sort();
+    files
+}
+
+fn collect_hl_recursive_inner(dir: &Path, files: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_hl_recursive_inner(&path, files);
+            } else if path.is_file() && path.extension().map_or(false, |e| e == "hl") {
+                files.push(path);
+            }
+        }
+    }
+}
+
+fn generate_sitemap(dir: &str, base_url: &str) {
+    let dir = Path::new(dir);
+    let hl_files = collect_hl_files_recursive(dir);
+    if hl_files.is_empty() {
+        eprintln!("no .hl files found in {}", dir.display());
+        process::exit(1);
+    }
+    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+    for file in &hl_files {
+        let rel = file.strip_prefix(dir).unwrap_or(file);
+        let url_path = rel.with_extension("html").to_string_lossy().replace('\\', "/");
+        let url = if url_path == "index.html" {
+            format!("{}/", base_url.trim_end_matches('/'))
+        } else {
+            format!("{}/{}", base_url.trim_end_matches('/'), url_path)
+        };
+        xml.push_str(&format!("  <url><loc>{}</loc></url>\n", url));
+    }
+    xml.push_str("</urlset>\n");
+    let out_path = dir.join("sitemap.xml");
+    match fs::write(&out_path, &xml) {
+        Ok(()) => eprintln!("wrote {}", out_path.display()),
+        Err(e) => {
+            eprintln!("error: {}: {}", out_path.display(), e);
+            process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut watch = false;
@@ -174,6 +231,7 @@ fn main() {
     let mut dev = false;
     let mut check = false;
     let mut port: u16 = 3000;
+    let mut output_path: Option<String> = None;
     let mut input_path = None;
 
     // Handle "init" subcommand
@@ -202,6 +260,70 @@ fn main() {
                 process::exit(1);
             }
         }
+        return;
+    }
+
+    // Handle "build" subcommand
+    if args.len() >= 2 && args[1] == "build" {
+        let mut src_dir = None;
+        let mut out_dir = None;
+        let mut i = 2;
+        while i < args.len() {
+            match args[i].as_str() {
+                "-o" | "--output" => {
+                    i += 1;
+                    out_dir = args.get(i).map(|s| s.as_str());
+                }
+                _ if src_dir.is_none() => src_dir = Some(args[i].as_str()),
+                _ => {
+                    eprintln!("unknown argument: {}", args[i]);
+                    process::exit(1);
+                }
+            }
+            i += 1;
+        }
+        let src = src_dir.unwrap_or(".");
+        let dir = Path::new(src);
+        if !dir.is_dir() {
+            eprintln!("error: '{}' is not a directory", src);
+            process::exit(1);
+        }
+        let hl_files = collect_hl_files_recursive(dir);
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", src);
+            process::exit(1);
+        }
+        // Create output dir if needed
+        if let Some(out) = out_dir {
+            let _ = fs::create_dir_all(out);
+        }
+        let mut any_errors = false;
+        for file in &hl_files {
+            let path_str = file.to_string_lossy().to_string();
+            let effective_out = out_dir.map(|o| {
+                // Mirror directory structure
+                let rel = file.strip_prefix(dir).unwrap_or(file);
+                let out_path = Path::new(o).join(rel).with_extension("html");
+                if let Some(parent) = out_path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                out_path.to_string_lossy().to_string()
+            });
+            let (has_errors, _) = compile(&path_str, false, false, false, effective_out.as_deref());
+            if has_errors { any_errors = true; }
+        }
+        if any_errors { process::exit(1); }
+        return;
+    }
+
+    // Handle "sitemap" subcommand
+    if args.len() >= 2 && args[1] == "sitemap" {
+        let dir = if args.len() >= 3 { &args[2] } else { "." };
+        let base_url = args.iter().position(|a| a == "--base-url" || a == "-b")
+            .and_then(|i| args.get(i + 1))
+            .map(|s| s.as_str())
+            .unwrap_or("https://example.com");
+        generate_sitemap(dir, base_url);
         return;
     }
 
@@ -238,6 +360,16 @@ fn main() {
                     }
                 }
             }
+            "--output" | "-o" => {
+                i += 1;
+                match args.get(i) {
+                    Some(p) => output_path = Some(p.clone()),
+                    None => {
+                        eprintln!("--output requires a value");
+                        process::exit(1);
+                    }
+                }
+            }
             _ if input_path.is_none() => input_path = Some(args[i].clone()),
             _ => {
                 eprintln!("unknown argument: {}", args[i]);
@@ -266,11 +398,24 @@ fn main() {
             process::exit(1);
         }
 
+        // Create output dir if needed
+        if let Some(ref out) = output_path {
+            let _ = fs::create_dir_all(out);
+        }
+
         let mut any_errors = false;
         let mut all_included: Vec<PathBuf> = Vec::new();
         for file in &hl_files {
             let path_str = file.to_string_lossy().to_string();
-            let (has_errors, included) = compile(&path_str, dev, serve, check);
+            let effective_out = output_path.as_ref().map(|o| {
+                let rel = file.strip_prefix(dir).unwrap_or(file);
+                let out_p = Path::new(o).join(rel).with_extension("html");
+                if let Some(parent) = out_p.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                out_p.to_string_lossy().to_string()
+            });
+            let (has_errors, included) = compile(&path_str, dev, serve, check, effective_out.as_deref());
             if has_errors {
                 any_errors = true;
             }
@@ -303,7 +448,7 @@ fn main() {
     }
 
     // --- Single file mode ---
-    let (has_errors, included_files) = compile(&input_path, dev, serve, check);
+    let (has_errors, included_files) = compile(&input_path, dev, serve, check, output_path.as_deref());
 
     if !watch {
         if has_errors {
@@ -315,7 +460,10 @@ fn main() {
     // Start dev server if requested
     let reload_tx = if serve {
         let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
-        let out_path = Path::new(&input_path).with_extension("html");
+        let out_path = match output_path {
+            Some(ref p) => PathBuf::from(p),
+            None => Path::new(&input_path).with_extension("html"),
+        };
         let server_tx = tx.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
@@ -464,7 +612,7 @@ fn watch_loop(
                 // Recompile all source files
                 for file in source_files {
                     let path_str = file.to_string_lossy().to_string();
-                    let (_, new_includes) = compile(&path_str, dev, serve, false);
+                    let (_, new_includes) = compile(&path_str, dev, serve, false, None);
                     for inc in &new_includes {
                         let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                         if let Some(h) = hash_file(inc) {
@@ -478,7 +626,7 @@ fn watch_loop(
                     for file in &collect_hl_files(watch_dir) {
                         if !source_files.contains(file) {
                             let path_str = file.to_string_lossy().to_string();
-                            let (_, new_includes) = compile(&path_str, dev, serve, false);
+                            let (_, new_includes) = compile(&path_str, dev, serve, false, None);
                             for inc in &new_includes {
                                 let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                             }

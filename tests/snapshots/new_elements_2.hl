@@ -1,0 +1,35 @@
+@page New Elements 2
+
+@dialog [id modal, open]
+  @text [bold] Dialog Title
+  @text Dialog content here
+  @button Close
+
+@dl
+  @dt Term One
+  @dd Definition of term one
+  @dt Term Two
+  @dd Definition of term two
+
+@fieldset
+  @legend Personal Info
+  @label [for name] Name
+  @input [type text, name name]
+
+@picture
+  @source [srcset photo-wide.jpg, media (min-width: 800px)]
+  @image [alt A photo] photo.jpg
+
+@time [datetime 2026-04-15] April 15, 2026
+
+@text This is {@mark highlighted} text
+
+@text Press {@kbd Ctrl+C} to copy
+
+@abbr [title HyperText Markup Language] HTML
+
+@input [type text, name browser, list browsers]
+@datalist [id browsers]
+  @option Chrome
+  @option Firefox
+  @option Safari

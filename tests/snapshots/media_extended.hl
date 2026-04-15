@@ -1,0 +1,13 @@
+@page Media Extended
+
+@el [width 100%, 2xl:width 1536, 2xl:padding 40]
+  @text Wide screen layout
+
+@el [transition all 0.3s ease, motion-reduce:transition none]
+  @text Respects motion preferences
+
+@el [animation spin 1s linear infinite, motion-safe:animation spin 1s linear infinite, motion-reduce:animation none]
+  @text Animation with motion safety
+
+@el [padding 20, landscape:padding 10, portrait:padding 40]
+  @text Orientation-aware padding

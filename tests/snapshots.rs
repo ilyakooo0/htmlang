@@ -1510,3 +1510,386 @@ fn no_warning_new_css_attrs() {
         diags
     );
 }
+
+// =========================================================================
+// New elements snapshot
+// =========================================================================
+
+#[test]
+fn snapshot_new_elements_2() {
+    snapshot_test("new_elements_2");
+}
+
+// =========================================================================
+// New CSS properties snapshot
+// =========================================================================
+
+#[test]
+fn snapshot_new_css_properties_2() {
+    snapshot_test("new_css_properties_2");
+}
+
+// =========================================================================
+// Extended media queries snapshot
+// =========================================================================
+
+#[test]
+fn snapshot_media_extended() {
+    snapshot_test("media_extended");
+}
+
+// =========================================================================
+// @unless directive snapshot
+// =========================================================================
+
+#[test]
+fn snapshot_unless_directive() {
+    snapshot_test("unless_directive");
+}
+
+// =========================================================================
+// @og directive snapshot
+// =========================================================================
+
+#[test]
+fn snapshot_og_directive() {
+    snapshot_test("og_directive");
+}
+
+// =========================================================================
+// Arithmetic in @let snapshot
+// =========================================================================
+
+#[test]
+fn snapshot_arithmetic() {
+    snapshot_test("arithmetic");
+}
+
+// =========================================================================
+// New element assertion tests
+// =========================================================================
+
+#[test]
+fn element_dialog() {
+    let output = compile("@page T\n@dialog [id modal, open]\n  @text Hello");
+    assert!(output.contains("<dialog"));
+    assert!(output.contains("id=\"modal\""));
+    assert!(output.contains("open"));
+    assert!(output.contains("</dialog>"));
+}
+
+#[test]
+fn element_definition_list() {
+    let output = compile("@page T\n@dl\n  @dt Term\n  @dd Definition");
+    assert!(output.contains("<dl"));
+    assert!(output.contains("<dt>Term</dt>"));
+    assert!(output.contains("<dd"));
+    assert!(output.contains(">Definition</dd>"));
+}
+
+#[test]
+fn element_fieldset_legend() {
+    let output = compile("@page T\n@fieldset\n  @legend Info\n  @input [type text, name n]");
+    assert!(output.contains("<fieldset"));
+    assert!(output.contains("<legend>Info</legend>"));
+    assert!(output.contains("</fieldset>"));
+}
+
+#[test]
+fn element_picture_source() {
+    let output = compile("@page T\n@picture\n  @source [srcset wide.jpg, media (min-width: 800px)]\n  @image [alt Photo] photo.jpg");
+    assert!(output.contains("<picture"));
+    assert!(output.contains("<source"));
+    assert!(output.contains("srcset=\"wide.jpg\""));
+    assert!(output.contains("</picture>"));
+}
+
+#[test]
+fn element_time() {
+    let output = compile("@page T\n@time [datetime 2026-04-15] April 15");
+    assert!(output.contains("<time"));
+    assert!(output.contains("datetime=\"2026-04-15\""));
+    assert!(output.contains("April 15"));
+    assert!(output.contains("</time>"));
+}
+
+#[test]
+fn element_mark() {
+    let output = compile("@page T\n@mark highlighted");
+    assert!(output.contains("<mark>highlighted</mark>"));
+}
+
+#[test]
+fn element_kbd() {
+    let output = compile("@page T\n@kbd Ctrl+C");
+    assert!(output.contains("<kbd"));
+    assert!(output.contains("Ctrl+C</kbd>"));
+}
+
+#[test]
+fn element_abbr() {
+    let output = compile("@page T\n@abbr [title HyperText Markup Language] HTML");
+    assert!(output.contains("<abbr"));
+    assert!(output.contains("title=\"HyperText Markup Language\""));
+    assert!(output.contains("HTML"));
+}
+
+#[test]
+fn element_datalist() {
+    let output = compile("@page T\n@datalist [id browsers]\n  @option Chrome\n  @option Firefox");
+    assert!(output.contains("<datalist"));
+    assert!(output.contains("id=\"browsers\""));
+    assert!(output.contains("</datalist>"));
+}
+
+// =========================================================================
+// New CSS property assertion tests
+// =========================================================================
+
+#[test]
+fn css_clip_path() {
+    let output = compile("@page T\n@el [clip-path circle(50%)]");
+    assert!(output.contains("clip-path:circle(50%)"));
+}
+
+#[test]
+fn css_mix_blend_mode() {
+    let output = compile("@page T\n@el [mix-blend-mode multiply]");
+    assert!(output.contains("mix-blend-mode:multiply"));
+}
+
+#[test]
+fn css_background_blend_mode() {
+    let output = compile("@page T\n@el [background-blend-mode overlay]");
+    assert!(output.contains("background-blend-mode:overlay"));
+}
+
+#[test]
+fn css_writing_mode() {
+    let output = compile("@page T\n@el [writing-mode vertical-rl]");
+    assert!(output.contains("writing-mode:vertical-rl"));
+}
+
+#[test]
+fn css_column_count() {
+    let output = compile("@page T\n@column [column-count 3]");
+    assert!(output.contains("column-count:3"));
+}
+
+#[test]
+fn css_column_gap() {
+    let output = compile("@page T\n@column [column-gap 20]");
+    assert!(output.contains("column-gap:20px"));
+}
+
+#[test]
+fn css_text_indent() {
+    let output = compile("@page T\n@paragraph [text-indent 2em]");
+    assert!(output.contains("text-indent:2em"));
+}
+
+#[test]
+fn css_hyphens() {
+    let output = compile("@page T\n@paragraph [hyphens auto]");
+    assert!(output.contains("hyphens:auto"));
+}
+
+#[test]
+fn css_flex_grow() {
+    let output = compile("@page T\n@el [flex-grow 2]");
+    assert!(output.contains("flex-grow:2"));
+}
+
+#[test]
+fn css_flex_shrink() {
+    let output = compile("@page T\n@el [flex-shrink 0]");
+    assert!(output.contains("flex-shrink:0"));
+}
+
+#[test]
+fn css_flex_basis() {
+    let output = compile("@page T\n@el [flex-basis 200]");
+    assert!(output.contains("flex-basis:200px"));
+}
+
+#[test]
+fn css_isolation() {
+    let output = compile("@page T\n@el [isolation isolate]");
+    assert!(output.contains("isolation:isolate"));
+}
+
+#[test]
+fn css_place_content() {
+    let output = compile("@page T\n@el [grid, place-content center]");
+    assert!(output.contains("place-content:center"));
+}
+
+#[test]
+fn css_background_image() {
+    let output = compile("@page T\n@el [background-image linear-gradient(red, blue)]");
+    assert!(output.contains("background-image:linear-gradient(red, blue)"));
+}
+
+// =========================================================================
+// Media prefix assertion tests
+// =========================================================================
+
+#[test]
+fn media_2xl_breakpoint() {
+    let output = compile("@page T\n@el [2xl:padding 40]");
+    assert!(output.contains("@media(min-width:1536px)"));
+    assert!(output.contains("padding:40px"));
+}
+
+#[test]
+fn media_motion_reduce() {
+    let output = compile("@page T\n@el [motion-reduce:transition none]");
+    assert!(output.contains("@media(prefers-reduced-motion:reduce)"));
+    assert!(output.contains("transition:none"));
+}
+
+#[test]
+fn media_motion_safe() {
+    let output = compile("@page T\n@el [motion-safe:animation spin 1s]");
+    assert!(output.contains("@media(prefers-reduced-motion:no-preference)"));
+    assert!(output.contains("animation:spin 1s"));
+}
+
+#[test]
+fn media_landscape() {
+    let output = compile("@page T\n@el [landscape:padding 10]");
+    assert!(output.contains("@media(orientation:landscape)"));
+    assert!(output.contains("padding:10px"));
+}
+
+#[test]
+fn media_portrait() {
+    let output = compile("@page T\n@el [portrait:padding 40]");
+    assert!(output.contains("@media(orientation:portrait)"));
+    assert!(output.contains("padding:40px"));
+}
+
+// =========================================================================
+// @unless assertion tests
+// =========================================================================
+
+#[test]
+fn unless_false_shows_content() {
+    let output = compile("@page T\n@let show false\n@unless $show\n  @text Visible");
+    assert!(output.contains("Visible"));
+}
+
+#[test]
+fn unless_true_hides_content() {
+    let output = compile("@page T\n@let show true\n@unless $show\n  @text Hidden");
+    assert!(!output.contains("Hidden"));
+}
+
+// =========================================================================
+// @og assertion tests
+// =========================================================================
+
+#[test]
+fn og_tags_in_output() {
+    let output = compile("@page T\n@og title \"My Page\"\n@og image \"https://example.com/img.png\"\n@text Hello");
+    assert!(output.contains("og:title"));
+    assert!(output.contains("My Page"));
+    assert!(output.contains("og:image"));
+    assert!(output.contains("https://example.com/img.png"));
+}
+
+// =========================================================================
+// Arithmetic assertion tests
+// =========================================================================
+
+#[test]
+fn let_arithmetic_multiply() {
+    let output = compile("@page T\n@let x 10\n@let y $x * 2\n@el [width $y]\n  @text test");
+    assert!(output.contains("width:20px"));
+}
+
+#[test]
+fn let_arithmetic_add() {
+    let output = compile("@page T\n@let a 10\n@let b $a + 5\n@el [padding $b]\n  @text test");
+    assert!(output.contains("padding:15px"));
+}
+
+#[test]
+fn let_arithmetic_divide() {
+    let output = compile("@page T\n@let x 200 / 4\n@el [height $x]\n  @text test");
+    assert!(output.contains("height:50px"));
+}
+
+// =========================================================================
+// New diagnostics assertion tests
+// =========================================================================
+
+#[test]
+fn warning_missing_input_type() {
+    let diags = parse_diagnostics("@input [name email]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("missing 'type'")),
+        "should warn about missing type on @input, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_link_without_text() {
+    let diags = parse_diagnostics("@link https://example.com");
+    assert!(
+        diags.iter().any(|d| d.message.contains("no visible text")),
+        "should warn about @link without visible text, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_link_with_text() {
+    let diags = parse_diagnostics("@link https://example.com Click here");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("no visible text")),
+        "should not warn when @link has text, got: {:?}",
+        diags
+    );
+}
+
+// =========================================================================
+// No warnings for new CSS attributes
+// =========================================================================
+
+#[test]
+fn no_warning_new_css_properties_2() {
+    let diags = parse_diagnostics(
+        "@el [clip-path circle(50%), mix-blend-mode multiply, writing-mode vertical-rl, isolation isolate]"
+    );
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "new CSS properties should be recognized, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_new_css_properties_3() {
+    let diags = parse_diagnostics(
+        "@el [column-count 3, column-gap 20, text-indent 2em, hyphens auto, flex-grow 1, flex-shrink 0, flex-basis 200, place-content center, background-image url(x)]"
+    );
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "new CSS properties should be recognized, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_new_media_prefixes() {
+    let diags = parse_diagnostics(
+        "@el [2xl:padding 40, motion-safe:animation none, motion-reduce:transition none, landscape:width 100%, portrait:padding 20]"
+    );
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "new media prefixes should be recognized, got: {:?}",
+        diags
+    );
+}

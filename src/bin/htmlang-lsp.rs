@@ -88,6 +88,11 @@ impl LanguageServer for Backend {
                         ..Default::default()
                     }),
                 ),
+                inlay_hint_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                linked_editing_range_provider: Some(
+                    LinkedEditingRangeServerCapabilities::Simple(true),
+                ),
                 ..Default::default()
             },
             ..Default::default()
@@ -311,6 +316,63 @@ impl LanguageServer for Backend {
             data: tokens,
         })))
     }
+
+    async fn inlay_hint(
+        &self,
+        params: InlayHintParams,
+    ) -> Result<Option<Vec<InlayHint>>> {
+        let uri = &params.text_document.uri;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+        let hints = inlay_hints(&text);
+        Ok(if hints.is_empty() { None } else { Some(hints) })
+    }
+
+    #[allow(deprecated)]
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        let query = params.query.to_lowercase();
+        let docs = self.documents.read().await;
+        let mut all_symbols = Vec::new();
+        for (uri, text) in docs.iter() {
+            let symbols = document_symbols(text);
+            for mut sym in symbols {
+                sym.location.uri = uri.clone();
+                if query.is_empty()
+                    || sym.name.to_lowercase().contains(&query)
+                {
+                    all_symbols.push(sym);
+                }
+            }
+        }
+        drop(docs);
+        Ok(if all_symbols.is_empty() {
+            None
+        } else {
+            Some(all_symbols)
+        })
+    }
+
+    async fn linked_editing_range(
+        &self,
+        params: LinkedEditingRangeParams,
+    ) -> Result<Option<LinkedEditingRanges>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+        Ok(linked_editing_ranges(&text, pos))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +407,7 @@ fn completions(text: &str, position: Position) -> Vec<CompletionItem> {
         // State prefix (hover:, active:, focus:) or media prefix (dark:, print:)
         if let Some(colon) = current_word.find(':') {
             let prefix = &current_word[..colon];
-            if matches!(prefix, "hover" | "active" | "focus" | "focus-visible" | "focus-within" | "disabled" | "checked" | "placeholder" | "first" | "last" | "odd" | "even" | "dark" | "print") {
+            if matches!(prefix, "hover" | "active" | "focus" | "focus-visible" | "focus-within" | "disabled" | "checked" | "placeholder" | "first" | "last" | "odd" | "even" | "dark" | "print" | "sm" | "md" | "lg" | "xl" | "2xl" | "motion-safe" | "motion-reduce" | "landscape" | "portrait") {
                 return state_attr_completions(prefix, edit_range);
             }
         }
@@ -482,6 +544,25 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         ("@progress", "Progress bar (value, max attributes)"),
         ("@meter", "Meter/gauge element (value, min, max)"),
         ("@fragment", "Group children without a wrapper element"),
+        // Dialog & interactive
+        ("@dialog", "Dialog/modal element (dialog)"),
+        // Definition lists
+        ("@dl", "Description list (dl)"),
+        ("@dt", "Description term (dt)"),
+        ("@dd", "Description details (dd)"),
+        // Form grouping
+        ("@fieldset", "Fieldset group (fieldset)"),
+        ("@legend", "Legend for @fieldset (legend)"),
+        // Picture/responsive images
+        ("@picture", "Responsive image container (picture)"),
+        ("@source", "Media source for @picture/@video/@audio (source)"),
+        // Inline semantics
+        ("@time", "Date/time element (time)"),
+        ("@mark", "Highlighted/marked text (mark)"),
+        ("@kbd", "Keyboard input (kbd)"),
+        ("@abbr", "Abbreviation (abbr)"),
+        // Datalist
+        ("@datalist", "Predefined options for @input (datalist)"),
     ]
     .iter()
     .map(|(name, detail)| item(name, CompletionItemKind::KEYWORD, detail, name, range))
@@ -512,6 +593,9 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@debug", "Print debug message during compilation", "@debug "),
         ("@lang", "Set document language (html lang attribute)", "@lang "),
         ("@favicon", "Set favicon (inlined as base64 data URI)", "@favicon "),
+        ("@unless", "Inverse conditional (renders when false)", "@unless "),
+        ("@og", "Add Open Graph meta tag", "@og "),
+        ("@breakpoint", "Define custom responsive breakpoint", "@breakpoint "),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -728,9 +812,39 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("md:", "Style at 768px+ (medium)", false),
         ("lg:", "Style at 1024px+ (large)", false),
         ("xl:", "Style at 1280px+ (extra large)", false),
+        // Additional responsive prefixes
+        ("2xl:", "Style at 1536px+ (2x extra large)", false),
+        // Motion prefixes
+        ("motion-safe:", "Style when motion is allowed", false),
+        ("motion-reduce:", "Style when reduced motion preferred", false),
+        // Orientation prefixes
+        ("landscape:", "Style in landscape orientation", false),
+        ("portrait:", "Style in portrait orientation", false),
         // Media prefixes
         ("dark:", "Style in dark color scheme", false),
         ("print:", "Style for print media", false),
+        // Clipping & blending
+        ("clip-path", "Clip path (circle, polygon, etc.)", true),
+        ("mix-blend-mode", "Blend mode (multiply, screen, overlay, etc.)", true),
+        ("background-blend-mode", "Background blend mode", true),
+        // Writing mode
+        ("writing-mode", "Writing mode (horizontal-tb, vertical-rl, etc.)", true),
+        // Multi-column layout
+        ("column-count", "Number of columns in multi-column layout", true),
+        ("column-gap", "Gap between columns", true),
+        // Text
+        ("text-indent", "First-line text indentation", true),
+        ("hyphens", "Hyphenation behavior (none/manual/auto)", true),
+        // Flex item sizing
+        ("flex-grow", "Flex grow factor", true),
+        ("flex-shrink", "Flex shrink factor", true),
+        ("flex-basis", "Flex basis (initial main size)", true),
+        // Stacking context
+        ("isolation", "Create stacking context (isolate/auto)", true),
+        // Grid/flex placement
+        ("place-content", "Shorthand for align-content + justify-content", true),
+        // Background image
+        ("background-image", "Background image (url or gradient)", true),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -997,6 +1111,24 @@ fn hover_builtin(word: &str) -> Option<String> {
         (Some("odd"), rest)
     } else if let Some(rest) = word.strip_prefix("even:") {
         (Some("even"), rest)
+    } else if let Some(rest) = word.strip_prefix("sm:") {
+        (Some("sm"), rest)
+    } else if let Some(rest) = word.strip_prefix("md:") {
+        (Some("md"), rest)
+    } else if let Some(rest) = word.strip_prefix("lg:") {
+        (Some("lg"), rest)
+    } else if let Some(rest) = word.strip_prefix("xl:") {
+        (Some("xl"), rest)
+    } else if let Some(rest) = word.strip_prefix("2xl:") {
+        (Some("2xl"), rest)
+    } else if let Some(rest) = word.strip_prefix("motion-safe:") {
+        (Some("motion-safe"), rest)
+    } else if let Some(rest) = word.strip_prefix("motion-reduce:") {
+        (Some("motion-reduce"), rest)
+    } else if let Some(rest) = word.strip_prefix("landscape:") {
+        (Some("landscape"), rest)
+    } else if let Some(rest) = word.strip_prefix("portrait:") {
+        (Some("portrait"), rest)
     } else {
         (None, word)
     };
@@ -1066,6 +1198,20 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@progress" => "**@progress** \u{2014} Progress bar\n\nRenders as `<progress>`.\n\nUsage: `@progress [value 70, max 100]`",
         "@meter" => "**@meter** \u{2014} Meter\n\nRenders as `<meter>`. Gauge for scalar measurement.\n\nUsage: `@meter [value 0.7, min 0, max 1, low 0.3, high 0.8]`",
         "@fragment" => "**@fragment** \u{2014} Fragment\n\nGroups children without emitting a wrapper element. Renders children directly in the parent.",
+        // New elements
+        "@dialog" => "**@dialog** \u{2014} Dialog\n\nRenders as `<dialog>`. Modal or non-modal dialog box.\n\nUsage: `@dialog [open] Dialog content`",
+        "@dl" => "**@dl** \u{2014} Description list\n\nRenders as `<dl>`. Contains `@dt` and `@dd` pairs.",
+        "@dt" => "**@dt** \u{2014} Description term\n\nRenders as `<dt>`. Term in a `@dl` description list.",
+        "@dd" => "**@dd** \u{2014} Description details\n\nRenders as `<dd>`. Details for a `@dt` term.",
+        "@fieldset" => "**@fieldset** \u{2014} Fieldset\n\nRenders as `<fieldset>`. Groups related form elements.\n\nUse `@legend` for a caption.",
+        "@legend" => "**@legend** \u{2014} Legend\n\nRenders as `<legend>`. Caption for a `@fieldset`.",
+        "@picture" => "**@picture** \u{2014} Picture\n\nRenders as `<picture>`. Container for responsive image sources.\n\nUse `@source` children for different media queries.",
+        "@source" => "**@source** \u{2014} Source\n\nRenders as `<source>`. Media source for `@picture`, `@video`, or `@audio`.\n\nUsage: `@source [src image.webp, type image/webp]`",
+        "@time" => "**@time** \u{2014} Time\n\nRenders as `<time>`. Machine-readable date/time.\n\nUsage: `@time [datetime 2024-01-15] January 15`",
+        "@mark" => "**@mark** \u{2014} Mark\n\nRenders as `<mark>`. Highlighted or marked text.",
+        "@kbd" => "**@kbd** \u{2014} Keyboard input\n\nRenders as `<kbd>`. Represents keyboard input.\n\nUsage: `@kbd Ctrl+C`",
+        "@abbr" => "**@abbr** \u{2014} Abbreviation\n\nRenders as `<abbr>`. Abbreviation with optional title.\n\nUsage: `@abbr [title Hypertext Markup Language] HTML`",
+        "@datalist" => "**@datalist** \u{2014} Datalist\n\nRenders as `<datalist>`. Provides predefined options for `@input`.\n\nUsage: `@datalist [id colors]`",
         // Directives
         "@match" => "**@match** \u{2014} Pattern matching\n\nMatch a value against cases.\n\n```\n@match $theme\n  @case dark\n    @el [background #333]\n  @case light\n    @el [background white]\n  @default\n    @el [background gray]\n```",
         "@case" => "**@case** \u{2014} Match case\n\nA case inside `@match`. Matches when the value equals the case value.",
@@ -1074,6 +1220,9 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@debug" => "**@debug** \u{2014} Debug message\n\nPrint a debug message to stderr during compilation.\n\nUsage: `@debug Theme is $theme`",
         "@lang" => "**@lang** \u{2014} Document language\n\nSets the `lang` attribute on the `<html>` element.\n\nUsage: `@lang en`",
         "@favicon" => "**@favicon** \u{2014} Favicon\n\nInlines a favicon as a base64 data URI in the `<head>`.\n\nUsage: `@favicon favicon.png`",
+        "@unless" => "**@unless** \u{2014} Inverse conditional\n\nRenders children when the condition is false (opposite of `@if`).\n\nUsage: `@unless $debug`",
+        "@og" => "**@og** \u{2014} Open Graph meta tag\n\nAdds an Open Graph `<meta>` tag to `<head>`.\n\nUsage: `@og title My Page Title`",
+        "@breakpoint" => "**@breakpoint** \u{2014} Custom breakpoint\n\nDefines a custom responsive breakpoint.\n\nUsage: `@breakpoint tablet 600`",
         // Attributes
         "spacing" | "gap" => "**spacing** `<value>`\n\nGap between children. Supports CSS units (px, rem, em, %).\nMaps to CSS `gap`.",
         "padding" => "**padding** `<value>` | `<y> <x>` | `<t> <h> <b>` | `<t> <r> <b> <l>`\n\nInner padding. Supports CSS units. Accepts 1\u{2013}4 values.",
@@ -1221,6 +1370,21 @@ fn hover_builtin(word: &str) -> Option<String> {
         "place-self" => "**place-self** `<value>` \u{2014} Shorthand for `align-self` and `justify-self`.",
         "scroll-behavior" => "**scroll-behavior** `<value>` \u{2014} Scroll behavior (`smooth`, `auto`).",
         "resize" => "**resize** `<value>` \u{2014} Resize behavior (`none`, `both`, `horizontal`, `vertical`).",
+        // New CSS attributes
+        "clip-path" => "**clip-path** `<value>` \u{2014} Clip path (`circle()`, `polygon()`, `inset()`, `url()`).",
+        "mix-blend-mode" => "**mix-blend-mode** `<value>` \u{2014} Blend mode (`multiply`, `screen`, `overlay`, `darken`, `lighten`).",
+        "background-blend-mode" => "**background-blend-mode** `<value>` \u{2014} Background blend mode for layered backgrounds.",
+        "writing-mode" => "**writing-mode** `<value>` \u{2014} Writing direction (`horizontal-tb`, `vertical-rl`, `vertical-lr`).",
+        "column-count" => "**column-count** `<value>` \u{2014} Number of columns in multi-column layout.",
+        "column-gap" => "**column-gap** `<value>` \u{2014} Gap between columns. Supports CSS units.",
+        "text-indent" => "**text-indent** `<value>` \u{2014} Indentation of the first line of text.",
+        "hyphens" => "**hyphens** `<value>` \u{2014} Hyphenation behavior (`none`, `manual`, `auto`).",
+        "flex-grow" => "**flex-grow** `<value>` \u{2014} Flex grow factor (number). Controls how much an item grows.",
+        "flex-shrink" => "**flex-shrink** `<value>` \u{2014} Flex shrink factor (number). Controls how much an item shrinks.",
+        "flex-basis" => "**flex-basis** `<value>` \u{2014} Initial main size of a flex item (e.g., `200px`, `auto`, `0`).",
+        "isolation" => "**isolation** `<value>` \u{2014} Creates a new stacking context (`isolate`, `auto`).",
+        "place-content" => "**place-content** `<value>` \u{2014} Shorthand for `align-content` and `justify-content`.",
+        "background-image" => "**background-image** `<value>` \u{2014} Background image (`url()` or gradient function).",
         _ => return None,
     };
 
@@ -1887,7 +2051,8 @@ fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
                     "@page" | "@let" | "@define" | "@fn" | "@if" | "@else" | "@each"
                     | "@include" | "@import" | "@meta" | "@head" | "@style" | "@keyframes"
                     | "@match" | "@case" | "@default" | "@slot" | "@children"
-                    | "@warn" | "@debug" | "@lang" | "@favicon" | "@fragment" => 0, // keyword
+                    | "@warn" | "@debug" | "@lang" | "@favicon" | "@fragment"
+                    | "@unless" | "@og" | "@breakpoint" => 0, // keyword
                     _ => {
                         // Check if it's a user function call (starts with @ but not a builtin element)
                         if is_builtin_element(word) { 0 } else { 2 } // function
@@ -1921,6 +2086,8 @@ fn is_builtin_element(word: &str) -> bool {
         | "@video" | "@audio" | "@form" | "@details" | "@summary"
         | "@blockquote" | "@cite" | "@code" | "@pre" | "@hr" | "@divider"
         | "@figure" | "@figcaption" | "@progress" | "@meter" | "@fragment"
+        | "@dialog" | "@dl" | "@dt" | "@dd" | "@fieldset" | "@legend"
+        | "@picture" | "@source" | "@time" | "@mark" | "@kbd" | "@abbr" | "@datalist"
     )
 }
 
@@ -1948,6 +2115,128 @@ fn push_token(
     });
     *prev_line = line;
     *prev_start = start;
+}
+
+// ---------------------------------------------------------------------------
+// Inlay hints
+// ---------------------------------------------------------------------------
+
+fn inlay_hints(text: &str) -> Vec<InlayHint> {
+    // Build variable map: name -> value
+    let mut vars: HashMap<&str, &str> = HashMap::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
+            if let Some((name, value)) = rest.trim().split_once(' ') {
+                vars.insert(name, value.trim());
+            }
+        }
+    }
+
+    let mut hints = Vec::new();
+    for (line_idx, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        // Skip @let definition lines — the value is already visible there
+        if trimmed.starts_with("@let ") {
+            continue;
+        }
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'$' {
+                let start = i;
+                i += 1;
+                while i < bytes.len()
+                    && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
+                {
+                    i += 1;
+                }
+                if i > start + 1 {
+                    let var_name = &line[start + 1..i];
+                    if let Some(value) = vars.get(var_name) {
+                        hints.push(InlayHint {
+                            position: Position::new(line_idx as u32, i as u32),
+                            label: InlayHintLabel::String(format!(" \u{2192} {}", value)),
+                            kind: None,
+                            text_edits: None,
+                            tooltip: None,
+                            padding_left: Some(false),
+                            padding_right: Some(true),
+                            data: None,
+                        });
+                    }
+                }
+            } else {
+                i += 1;
+            }
+        }
+    }
+    hints
+}
+
+// ---------------------------------------------------------------------------
+// Linked editing ranges
+// ---------------------------------------------------------------------------
+
+fn linked_editing_ranges(text: &str, position: Position) -> Option<LinkedEditingRanges> {
+    let lines: Vec<&str> = text.lines().collect();
+    let line = lines.get(position.line as usize)?;
+    let col = (position.character as usize).min(line.len());
+
+    // Find the $variable at the cursor
+    let bytes = line.as_bytes();
+    let mut start = col;
+    while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'$' || bytes[start - 1] == b'-' || bytes[start - 1] == b'_') {
+        start -= 1;
+    }
+    let mut end = col;
+    while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'$' || bytes[end] == b'-' || bytes[end] == b'_') {
+        end += 1;
+    }
+    if start == end {
+        return None;
+    }
+
+    let word = &line[start..end];
+    if !word.starts_with('$') {
+        return None;
+    }
+
+    // Find all occurrences of this $variable in the document
+    let mut ranges = Vec::new();
+    for (line_idx, line) in text.lines().enumerate() {
+        let line_bytes = line.as_bytes();
+        let mut offset = 0;
+        while let Some(pos) = line[offset..].find(word) {
+            let abs_pos = offset + pos;
+            // Check it's a whole word match
+            let before_ok = abs_pos == 0 || {
+                let c = line_bytes[abs_pos - 1];
+                !c.is_ascii_alphanumeric() && c != b'-' && c != b'_'
+            };
+            let after_end = abs_pos + word.len();
+            let after_ok = after_end >= line.len() || {
+                let c = line_bytes[after_end];
+                !c.is_ascii_alphanumeric() && c != b'-' && c != b'_'
+            };
+            if before_ok && after_ok {
+                ranges.push(Range::new(
+                    Position::new(line_idx as u32, abs_pos as u32),
+                    Position::new(line_idx as u32, after_end as u32),
+                ));
+            }
+            offset = abs_pos + word.len();
+        }
+    }
+
+    if ranges.len() < 2 {
+        return None;
+    }
+
+    Some(LinkedEditingRanges {
+        ranges,
+        word_pattern: None,
+    })
 }
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,8 @@ pub struct Document {
     pub keyframes: Vec<(String, String)>,
     pub css_vars: Vec<(String, String)>,
     pub custom_css: Vec<String>,
+    pub og_tags: Vec<(String, String)>,
+    pub custom_breakpoints: Vec<(String, String)>,
     pub nodes: Vec<Node>,
 }
 
@@ -92,6 +94,19 @@ pub enum ElementKind {
     Progress,
     Meter,
     Fragment,
+    Dialog,
+    DefinitionList,
+    DefinitionTerm,
+    DefinitionDescription,
+    Fieldset,
+    Legend,
+    Picture,
+    Source,
+    Time,
+    Mark,
+    Kbd,
+    Abbr,
+    Datalist,
 }
 
 #[derive(Debug, Clone)]

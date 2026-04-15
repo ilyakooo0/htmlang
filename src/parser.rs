@@ -76,6 +76,8 @@ struct ParseContext {
     keyframes: Vec<(String, String)>,
     css_vars: Vec<(String, String)>,
     custom_css: Vec<String>,
+    og_tags: Vec<(String, String)>,
+    custom_breakpoints: Vec<(String, String)>,
     diagnostics: Vec<Diagnostic>,
     base_path: Option<PathBuf>,
     included_files: Vec<PathBuf>,
@@ -120,6 +122,8 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
         keyframes: Vec::new(),
         css_vars: Vec::new(),
         custom_css: Vec::new(),
+        og_tags: Vec::new(),
+        custom_breakpoints: Vec::new(),
         diagnostics: Vec::new(),
         base_path: base_path.map(|p| p.to_path_buf()),
         included_files: Vec::new(),
@@ -148,6 +152,8 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
             keyframes: ctx.keyframes,
             css_vars: ctx.css_vars,
             custom_css: ctx.custom_css,
+            og_tags: ctx.og_tags,
+            custom_breakpoints: ctx.custom_breakpoints,
             nodes,
         },
         diagnostics: ctx.diagnostics,
@@ -340,6 +346,7 @@ impl Parser {
                 };
                 track_var_refs(value, &mut ctx.used_variables);
                 let value = substitute_vars(value, &ctx.variables);
+                let value = evaluate_arithmetic(&value);
                 if name.starts_with("--") {
                     // CSS custom property
                     ctx.css_vars.push((name.to_string(), value.clone()));
@@ -355,6 +362,29 @@ impl Parser {
             if let Some((name, value)) = rest.split_once(' ') {
                 let value = substitute_vars(value.trim(), &ctx.variables);
                 ctx.meta_tags.push((name.trim().to_string(), value));
+            }
+            return Ok(None);
+        }
+
+        if let Some(rest) = content.strip_prefix("@og ") {
+            let rest = rest.trim();
+            let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+            if parts.len() == 2 {
+                let value = substitute_vars(parts[1].trim(), &ctx.variables);
+                let value = if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+                    value[1..value.len()-1].to_string()
+                } else {
+                    value
+                };
+                ctx.og_tags.push((parts[0].to_string(), value));
+            }
+            return Ok(None);
+        }
+
+        if let Some(rest) = content.strip_prefix("@breakpoint ") {
+            let rest = rest.trim();
+            if let Some((name, value)) = rest.split_once(' ') {
+                ctx.custom_breakpoints.push((name.trim().to_string(), substitute_vars(value.trim(), &ctx.variables)));
             }
             return Ok(None);
         }
@@ -613,6 +643,31 @@ impl Parser {
                 lines: adjusted,
                 pos: 0,
             };
+            let nodes = body_parser.parse_children(0, ctx);
+            ctx.variables = saved_vars;
+            return Ok(Some(nodes));
+        }
+
+        if let Some(rest) = content.strip_prefix("@unless ") {
+            let rest = rest.trim();
+            let condition = substitute_vars(rest, &ctx.variables);
+            let result = !evaluate_condition(&condition);
+            let mut body_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                body_lines.push(self.lines[self.pos].clone());
+                self.pos += 1;
+            }
+            if !result || body_lines.is_empty() {
+                return Ok(None);
+            }
+            let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
+            let adjusted: Vec<Line> = body_lines.iter().map(|l| Line {
+                indent: l.indent - min_indent,
+                content: l.content.clone(),
+                line_num: l.line_num,
+            }).collect();
+            let saved_vars = ctx.variables.clone();
+            let mut body_parser = Parser { lines: adjusted, pos: 0 };
             let nodes = body_parser.parse_children(0, ctx);
             ctx.variables = saved_vars;
             return Ok(Some(nodes));
@@ -1163,12 +1218,15 @@ const KNOWN_ELEMENTS: &[&str] = &[
     "form", "details", "summary", "blockquote", "cite", "code", "pre", "hr", "divider",
     "figure", "figcaption", "progress", "meter",
     "fragment",
+    "btn", "ul", "dialog", "dl", "dt", "dd", "fieldset", "legend",
+    "picture", "source", "time", "mark", "kbd", "abbr", "datalist",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
     "page", "let", "define", "fn", "include", "import", "raw", "keyframes",
     "if", "else", "each", "meta", "head", "style",
     "match", "case", "default", "warn", "debug",
+    "unless", "og", "breakpoint", "lang", "favicon",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -1218,6 +1276,20 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "progress" => Ok(ElementKind::Progress),
         "meter" => Ok(ElementKind::Meter),
         "fragment" => Ok(ElementKind::Fragment),
+        "dialog" => Ok(ElementKind::Dialog),
+        "dl" => Ok(ElementKind::DefinitionList),
+        "dt" => Ok(ElementKind::DefinitionTerm),
+        "dd" => Ok(ElementKind::DefinitionDescription),
+        "fieldset" => Ok(ElementKind::Fieldset),
+        "legend" => Ok(ElementKind::Legend),
+        "picture" => Ok(ElementKind::Picture),
+        "source" => Ok(ElementKind::Source),
+        "time" => Ok(ElementKind::Time),
+        "mark" => Ok(ElementKind::Mark),
+        "kbd" => Ok(ElementKind::Kbd),
+        "abbr" => Ok(ElementKind::Abbr),
+        "datalist" => Ok(ElementKind::Datalist),
+        "ul" => Ok(ElementKind::List),
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
                 .iter()
@@ -1357,6 +1429,11 @@ const KNOWN_ATTRS: &[&str] = &[
     "scroll-behavior",
     // Resize
     "resize",
+    // New CSS properties
+    "clip-path", "mix-blend-mode", "background-blend-mode", "writing-mode",
+    "column-count", "column-gap", "text-indent", "hyphens",
+    "flex-grow", "flex-shrink", "flex-basis", "isolation",
+    "place-content", "background-image", "datetime",
 ];
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
@@ -1760,6 +1837,31 @@ fn evaluate_condition(condition: &str) -> bool {
     }
 }
 
+fn evaluate_arithmetic(input: &str) -> String {
+    let input = input.trim();
+    for op in &[" * ", " / ", " + ", " - "] {
+        if let Some((left, right)) = input.split_once(op) {
+            let left = left.trim();
+            let right = right.trim();
+            let op_char = op.trim().chars().next().unwrap();
+            if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
+                let result = match op_char {
+                    '+' => l + r,
+                    '-' => l - r,
+                    '*' => l * r,
+                    '/' => if r != 0.0 { l / r } else { return input.to_string() },
+                    _ => return input.to_string(),
+                };
+                if result == result.floor() && result.abs() < i64::MAX as f64 {
+                    return format!("{}", result as i64);
+                }
+                return format!("{}", result);
+            }
+        }
+    }
+    input.to_string()
+}
+
 // ---------------------------------------------------------------------------
 // Post-parse validation (context-dependent warnings)
 // ---------------------------------------------------------------------------
@@ -1785,11 +1887,18 @@ fn strip_all_prefixes(key: &str) -> &str {
         .or_else(|| key.strip_prefix("md:"))
         .or_else(|| key.strip_prefix("lg:"))
         .or_else(|| key.strip_prefix("xl:"))
+        .or_else(|| key.strip_prefix("2xl:"))
         .unwrap_or(key);
     // Strip media prefixes
-    key.strip_prefix("dark:")
+    let key = key.strip_prefix("dark:")
         .or_else(|| key.strip_prefix("print:"))
-        .unwrap_or(key)
+        .unwrap_or(key);
+    let key = key.strip_prefix("motion-safe:")
+        .or_else(|| key.strip_prefix("motion-reduce:"))
+        .or_else(|| key.strip_prefix("landscape:"))
+        .or_else(|| key.strip_prefix("portrait:"))
+        .unwrap_or(key);
+    key
 }
 
 /// Attributes that only make sense on container elements (@row, @column, @el).
@@ -1846,6 +1955,19 @@ fn element_kind_name(kind: &ElementKind) -> &'static str {
         ElementKind::Progress => "@progress",
         ElementKind::Meter => "@meter",
         ElementKind::Fragment => "@fragment",
+        ElementKind::Dialog => "@dialog",
+        ElementKind::DefinitionList => "@dl",
+        ElementKind::DefinitionTerm => "@dt",
+        ElementKind::DefinitionDescription => "@dd",
+        ElementKind::Fieldset => "@fieldset",
+        ElementKind::Legend => "@legend",
+        ElementKind::Picture => "@picture",
+        ElementKind::Source => "@source",
+        ElementKind::Time => "@time",
+        ElementKind::Mark => "@mark",
+        ElementKind::Kbd => "@kbd",
+        ElementKind::Abbr => "@abbr",
+        ElementKind::Datalist => "@datalist",
     }
 }
 
@@ -1857,6 +1979,8 @@ fn is_container(kind: &ElementKind) -> bool {
         | ElementKind::Aside | ElementKind::List | ElementKind::ListItem
         | ElementKind::Form | ElementKind::Details | ElementKind::Figure
         | ElementKind::Blockquote
+        | ElementKind::Dialog | ElementKind::DefinitionList | ElementKind::DefinitionTerm
+        | ElementKind::DefinitionDescription | ElementKind::Fieldset | ElementKind::Datalist
     )
 }
 
@@ -1983,6 +2107,28 @@ fn validate_tree(
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
                         message: "@image missing 'alt' attribute (accessibility)".to_string(),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+            }
+            if matches!(elem.kind, ElementKind::Input) {
+                if !elem.attrs.iter().any(|a| a.key == "type") {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: "@input missing 'type' attribute (defaults to 'text')".to_string(),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+            }
+            if matches!(elem.kind, ElementKind::Link) {
+                // For @link, argument is the URL, not text content
+                let has_text = !elem.children.is_empty();
+                if !has_text && !elem.attrs.iter().any(|a| a.key == "aria-label" || a.key == "title") {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: "@link has no visible text or aria-label (accessibility)".to_string(),
                         severity: Severity::Warning,
                         source_line: None,
                     });

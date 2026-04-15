@@ -12,6 +12,7 @@ const BREAKPOINTS: &[(&str, &str)] = &[
     ("md", "768px"),
     ("lg", "1024px"),
     ("xl", "1280px"),
+    ("2xl", "1536px"),
 ];
 
 struct StyleEntry {
@@ -25,6 +26,10 @@ struct StyleEntry {
     dark: String,
     /// Print overrides
     print: String,
+    motion_safe: String,
+    motion_reduce: String,
+    landscape: String,
+    portrait: String,
 }
 
 struct StyleCollector {
@@ -48,12 +53,20 @@ impl StyleCollector {
         responsive: Vec<(String, String)>,
         dark: String,
         print: String,
+        motion_safe: String,
+        motion_reduce: String,
+        landscape: String,
+        portrait: String,
     ) -> Option<String> {
         if base.is_empty()
             && pseudo.is_empty()
             && responsive.is_empty()
             && dark.is_empty()
             && print.is_empty()
+            && motion_safe.is_empty()
+            && motion_reduce.is_empty()
+            && landscape.is_empty()
+            && portrait.is_empty()
         {
             return None;
         }
@@ -67,7 +80,7 @@ impl StyleCollector {
             .map(|(bp, css)| format!("{}={}", bp, css))
             .collect::<Vec<_>>()
             .join("|");
-        let key = format!("{}|{}|{}|{}|{}", base, pseudo_key, resp_key, dark, print);
+        let key = format!("{}|{}|{}|{}|{}|{}|{}|{}|{}", base, pseudo_key, resp_key, dark, print, motion_safe, motion_reduce, landscape, portrait);
         if let Some(&idx) = self.index.get(&key) {
             return Some(self.entries[idx].class_name.clone());
         }
@@ -80,6 +93,10 @@ impl StyleCollector {
             responsive,
             dark,
             print,
+            motion_safe,
+            motion_reduce,
+            landscape,
+            portrait,
         });
         self.index.insert(key, idx);
         Some(name)
@@ -165,6 +182,82 @@ impl StyleCollector {
                 css.push_str(&format!("@media print {{\n{}}}\n", print_css));
             } else {
                 css.push_str(&format!("@media print{{{}}}", print_css));
+            }
+        }
+
+        // Motion safe rules
+        let mut motion_safe_css = String::new();
+        for e in &self.entries {
+            if !e.motion_safe.is_empty() {
+                if dev {
+                    motion_safe_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.motion_safe));
+                } else {
+                    motion_safe_css.push_str(&format!(".{}{{{}}}", e.class_name, e.motion_safe));
+                }
+            }
+        }
+        if !motion_safe_css.is_empty() {
+            if dev {
+                css.push_str(&format!("@media (prefers-reduced-motion: no-preference) {{\n{}}}\n", motion_safe_css));
+            } else {
+                css.push_str(&format!("@media(prefers-reduced-motion:no-preference){{{}}}", motion_safe_css));
+            }
+        }
+
+        // Motion reduce rules
+        let mut motion_reduce_css = String::new();
+        for e in &self.entries {
+            if !e.motion_reduce.is_empty() {
+                if dev {
+                    motion_reduce_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.motion_reduce));
+                } else {
+                    motion_reduce_css.push_str(&format!(".{}{{{}}}", e.class_name, e.motion_reduce));
+                }
+            }
+        }
+        if !motion_reduce_css.is_empty() {
+            if dev {
+                css.push_str(&format!("@media (prefers-reduced-motion: reduce) {{\n{}}}\n", motion_reduce_css));
+            } else {
+                css.push_str(&format!("@media(prefers-reduced-motion:reduce){{{}}}", motion_reduce_css));
+            }
+        }
+
+        // Landscape rules
+        let mut landscape_css = String::new();
+        for e in &self.entries {
+            if !e.landscape.is_empty() {
+                if dev {
+                    landscape_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.landscape));
+                } else {
+                    landscape_css.push_str(&format!(".{}{{{}}}", e.class_name, e.landscape));
+                }
+            }
+        }
+        if !landscape_css.is_empty() {
+            if dev {
+                css.push_str(&format!("@media (orientation: landscape) {{\n{}}}\n", landscape_css));
+            } else {
+                css.push_str(&format!("@media(orientation:landscape){{{}}}", landscape_css));
+            }
+        }
+
+        // Portrait rules
+        let mut portrait_css = String::new();
+        for e in &self.entries {
+            if !e.portrait.is_empty() {
+                if dev {
+                    portrait_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.portrait));
+                } else {
+                    portrait_css.push_str(&format!(".{}{{{}}}", e.class_name, e.portrait));
+                }
+            }
+        }
+        if !portrait_css.is_empty() {
+            if dev {
+                css.push_str(&format!("@media (orientation: portrait) {{\n{}}}\n", portrait_css));
+            } else {
+                css.push_str(&format!("@media(orientation:portrait){{{}}}", portrait_css));
             }
         }
 
@@ -284,6 +377,29 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
         m
     };
 
+    // Build OG meta tags
+    let og_html = if doc.og_tags.is_empty() {
+        String::new()
+    } else {
+        let mut o = String::new();
+        for (property, content) in &doc.og_tags {
+            if dev {
+                o.push_str(&format!(
+                    "<meta property=\"og:{}\" content=\"{}\">\n",
+                    html_escape(property),
+                    html_escape(content)
+                ));
+            } else {
+                o.push_str(&format!(
+                    "<meta property=\"og:{}\" content=\"{}\">",
+                    html_escape(property),
+                    html_escape(content)
+                ));
+            }
+        }
+        o
+    };
+
     // Build head blocks string
     let head_html = if doc.head_blocks.is_empty() {
         String::new()
@@ -345,7 +461,7 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
 <meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
 <title>{title}</title>
-{meta_html}{favicon_html}{head_html}\
+{meta_html}{og_html}{favicon_html}{head_html}\
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
@@ -363,15 +479,17 @@ img {{ display: block; }}
                     meta_html = meta_html,
                     favicon_html = favicon_html,
                     head_html = head_html,
+                    og_html = og_html,
                     element_css = element_css,
                     body = body,
                 )
             } else {
                 format!(
-                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{meta_html}{favicon_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
+                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{meta_html}{og_html}{favicon_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
                     title = html_escape(title),
                     lang_attr = lang_attr,
                     meta_html = meta_html,
+                    og_html = og_html,
                     favicon_html = favicon_html,
                     head_html = head_html,
                     element_css = element_css,
@@ -415,6 +533,9 @@ fn generate_node(
                 | Some(ElementKind::Aside) | Some(ElementKind::ListItem)
                 | Some(ElementKind::Form) | Some(ElementKind::Details) | Some(ElementKind::Figure)
                 | Some(ElementKind::Blockquote)
+                | Some(ElementKind::Dialog) | Some(ElementKind::DefinitionList)
+                | Some(ElementKind::DefinitionDescription) | Some(ElementKind::Fieldset)
+                | Some(ElementKind::Datalist)
             );
             if needs_wrap {
                 out.push_str(&ctx.indent());
@@ -446,6 +567,8 @@ const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
     "loading", "decoding",
     // Media src (explicit attribute form)
     "src",
+    // New element attributes
+    "datetime", "media", "sizes", "srcset", "list",
     // Details
     "open",
     // Form
@@ -493,7 +616,7 @@ fn generate_element(
     ctx: &mut GenContext,
 ) {
     // Self-closing elements
-    if matches!(elem.kind, ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule) {
+    if matches!(elem.kind, ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule | ElementKind::Source) {
         generate_self_closing(elem, parent_kind, out, styles, ctx);
         return;
     }
@@ -556,8 +679,22 @@ fn generate_element(
         ElementKind::FigCaption => "figcaption",
         ElementKind::Progress => "progress",
         ElementKind::Meter => "meter",
+        // New elements
+        ElementKind::Dialog => "dialog",
+        ElementKind::DefinitionList => "dl",
+        ElementKind::DefinitionTerm => "dt",
+        ElementKind::DefinitionDescription => "dd",
+        ElementKind::Fieldset => "fieldset",
+        ElementKind::Legend => "legend",
+        ElementKind::Picture => "picture",
+        ElementKind::Time => "time",
+        ElementKind::Mark => "mark",
+        ElementKind::Kbd => "kbd",
+        ElementKind::Abbr => "abbr",
+        ElementKind::Datalist => "datalist",
         ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule
-        | ElementKind::Children | ElementKind::Slot(_) | ElementKind::Fragment => unreachable!(),
+        | ElementKind::Children | ElementKind::Slot(_) | ElementKind::Fragment
+        | ElementKind::Source => unreachable!(),
     };
 
     let kind_label = match elem.kind {
@@ -599,6 +736,18 @@ fn generate_element(
         ElementKind::Figure => "figure",
         ElementKind::FigCaption => "figcaption",
         ElementKind::Fragment => "fragment",
+        ElementKind::Dialog => "dialog",
+        ElementKind::DefinitionList => "dl",
+        ElementKind::DefinitionTerm => "dt",
+        ElementKind::DefinitionDescription => "dd",
+        ElementKind::Fieldset => "fieldset",
+        ElementKind::Legend => "legend",
+        ElementKind::Picture => "picture",
+        ElementKind::Time => "time",
+        ElementKind::Mark => "mark",
+        ElementKind::Kbd => "kbd",
+        ElementKind::Abbr => "abbr",
+        ElementKind::Datalist => "datalist",
         _ => "",
     };
 
@@ -640,7 +789,16 @@ fn generate_element(
         }
     }
 
-    // Details open attribute (handled via HTML_PASSTHROUGH_ATTRS, no extra handling needed)
+    // Time datetime
+    if elem.kind == ElementKind::Time {
+        if let Some(dt) = elem.attrs.iter().find(|a| a.key == "datetime") {
+            if let Some(val) = &dt.value {
+                out.push_str(" datetime=\"");
+                out.push_str(&html_escape(val));
+                out.push('"');
+            }
+        }
+    }
 
     emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
 
@@ -670,6 +828,13 @@ fn generate_element(
             | ElementKind::Cite
             | ElementKind::Code
             | ElementKind::FigCaption
+            | ElementKind::Legend
+            | ElementKind::DefinitionTerm
+            | ElementKind::Mark
+            | ElementKind::Kbd
+            | ElementKind::Abbr
+            | ElementKind::Time
+            | ElementKind::DefinitionDescription
     ) {
         if let Some(text) = &elem.argument {
             out.push_str(&html_escape(text));
@@ -708,6 +873,7 @@ fn generate_self_closing(
         ElementKind::Image => ("img", "image"),
         ElementKind::Input => ("input", "input"),
         ElementKind::HorizontalRule => ("hr", "hr"),
+        ElementKind::Source => ("source", "source"),
         _ => unreachable!(),
     };
 
@@ -817,8 +983,12 @@ fn compute_class(
 
     let dark = attrs_to_css(attrs, "dark:", kind, parent_kind);
     let print = attrs_to_css(attrs, "print:", kind, parent_kind);
+    let motion_safe = attrs_to_css(attrs, "motion-safe:", kind, parent_kind);
+    let motion_reduce = attrs_to_css(attrs, "motion-reduce:", kind, parent_kind);
+    let landscape = attrs_to_css(attrs, "landscape:", kind, parent_kind);
+    let portrait = attrs_to_css(attrs, "portrait:", kind, parent_kind);
 
-    styles.get_class(base, pseudo, responsive, dark, print)
+    styles.get_class(base, pseudo, responsive, dark, print, motion_safe, motion_reduce, landscape, portrait)
 }
 
 fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option<&str>) {
@@ -863,8 +1033,8 @@ const PSEUDO_PREFIXES: &[(&str, &str)] = &[
     ("odd:", ":nth-child(odd)"),
     ("even:", ":nth-child(even)"),
 ];
-const RESPONSIVE_PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:"];
-const MEDIA_PREFIXES: &[&str] = &["dark:", "print:"];
+const RESPONSIVE_PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:", "2xl:"];
+const MEDIA_PREFIXES: &[&str] = &["dark:", "print:", "motion-safe:", "motion-reduce:", "landscape:", "portrait:"];
 
 fn is_prefixed_attr(key: &str) -> bool {
     PSEUDO_PREFIXES.iter().any(|&(p, _)| key.starts_with(p))
@@ -906,6 +1076,12 @@ fn attrs_to_css(
             ElementKind::Pre => css.push_str("margin:0;white-space:pre;font-family:ui-monospace,monospace;"),
             // Code: monospace font
             ElementKind::Code => css.push_str("font-family:ui-monospace,monospace;"),
+            // New elements
+            ElementKind::Dialog => css.push_str("display:flex;flex-direction:column;"),
+            ElementKind::DefinitionList => css.push_str("margin:0;"),
+            ElementKind::DefinitionDescription => css.push_str("margin:0;display:flex;flex-direction:column;"),
+            ElementKind::Fieldset => css.push_str("display:flex;flex-direction:column;border:1px solid currentColor;padding:0.5em;margin:0;"),
+            ElementKind::Kbd => css.push_str("font-family:ui-monospace,monospace;"),
             _ => {}
         }
     }
@@ -1557,6 +1733,50 @@ fn attrs_to_css(
                 }
             }
 
+            // New CSS properties
+            "clip-path" => {
+                if let Some(v) = val { push_css(&mut css, "clip-path", v); }
+            }
+            "mix-blend-mode" => {
+                if let Some(v) = val { push_css(&mut css, "mix-blend-mode", v); }
+            }
+            "background-blend-mode" => {
+                if let Some(v) = val { push_css(&mut css, "background-blend-mode", v); }
+            }
+            "writing-mode" => {
+                if let Some(v) = val { push_css(&mut css, "writing-mode", v); }
+            }
+            "column-count" => {
+                if let Some(v) = val { push_css(&mut css, "column-count", v); }
+            }
+            "column-gap" => {
+                if let Some(v) = val { push_css(&mut css, "column-gap", &css_px(v)); }
+            }
+            "text-indent" => {
+                if let Some(v) = val { push_css(&mut css, "text-indent", &css_px(v)); }
+            }
+            "hyphens" => {
+                if let Some(v) = val { push_css(&mut css, "hyphens", v); }
+            }
+            "flex-grow" => {
+                if let Some(v) = val { push_css(&mut css, "flex-grow", v); }
+            }
+            "flex-shrink" => {
+                if let Some(v) = val { push_css(&mut css, "flex-shrink", v); }
+            }
+            "flex-basis" => {
+                if let Some(v) = val { push_css(&mut css, "flex-basis", &css_px(v)); }
+            }
+            "isolation" => {
+                if let Some(v) = val { push_css(&mut css, "isolation", v); }
+            }
+            "place-content" => {
+                if let Some(v) = val { push_css(&mut css, "place-content", v); }
+            }
+            "background-image" => {
+                if let Some(v) = val { push_css(&mut css, "background-image", v); }
+            }
+
             // Identity and HTML passthrough — not CSS
             "id" | "class" => {}
             "type" | "placeholder" | "name" | "value" | "disabled" | "required"
@@ -1566,7 +1786,8 @@ fn attrs_to_css(
             | "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload"
             | "loading" | "decoding" | "ordered" | "src"
             | "open" | "novalidate" | "low" | "high" | "optimum"
-            | "colspan" | "rowspan" | "scope" | "inline" => {}
+            | "colspan" | "rowspan" | "scope" | "inline"
+            | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list" => {}
 
             _ => {}
         }
