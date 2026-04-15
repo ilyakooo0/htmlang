@@ -372,48 +372,60 @@ impl GenContext {
 // Public API
 // ---------------------------------------------------------------------------
 
+#[derive(Default)]
+pub struct CodegenOptions {
+    pub dev: bool,
+    pub partial: bool,
+    pub minify: bool,
+    pub compat: bool,
+}
+
+/// Generate HTML from a parsed document using the given options.
+pub fn generate_with(doc: &Document, opts: &CodegenOptions) -> String {
+    let mut html = if opts.partial {
+        generate_partial_inner(doc, opts.dev)
+    } else {
+        generate_full_inner(doc, opts.dev)
+    };
+    if opts.minify {
+        html = minify_html(&html);
+    }
+    if opts.compat {
+        html = add_vendor_prefixes(&html);
+    }
+    html
+}
+
 pub fn generate(doc: &Document) -> String {
-    generate_with_options(doc, false)
+    generate_with(doc, &CodegenOptions::default())
 }
 
 pub fn generate_dev(doc: &Document) -> String {
-    generate_with_options(doc, true)
+    generate_with(doc, &CodegenOptions { dev: true, ..Default::default() })
 }
 
-/// Generate an HTML fragment — body content + inline style, no document wrapper.
 pub fn generate_partial(doc: &Document) -> String {
-    generate_partial_with_options(doc, false)
+    generate_with(doc, &CodegenOptions { partial: true, ..Default::default() })
 }
 
-/// Generate a dev-mode HTML fragment.
 pub fn generate_partial_dev(doc: &Document) -> String {
-    generate_partial_with_options(doc, true)
+    generate_with(doc, &CodegenOptions { dev: true, partial: true, ..Default::default() })
 }
 
-/// Generate with aggressive minification: collapse whitespace in text nodes,
-/// strip HTML comments, and minimize output size.
 pub fn generate_minified(doc: &Document) -> String {
-    let html = generate_with_options(doc, false);
-    minify_html(&html)
+    generate_with(doc, &CodegenOptions { minify: true, ..Default::default() })
 }
 
-/// Generate with vendor prefixes for broader browser compatibility.
 pub fn generate_compat(doc: &Document) -> String {
-    let html = generate_with_options(doc, false);
-    add_vendor_prefixes(&html)
+    generate_with(doc, &CodegenOptions { compat: true, ..Default::default() })
 }
 
-/// Generate dev mode with vendor prefixes.
 pub fn generate_dev_compat(doc: &Document) -> String {
-    let html = generate_with_options(doc, true);
-    add_vendor_prefixes(&html)
+    generate_with(doc, &CodegenOptions { dev: true, compat: true, ..Default::default() })
 }
 
-/// Generate minified with vendor prefixes.
 pub fn generate_minified_compat(doc: &Document) -> String {
-    let html = generate_with_options(doc, false);
-    let html = minify_html(&html);
-    add_vendor_prefixes(&html)
+    generate_with(doc, &CodegenOptions { minify: true, compat: true, ..Default::default() })
 }
 
 fn minify_html(html: &str) -> String {
@@ -599,7 +611,7 @@ fn prefix_declarations(block: &str) -> String {
     out
 }
 
-fn generate_with_options(doc: &Document, dev: bool) -> String {
+fn generate_full_inner(doc: &Document, dev: bool) -> String {
     let mut styles = StyleCollector::new();
     let mut ctx = GenContext { dev, depth: 0 };
     let mut body = String::new();
@@ -1019,7 +1031,7 @@ img {{ display: block; }}
 }
 
 /// Generate an HTML fragment: body + optional <style>, no <html>/<head>/<body> wrapper.
-fn generate_partial_with_options(doc: &Document, dev: bool) -> String {
+fn generate_partial_inner(doc: &Document, dev: bool) -> String {
     let mut styles = StyleCollector::new();
     let mut ctx = GenContext { dev, depth: 0 };
     let mut body = String::new();
@@ -3008,15 +3020,21 @@ fn extract_id_class(attrs: &[Attribute]) -> (Option<String>, Option<String>) {
 }
 
 /// Read image dimensions from a local file by parsing the header bytes.
-/// Supports PNG, JPEG, GIF, and WebP.
+/// Supports PNG, JPEG, GIF, WebP, AVIF, and SVG.
 fn read_image_dimensions(path: &str) -> Option<(u32, u32)> {
+    // SVG: parse as text for viewBox/width/height attributes
+    if path.ends_with(".svg") || path.ends_with(".SVG") {
+        let text = std::fs::read_to_string(path).ok()?;
+        return read_svg_dimensions(&text);
+    }
+
     let data = std::fs::read(path).ok()?;
-    if data.len() < 24 {
+    if data.len() < 12 {
         return None;
     }
 
     // PNG: 8-byte signature, then IHDR chunk with width/height at bytes 16-23
-    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+    if data.len() >= 24 && data.starts_with(b"\x89PNG\r\n\x1a\n") {
         let w = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
         let h = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
         return Some((w, h));
@@ -3043,7 +3061,6 @@ fn read_image_dimensions(path: &str) -> Option<(u32, u32)> {
                 let w = u16::from_be_bytes([data[i + 7], data[i + 8]]) as u32;
                 return Some((w, h));
             }
-            // Skip to next marker
             if i + 3 < data.len() {
                 let len = u16::from_be_bytes([data[i + 2], data[i + 3]]) as usize;
                 i += 2 + len;
@@ -3055,13 +3072,11 @@ fn read_image_dimensions(path: &str) -> Option<(u32, u32)> {
 
     // WebP: "RIFF" ... "WEBP", VP8 header at byte 20
     if data.len() >= 30 && &data[..4] == b"RIFF" && &data[8..12] == b"WEBP" {
-        // VP8 (lossy): dimensions at bytes 26-29
         if &data[12..16] == b"VP8 " && data.len() >= 30 {
             let w = u16::from_le_bytes([data[26], data[27]]) as u32 & 0x3FFF;
             let h = u16::from_le_bytes([data[28], data[29]]) as u32 & 0x3FFF;
             return Some((w, h));
         }
-        // VP8L (lossless): signature byte 0x2f at byte 21
         if &data[12..16] == b"VP8L" && data.len() >= 25 && data[21] == 0x2F {
             let bits = u32::from_le_bytes([data[22], data[23], data[24], data[25]]);
             let w = (bits & 0x3FFF) + 1;
@@ -3070,6 +3085,80 @@ fn read_image_dimensions(path: &str) -> Option<(u32, u32)> {
         }
     }
 
+    // AVIF: ISOBMFF container with "ftyp" box containing "avif"/"avis" brand,
+    // then "ispe" box with width/height
+    if data.len() >= 12 && &data[4..8] == b"ftyp" {
+        let brand = &data[8..12];
+        if brand == b"avif" || brand == b"avis" || brand == b"mif1" {
+            return read_avif_dimensions(&data);
+        }
+    }
+
+    None
+}
+
+/// Parse SVG viewBox or width/height attributes to get dimensions.
+fn read_svg_dimensions(text: &str) -> Option<(u32, u32)> {
+    // Try viewBox first: viewBox="minX minY width height"
+    if let Some(vb_start) = text.find("viewBox=\"") {
+        let rest = &text[vb_start + 9..];
+        if let Some(end) = rest.find('"') {
+            let parts: Vec<&str> = rest[..end].split_whitespace().collect();
+            if parts.len() == 4 {
+                if let (Ok(w), Ok(h)) = (parts[2].parse::<f64>(), parts[3].parse::<f64>()) {
+                    if w > 0.0 && h > 0.0 {
+                        return Some((w.round() as u32, h.round() as u32));
+                    }
+                }
+            }
+        }
+    }
+    // Fall back to width/height attributes on <svg>
+    let svg_tag = text.find("<svg")?;
+    let tag_end = text[svg_tag..].find('>')? + svg_tag;
+    let tag = &text[svg_tag..tag_end];
+    let w = extract_svg_attr(tag, "width")?;
+    let h = extract_svg_attr(tag, "height")?;
+    Some((w, h))
+}
+
+fn extract_svg_attr(tag: &str, attr: &str) -> Option<u32> {
+    let needle = format!("{}=\"", attr);
+    let start = tag.find(&needle)? + needle.len();
+    let rest = &tag[start..];
+    let end = rest.find('"')?;
+    let val = rest[..end].trim_end_matches("px");
+    val.parse::<f64>().ok().map(|v| v.round() as u32)
+}
+
+/// Parse AVIF (ISOBMFF) container to find ispe box with image dimensions.
+fn read_avif_dimensions(data: &[u8]) -> Option<(u32, u32)> {
+    // Walk ISOBMFF boxes looking for "ispe" (image spatial extents)
+    let mut i = 0;
+    while i + 8 <= data.len() {
+        let box_size = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
+        let box_type = &data[i + 4..i + 8];
+        if box_size < 8 {
+            break;
+        }
+        let box_end = (i + box_size).min(data.len());
+        // ispe box: 4 bytes version/flags + 4 bytes width + 4 bytes height
+        if box_type == b"ispe" && box_end >= i + 20 {
+            let w = u32::from_be_bytes([data[i + 12], data[i + 13], data[i + 14], data[i + 15]]);
+            let h = u32::from_be_bytes([data[i + 16], data[i + 17], data[i + 18], data[i + 19]]);
+            return Some((w, h));
+        }
+        // Recurse into container boxes (meta, iprp, ipco)
+        if matches!(box_type, b"meta" | b"iprp" | b"ipco" | b"moov" | b"trak" | b"mdia") {
+            let header_size = if box_type == b"meta" { 12 } else { 8 };
+            if i + header_size < box_end {
+                if let Some(dims) = read_avif_dimensions(&data[i + header_size..box_end]) {
+                    return Some(dims);
+                }
+            }
+        }
+        i = box_end;
+    }
     None
 }
 
@@ -3105,29 +3194,70 @@ fn base64_encode(data: &[u8]) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Source map generation
+// Source map generation (standard v3 format with VLQ-encoded mappings)
 // ---------------------------------------------------------------------------
 
-/// Generate a JSON source map that maps HTML output lines to .hl source lines.
-/// Uses a simplified format (not full VLQ) for easy consumption.
+/// Generate a standard v3 source map with VLQ-encoded mappings.
+/// Compatible with browser devtools and source map tooling.
 pub fn generate_source_map(doc: &Document, source_file: &str) -> String {
     let mut mappings: Vec<(usize, usize)> = Vec::new(); // (html_line, hl_line)
     collect_source_lines(&doc.nodes, &mut mappings);
     mappings.sort_by_key(|m| m.0);
     mappings.dedup_by_key(|m| m.0);
 
-    let mut json = String::from("{");
-    json.push_str("\"version\":3,");
-    json.push_str(&format!("\"file\":\"{}\",", source_file.replace(".hl", ".html").replace('\\', "\\\\")));
-    json.push_str(&format!("\"sourceRoot\":\"\","));
-    json.push_str(&format!("\"sources\":[\"{}\"],", source_file.replace('\\', "\\\\")));
-    json.push_str("\"mappings\":[");
-    for (i, (html_line, hl_line)) in mappings.iter().enumerate() {
-        if i > 0 { json.push(','); }
-        json.push_str(&format!("{{\"generated\":{},\"source\":{}}}", html_line, hl_line));
+    // Build VLQ-encoded mappings string.
+    // Each generated line is separated by ';'. Each segment within a line is
+    // separated by ','. A segment has 4 fields: generated column, source index,
+    // source line, source column — all VLQ-encoded as deltas.
+    let max_gen_line = mappings.last().map(|m| m.0).unwrap_or(0);
+    let mut vlq = String::new();
+    let mut prev_source_line: i64 = 0;
+    let mut mapping_idx = 0;
+
+    for gen_line in 1..=max_gen_line {
+        if gen_line > 1 {
+            vlq.push(';');
+        }
+        if mapping_idx < mappings.len() && mappings[mapping_idx].0 == gen_line {
+            let source_line = mappings[mapping_idx].1 as i64 - 1; // 0-based
+            // Segment: gen_col=0, source_idx=0, source_line=delta, source_col=0
+            vlq_encode(0, &mut vlq);         // generated column (always 0)
+            vlq_encode(0, &mut vlq);         // source file index (always 0)
+            vlq_encode(source_line - prev_source_line, &mut vlq); // source line delta
+            vlq_encode(0, &mut vlq);         // source column (always 0)
+            prev_source_line = source_line;
+            mapping_idx += 1;
+        }
     }
-    json.push_str("]}");
-    json
+
+    let escaped_file = source_file.replace(".hl", ".html").replace('\\', "\\\\").replace('"', "\\\"");
+    let escaped_source = source_file.replace('\\', "\\\\").replace('"', "\\\"");
+
+    format!(
+        "{{\"version\":3,\"file\":\"{}\",\"sourceRoot\":\"\",\"sources\":[\"{}\"],\"names\":[],\"mappings\":\"{}\"}}",
+        escaped_file, escaped_source, vlq
+    )
+}
+
+/// Encode a single signed integer as a VLQ base64 string, appending to `out`.
+fn vlq_encode(value: i64, out: &mut String) {
+    const B64: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut v = if value < 0 {
+        ((-value) << 1) | 1
+    } else {
+        value << 1
+    } as u64;
+    loop {
+        let mut digit = (v & 0x1F) as u8; // 5-bit chunk
+        v >>= 5;
+        if v > 0 {
+            digit |= 0x20; // continuation bit
+        }
+        out.push(B64[digit as usize] as char);
+        if v == 0 {
+            break;
+        }
+    }
 }
 
 fn collect_source_lines(nodes: &[Node], mappings: &mut Vec<(usize, usize)>) {

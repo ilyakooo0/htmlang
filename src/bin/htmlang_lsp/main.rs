@@ -42,8 +42,18 @@ impl Backend {
                     htmlang::parser::Severity::Warning => DiagnosticSeverity::WARNING,
                 };
                 let line = d.line.saturating_sub(1) as u32;
+                let col_start = d.column.unwrap_or(0) as u32;
+                let col_end = if d.column.is_some() {
+                    // Highlight a reasonable span from the column
+                    let lines_vec: Vec<&str> = text.lines().collect();
+                    lines_vec.get(line as usize)
+                        .map(|l| l.len() as u32)
+                        .unwrap_or(col_start + 1)
+                } else {
+                    1000 // Highlight entire line when no column info
+                };
                 Diagnostic {
-                    range: Range::new(Position::new(line, 0), Position::new(line, 1000)),
+                    range: Range::new(Position::new(line, col_start), Position::new(line, col_end)),
                     severity: Some(severity),
                     source: Some("htmlang".into()),
                     message: d.message.clone(),

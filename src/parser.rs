@@ -17,6 +17,7 @@ pub enum Severity {
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub line: usize,
+    pub column: Option<usize>,
     pub message: String,
     pub severity: Severity,
     pub source_line: Option<String>,
@@ -374,6 +375,7 @@ impl Parser {
                     };
                     ctx.diagnostics.push(Diagnostic {
                         line: e.line,
+                        column: None,
                         message: e.message,
                         severity: Severity::Error,
                         source_line: source,
@@ -714,6 +716,7 @@ impl Parser {
             if !evaluate_condition(&condition) {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
+                    column: None,
                     message: format!("assertion failed: {}", rest),
                     severity: Severity::Error,
                     source_line: Some(content.clone()),
@@ -731,9 +734,11 @@ impl Parser {
 
             // Circular include check
             if ctx.include_stack.contains(&resolved) {
+                let cycle_chain = format_include_chain(&ctx.include_stack);
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
-                    message: format!("circular include '{}'", filename),
+                    column: None,
+                    message: format!("circular include '{}' (cycle: {} → {})", filename, cycle_chain, filename),
                     severity: Severity::Error,
                     source_line: Some(content.clone()),
                 });
@@ -752,6 +757,7 @@ impl Parser {
                     Err(e) => {
                         ctx.diagnostics.push(Diagnostic {
                             line: line_num,
+                            column: None,
                             message: format!("cannot include '{}': {}", filename, e),
                             severity: Severity::Error,
                             source_line: Some(content.clone()),
@@ -830,6 +836,7 @@ impl Parser {
                     Err(e) => {
                         ctx.diagnostics.push(Diagnostic {
                             line: line_num,
+                            column: None,
                             message: format!("cannot read directory for glob '{}': {}", filename, e),
                             severity: Severity::Error,
                             source_line: Some(content.clone()),
@@ -840,6 +847,7 @@ impl Parser {
                 if matched_files.is_empty() {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
+                        column: None,
                         message: format!("no files matched glob pattern '{}'", filename),
                         severity: Severity::Warning,
                         source_line: Some(content.clone()),
@@ -872,9 +880,11 @@ impl Parser {
             };
 
             if ctx.include_stack.contains(&resolved) || ctx.import_stack.contains(&resolved) {
+                let cycle_chain = format_include_chain(&ctx.import_stack);
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
-                    message: format!("circular import '{}'", filename),
+                    column: None,
+                    message: format!("circular import '{}' (cycle: {} → {})", filename, cycle_chain, filename),
                     severity: Severity::Error,
                     source_line: Some(content.clone()),
                 });
@@ -892,6 +902,7 @@ impl Parser {
                     Err(e) => {
                         ctx.diagnostics.push(Diagnostic {
                             line: line_num,
+                            column: None,
                             message: format!("cannot import '{}': {}", filename, e),
                             severity: Severity::Error,
                             source_line: Some(content.clone()),
@@ -1006,6 +1017,7 @@ impl Parser {
                 None => {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
+                        column: None,
                         message: format!("environment variable '{}' is not set and no default provided", var_name),
                         severity: Severity::Warning,
                         source_line: Some(content.clone()),
@@ -1075,6 +1087,7 @@ impl Parser {
                 Err(e) => {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
+                        column: None,
                         message: format!("@fetch failed for '{}': {}", url, e),
                         severity: Severity::Error,
                         source_line: Some(content.clone()),
@@ -1149,6 +1162,7 @@ impl Parser {
                 Err(e) => {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
+                        column: None,
                         message: format!("cannot load SVG '{}': {}", filename, e),
                         severity: Severity::Error,
                         source_line: Some(content.clone()),
@@ -1227,6 +1241,7 @@ impl Parser {
                 Err(e) => {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
+                        column: None,
                         message: format!("cannot load data '{}': {}", filename, e),
                         severity: Severity::Error,
                         source_line: Some(content.clone()),
@@ -1250,6 +1265,7 @@ impl Parser {
                         } else {
                             ctx.diagnostics.push(Diagnostic {
                                 line: line_num,
+                                column: None,
                                 message: "@data without prefix requires a JSON object at top level".to_string(),
                                 severity: Severity::Error,
                                 source_line: Some(content.clone()),
@@ -1266,6 +1282,7 @@ impl Parser {
                 Err(detail) => {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
+                        column: None,
                         message: format!("invalid JSON in '{}': {}", filename, detail),
                         severity: Severity::Error,
                         source_line: Some(content.clone()),
@@ -1317,6 +1334,7 @@ impl Parser {
             if ctx.include_stack.contains(&resolved) {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
+                    column: None,
                     message: format!("circular use '{}'", filename),
                     severity: Severity::Error,
                     source_line: Some(content.clone()),
@@ -1335,6 +1353,7 @@ impl Parser {
                     Err(e) => {
                         ctx.diagnostics.push(Diagnostic {
                             line: line_num,
+                            column: None,
                             message: format!("cannot use '{}': {}", filename, e),
                             severity: Severity::Error,
                             source_line: Some(content.clone()),
@@ -2085,6 +2104,7 @@ impl Parser {
             let msg = substitute_vars(rest.trim(), &ctx.variables);
             ctx.diagnostics.push(Diagnostic {
                 line: line_num,
+                column: None,
                 message: msg,
                 severity: Severity::Warning,
                 source_line: Some(content.clone()),
@@ -2320,6 +2340,7 @@ impl Parser {
             if ctx.include_stack.contains(&resolved) {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
+                    column: None,
                     message: format!("circular extends '{}'", filename),
                     severity: Severity::Error,
                     source_line: Some(content.clone()),
@@ -2338,6 +2359,7 @@ impl Parser {
                     Err(e) => {
                         ctx.diagnostics.push(Diagnostic {
                             line: line_num,
+                            column: None,
                             message: format!("cannot extend '{}': {}", filename, e),
                             severity: Severity::Error,
                             source_line: Some(content.clone()),
@@ -2418,6 +2440,7 @@ impl Parser {
             if ctx.include_stack.contains(&resolved) {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
+                    column: None,
                     message: format!("circular layout '{}'", filename),
                     severity: Severity::Error,
                     source_line: Some(content.clone()),
@@ -2436,6 +2459,7 @@ impl Parser {
                     Err(e) => {
                         ctx.diagnostics.push(Diagnostic {
                             line: line_num,
+                            column: None,
                             message: format!("cannot load layout '{}': {}", filename, e),
                             severity: Severity::Error,
                             source_line: Some(content.clone()),
@@ -2583,6 +2607,7 @@ impl Parser {
                 if let Some(msg) = ctx.deprecated_fns.get(name) {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
+                        column: None,
                         message: format!("@{} is deprecated: {}", name, msg),
                         severity: Severity::Warning,
                         source_line: Some(content.clone()),
@@ -2603,6 +2628,8 @@ impl Parser {
 
         // --- Bare text ---
 
+        let var_warnings = check_undefined_vars(&content, &ctx.variables, line_num);
+        ctx.diagnostics.extend(var_warnings);
         let segments = parse_text_segments(&content, ctx);
         Ok(Some(vec![Node::Text(segments)]))
     }
@@ -2819,9 +2846,26 @@ fn parse_single_element(
                 } else {
                     without_at[i + 1..].to_string()
                 };
-                (parse_element_kind(kind_str, line_num)?, rest)
+                match parse_element_kind(kind_str, line_num) {
+                    Ok(kind) => (kind, rest),
+                    Err(mut e) => {
+                        // Also suggest user-defined functions
+                        if let Some(fn_suggestion) = suggest_fn_name(kind_str, ctx) {
+                            e.message = format!("{}, or did you mean @{}?", e.message, fn_suggestion);
+                        }
+                        return Err(e);
+                    }
+                }
             }
-            None => (parse_element_kind(without_at, line_num)?, String::new()),
+            None => match parse_element_kind(without_at, line_num) {
+                Ok(kind) => (kind, String::new()),
+                Err(mut e) => {
+                    if let Some(fn_suggestion) = suggest_fn_name(without_at, ctx) {
+                        e.message = format!("{}, or did you mean @{}?", e.message, fn_suggestion);
+                    }
+                    return Err(e);
+                }
+            },
         }
     } else {
         return Err(ParseError {
@@ -3046,6 +3090,78 @@ fn suggest_closest<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
     best
 }
 
+/// Suggest the closest user-defined function name for typos.
+fn suggest_fn_name(input: &str, ctx: &ParseContext) -> Option<String> {
+    let mut best: Option<String> = None;
+    let mut best_dist = usize::MAX;
+    for name in ctx.functions.keys() {
+        let dist = levenshtein(input, name);
+        if dist < best_dist && dist <= 2 && dist < input.len() {
+            best_dist = dist;
+            best = Some(name.clone());
+        }
+    }
+    best
+}
+
+/// Suggest the closest variable name for undefined `$var` references.
+fn suggest_var_name(input: &str, vars: &HashMap<String, String>) -> Option<String> {
+    let mut best: Option<String> = None;
+    let mut best_dist = usize::MAX;
+    for name in vars.keys() {
+        let dist = levenshtein(input, name);
+        if dist < best_dist && dist <= 2 && dist < input.len() {
+            best_dist = dist;
+            best = Some(name.clone());
+        }
+    }
+    best
+}
+
+/// Check for undefined `$var` references and return "did you mean?" diagnostics.
+fn check_undefined_vars(input: &str, vars: &HashMap<String, String>, line_num: usize) -> Vec<Diagnostic> {
+    let mut warnings = Vec::new();
+    if !input.contains('$') {
+        return warnings;
+    }
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '$'
+            && i + 1 < chars.len()
+            && (chars[i + 1].is_alphanumeric() || chars[i + 1] == '_' || chars[i + 1] == '-')
+        {
+            let col = i;
+            let start = i + 1;
+            let mut end = start;
+            while end < chars.len()
+                && (chars[end].is_alphanumeric() || chars[end] == '-' || chars[end] == '_' || chars[end] == '.')
+            {
+                end += 1;
+            }
+            while end > start && chars[end - 1] == '.' {
+                end -= 1;
+            }
+            let name: String = chars[start..end].iter().collect();
+            if !name.is_empty() && !vars.contains_key(&name) {
+                if let Some(closest) = suggest_var_name(&name, vars) {
+                    warnings.push(Diagnostic {
+                        line: line_num,
+                        column: Some(col),
+                        message: format!("undefined variable '${}', did you mean '${}'?", name, closest),
+                        severity: Severity::Warning,
+                        source_line: Some(input.to_string()),
+                    });
+                }
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    warnings
+}
+
 // ---------------------------------------------------------------------------
 // Attribute parsing
 // ---------------------------------------------------------------------------
@@ -3228,6 +3344,7 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                 if part.parse::<f64>().is_err() && !has_css_unit(part) {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
+                        column: None,
                         message: format!(
                             "'{}' expects a numeric value (with optional unit), got '{}'",
                             attr.key, val
@@ -3245,6 +3362,7 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
             if !is_keyword && !is_numeric && !has_unit {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
+                    column: None,
                     message: format!(
                         "'{}' expects a number or one of [{}], got '{}'",
                         attr.key,
@@ -3260,6 +3378,7 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                 if !(0.0..=1.0).contains(&v) {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
+                        column: None,
                         message: format!("'opacity' should be between 0 and 1, got '{}'", val),
                         severity: Severity::Warning,
                         source_line: None,
@@ -3268,6 +3387,7 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
             } else {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
+                    column: None,
                     message: format!("'opacity' expects a numeric value, got '{}'", val),
                     severity: Severity::Warning,
                     source_line: None,
@@ -3277,10 +3397,139 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
             if val.parse::<i32>().is_err() {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
+                    column: None,
                     message: format!("'z-index' expects an integer, got '{}'", val),
                     severity: Severity::Warning,
                     source_line: None,
                 });
+            }
+        } else if base_key == "display" {
+            const DISPLAY_VALUES: &[&str] = &[
+                "none", "block", "inline", "inline-block", "flex", "inline-flex",
+                "grid", "inline-grid", "table", "table-row", "table-cell",
+                "contents", "flow-root", "list-item",
+            ];
+            if !DISPLAY_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
+                let suggestion = suggest_closest(val, DISPLAY_VALUES);
+                let msg = match suggestion {
+                    Some(s) => format!("unknown display value '{}', did you mean '{}'?", val, s),
+                    None => format!("unknown display value '{}'", val),
+                };
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num, column: None, message: msg,
+                    severity: Severity::Warning, source_line: None,
+                });
+            }
+        } else if base_key == "position" {
+            const POSITION_VALUES: &[&str] = &[
+                "static", "relative", "absolute", "fixed", "sticky",
+            ];
+            if !POSITION_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
+                let suggestion = suggest_closest(val, POSITION_VALUES);
+                let msg = match suggestion {
+                    Some(s) => format!("unknown position value '{}', did you mean '{}'?", val, s),
+                    None => format!("unknown position value '{}'", val),
+                };
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num, column: None, message: msg,
+                    severity: Severity::Warning, source_line: None,
+                });
+            }
+        } else if base_key == "overflow" || base_key == "overflow-x" || base_key == "overflow-y" {
+            const OVERFLOW_VALUES: &[&str] = &[
+                "visible", "hidden", "scroll", "auto", "clip",
+            ];
+            if !OVERFLOW_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
+                let suggestion = suggest_closest(val, OVERFLOW_VALUES);
+                let msg = match suggestion {
+                    Some(s) => format!("unknown overflow value '{}', did you mean '{}'?", val, s),
+                    None => format!("unknown overflow value '{}'", val),
+                };
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num, column: None, message: msg,
+                    severity: Severity::Warning, source_line: None,
+                });
+            }
+        } else if base_key == "text-align" {
+            const TEXT_ALIGN_VALUES: &[&str] = &[
+                "left", "right", "center", "justify", "start", "end",
+            ];
+            if !TEXT_ALIGN_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
+                let suggestion = suggest_closest(val, TEXT_ALIGN_VALUES);
+                let msg = match suggestion {
+                    Some(s) => format!("unknown text-align value '{}', did you mean '{}'?", val, s),
+                    None => format!("unknown text-align value '{}'", val),
+                };
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num, column: None, message: msg,
+                    severity: Severity::Warning, source_line: None,
+                });
+            }
+        } else if base_key == "cursor" {
+            const CURSOR_VALUES: &[&str] = &[
+                "auto", "default", "none", "pointer", "wait", "text", "move",
+                "not-allowed", "crosshair", "grab", "grabbing", "help", "progress",
+                "col-resize", "row-resize", "n-resize", "s-resize", "e-resize", "w-resize",
+                "zoom-in", "zoom-out", "context-menu", "cell", "copy", "alias", "no-drop",
+            ];
+            if !CURSOR_VALUES.contains(&val.as_str()) && !val.starts_with("url(") && !val.starts_with("var(") {
+                let suggestion = suggest_closest(val, CURSOR_VALUES);
+                let msg = match suggestion {
+                    Some(s) => format!("unknown cursor value '{}', did you mean '{}'?", val, s),
+                    None => format!("unknown cursor value '{}'", val),
+                };
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num, column: None, message: msg,
+                    severity: Severity::Warning, source_line: None,
+                });
+            }
+        } else if base_key == "font-weight" {
+            const WEIGHT_VALUES: &[&str] = &[
+                "normal", "bold", "bolder", "lighter",
+                "100", "200", "300", "400", "500", "600", "700", "800", "900",
+            ];
+            if !WEIGHT_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num, column: None,
+                    message: format!("'font-weight' expects a weight keyword or number 100-900, got '{}'", val),
+                    severity: Severity::Warning, source_line: None,
+                });
+            }
+        } else if base_key == "color" || base_key == "background" {
+            // Validate named CSS colors (only if not hex, rgb, hsl, var, etc.)
+            if !val.starts_with('#') && !val.starts_with("rgb") && !val.starts_with("hsl")
+                && !val.starts_with("var(") && !val.starts_with("linear-gradient")
+                && !val.starts_with("radial-gradient") && !val.starts_with("conic-gradient")
+                && !val.starts_with("oklch") && !val.starts_with("oklab")
+                && !val.starts_with("color(") && !val.starts_with("light-dark(")
+                && !val.contains("url(")
+                && !val.contains(' ') // skip shorthand multi-value
+            {
+                const NAMED_COLORS: &[&str] = &[
+                    "transparent", "currentcolor", "inherit", "initial", "unset",
+                    "black", "white", "red", "green", "blue", "yellow", "orange", "purple",
+                    "pink", "brown", "gray", "grey", "cyan", "magenta", "lime", "olive",
+                    "navy", "teal", "aqua", "fuchsia", "maroon", "silver",
+                    "coral", "salmon", "tomato", "crimson", "firebrick", "darkred",
+                    "indigo", "violet", "plum", "orchid", "thistle", "lavender",
+                    "gold", "khaki", "wheat", "tan", "sienna", "chocolate", "peru",
+                    "beige", "ivory", "linen", "snow", "seashell", "mintcream",
+                    "skyblue", "steelblue", "royalblue", "dodgerblue", "cornflowerblue",
+                    "slategray", "slategrey", "dimgray", "dimgrey", "lightgray", "lightgrey",
+                    "darkgray", "darkgrey", "gainsboro", "whitesmoke",
+                ];
+                if !NAMED_COLORS.contains(&val.to_lowercase().as_str()) {
+                    let lower = val.to_lowercase();
+                    let suggestion = suggest_closest(&lower, NAMED_COLORS);
+                    let msg = match suggestion {
+                        Some(s) => format!("unknown color '{}', did you mean '{}'?", val, s),
+                        None => format!("unknown color '{}'", val),
+                    };
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num, column: None, message: msg,
+                        severity: Severity::Warning, source_line: None,
+                    });
+                }
             }
         }
     }
@@ -3447,6 +3696,7 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
             if seen_keys.contains(&stripped) {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
+                    column: None,
                     message: format!("duplicate attribute '{}'", attr.key),
                     severity: Severity::Warning,
                     source_line: None,
@@ -3461,6 +3711,7 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
                     if val.starts_with('#') && !is_valid_hex_color(val) {
                         ctx.diagnostics.push(Diagnostic {
                             line: line_num,
+                            column: None,
                             message: format!("invalid hex color '{}'", val),
                             severity: Severity::Warning,
                             source_line: None,
@@ -3486,6 +3737,7 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
                 };
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
+                    column: None,
                     message: msg,
                     severity: Severity::Warning,
                     source_line: None,
@@ -3911,6 +4163,7 @@ fn validate_tree(
                     if !matches!(parent_kind, Some(ElementKind::Row)) {
                         diagnostics.push(Diagnostic {
                             line: elem.line_num,
+                            column: None,
                             message: "'width fill' works best inside @row; using 100% as fallback"
                                 .to_string(),
                             severity: Severity::Warning,
@@ -3922,6 +4175,7 @@ fn validate_tree(
                     if !matches!(parent_kind, Some(ElementKind::Column)) {
                         diagnostics.push(Diagnostic {
                             line: elem.line_num,
+                            column: None,
                             message:
                                 "'height fill' works best inside @column; using 100% as fallback"
                                     .to_string(),
@@ -3935,6 +4189,7 @@ fn validate_tree(
                 if CONTAINER_ONLY_ATTRS.contains(&base) && !is_container(&elem.kind) {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: format!(
                             "'{}' has no effect on {} (only works on @row, @column, @el)",
                             base, element_kind_name(&elem.kind)
@@ -3950,6 +4205,7 @@ fn validate_tree(
                 {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: format!(
                             "'placeholder' has no effect on {} (only works on @input, @textarea)",
                             element_kind_name(&elem.kind)
@@ -3963,6 +4219,7 @@ fn validate_tree(
                 if base == "for" && !matches!(elem.kind, ElementKind::Label) {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: format!(
                             "'for' has no effect on {} (only works on @label)",
                             element_kind_name(&elem.kind)
@@ -3978,6 +4235,7 @@ fn validate_tree(
                 {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: format!(
                             "'{}' has no effect on {} (only works on @textarea)",
                             base, element_kind_name(&elem.kind)
@@ -3991,6 +4249,7 @@ fn validate_tree(
                 if base == "ordered" && !matches!(elem.kind, ElementKind::List) {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: format!(
                             "'ordered' has no effect on {} (only works on @list)",
                             element_kind_name(&elem.kind)
@@ -4006,6 +4265,7 @@ fn validate_tree(
                 {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: format!(
                             "'{}' has no effect on {} (only works on @video, @audio)",
                             base, element_kind_name(&elem.kind)
@@ -4020,6 +4280,7 @@ fn validate_tree(
                 if !elem.attrs.iter().any(|a| a.key == "alt") {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: "@image missing 'alt' attribute (accessibility)".to_string(),
                         severity: Severity::Warning,
                         source_line: None,
@@ -4030,6 +4291,7 @@ fn validate_tree(
                 if !elem.attrs.iter().any(|a| a.key == "type") {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: "@input missing 'type' attribute (defaults to 'text')".to_string(),
                         severity: Severity::Warning,
                         source_line: None,
@@ -4042,6 +4304,7 @@ fn validate_tree(
                 if !has_text && !elem.attrs.iter().any(|a| a.key == "aria-label" || a.key == "title") {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: "@link has no visible text or aria-label (accessibility)".to_string(),
                         severity: Severity::Warning,
                         source_line: None,
@@ -4063,6 +4326,7 @@ fn validate_tree(
                         if ratio < 4.5 {
                             diagnostics.push(Diagnostic {
                                 line: elem.line_num,
+                                column: None,
                                 message: format!(
                                     "low contrast ratio {:.1}:1 between '{}' and '{}' (WCAG AA requires 4.5:1)",
                                     ratio, fg, bg
@@ -4084,6 +4348,7 @@ fn validate_tree(
                 if !has_id && !has_aria_label && !has_title && !in_label {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: format!(
                             "{} should have an 'id' (with matching @label[for]), 'aria-label', or be wrapped in @label (accessibility)",
                             element_kind_name(&elem.kind)
@@ -4099,6 +4364,7 @@ fn validate_tree(
                 if !elem.attrs.iter().any(|a| a.key == "title") {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: "@iframe missing 'title' attribute (accessibility)".to_string(),
                         severity: Severity::Warning,
                         source_line: None,
@@ -4113,6 +4379,7 @@ fn validate_tree(
                 if !has_text && !has_aria {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: "@button has no text content or aria-label (accessibility)".to_string(),
                         severity: Severity::Warning,
                         source_line: None,
@@ -4129,6 +4396,7 @@ fn validate_tree(
                 if !has_aria && !has_track {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
+                        column: None,
                         message: "@video should have aria-label or captions for accessibility".to_string(),
                         severity: Severity::Warning,
                         source_line: None,
@@ -4143,6 +4411,7 @@ fn validate_tree(
                         if n > 0 {
                             diagnostics.push(Diagnostic {
                                 line: elem.line_num,
+                                column: None,
                                 message: format!("tabindex {} is positive — avoid positive tabindex values as they disrupt natural tab order", n),
                                 severity: Severity::Warning,
                                 source_line: None,
@@ -4480,6 +4749,7 @@ fn check_unused(ctx: &mut ParseContext) {
         if !ctx.used_variables.contains(name) {
             ctx.diagnostics.push(Diagnostic {
                 line,
+                column: None,
                 message: format!("unused variable '${}' (defined but never referenced)", name),
                 severity: Severity::Warning,
                 source_line: None,
@@ -4492,6 +4762,7 @@ fn check_unused(ctx: &mut ParseContext) {
         if !ctx.used_defines.contains(name) {
             ctx.diagnostics.push(Diagnostic {
                 line,
+                column: None,
                 message: format!("unused define '${}' (defined but never referenced)", name),
                 severity: Severity::Warning,
                 source_line: None,
@@ -4504,6 +4775,7 @@ fn check_unused(ctx: &mut ParseContext) {
         if !ctx.used_functions.contains(name) {
             ctx.diagnostics.push(Diagnostic {
                 line,
+                column: None,
                 message: format!("unused function '@{}' (defined but never called)", name),
                 severity: Severity::Warning,
                 source_line: None,
@@ -4516,6 +4788,7 @@ fn check_unused(ctx: &mut ParseContext) {
         if !ctx.used_mixins.contains(name) {
             ctx.diagnostics.push(Diagnostic {
                 line,
+                column: None,
                 message: format!("unused mixin '{}' (defined but never referenced)", name),
                 severity: Severity::Warning,
                 source_line: None,
