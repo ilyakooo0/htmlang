@@ -616,7 +616,7 @@ const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
     "type", "placeholder", "name", "value", "disabled", "required", "checked",
     "for", "action", "method", "autocomplete",
     "min", "max", "step", "pattern", "maxlength", "rows", "cols", "multiple",
-    "alt", "role", "tabindex", "title",
+    "alt", "role", "tabindex", "title", "autofocus",
     // Media
     "controls", "autoplay", "loop", "muted", "poster", "preload",
     // Image optimization
@@ -639,7 +639,7 @@ const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
 const BOOLEAN_HTML_ATTRS: &[&str] = &[
     "disabled", "required", "checked", "multiple",
     "controls", "autoplay", "loop", "muted",
-    "open", "novalidate",
+    "open", "novalidate", "autofocus",
 ];
 
 fn emit_html_passthrough_attrs(out: &mut String, attrs: &[Attribute]) {
@@ -2076,7 +2076,8 @@ fn attrs_to_css(
             | "colspan" | "rowspan" | "scope" | "inline"
             | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list"
             | "sandbox" | "allow" | "allowfullscreen" | "referrerpolicy"
-            | "formaction" | "formmethod" | "formtarget" | "target" => {}
+            | "formaction" | "formmethod" | "formtarget" | "target"
+            | "autofocus" => {}
 
             _ => {}
         }

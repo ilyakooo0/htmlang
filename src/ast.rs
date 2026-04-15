@@ -15,6 +15,7 @@ pub struct Document {
     pub custom_css: Vec<String>,
     pub og_tags: Vec<(String, String)>,
     pub custom_breakpoints: Vec<(String, String)>,
+    pub theme_tokens: Vec<(String, String)>,
     pub nodes: Vec<Node>,
 }
 

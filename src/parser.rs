@@ -96,6 +96,10 @@ struct ParseContext {
     fn_lines: HashMap<String, usize>,
     /// Line numbers of @define definitions (name -> line)
     define_lines: HashMap<String, usize>,
+    /// Deprecated functions: name -> deprecation message
+    deprecated_fns: HashMap<String, String>,
+    /// Theme tokens: (name, value) pairs from @theme
+    theme_tokens: Vec<(String, String)>,
 }
 
 struct Parser {
@@ -136,6 +140,8 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
         let_lines: HashMap::new(),
         fn_lines: HashMap::new(),
         define_lines: HashMap::new(),
+        deprecated_fns: HashMap::new(),
+        theme_tokens: Vec::new(),
     };
     let nodes = parser.parse_children(0, &mut ctx);
     validate_tree(&nodes, None, &mut ctx.diagnostics);
@@ -154,6 +160,7 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
             custom_css: ctx.custom_css,
             og_tags: ctx.og_tags,
             custom_breakpoints: ctx.custom_breakpoints,
+            theme_tokens: ctx.theme_tokens,
             nodes,
         },
         diagnostics: ctx.diagnostics,
@@ -1041,12 +1048,157 @@ impl Parser {
             while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
                 if let LineContent::Normal(ref s) = self.lines[self.pos].content {
                     let trimmed = s.trim();
-                    body.push_str(trimmed);
+                    // Support htmlang-style: from [opacity 0] / to [opacity 1] / 50% [transform scale(1.5)]
+                    if let Some(kf_css) = parse_keyframe_line(trimmed) {
+                        body.push_str(&kf_css);
+                    } else {
+                        body.push_str(trimmed);
+                    }
                 }
                 self.pos += 1;
             }
             ctx.keyframes.push((name, body));
             return Ok(None);
+        }
+
+        // --- @theme directive ---
+
+        if content.trim() == "@theme" {
+            let mut tokens = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    let trimmed = s.trim();
+                    if let Some((name, value)) = trimmed.split_once(' ') {
+                        let name = name.trim().to_string();
+                        let value = value.trim().to_string();
+                        tokens.push((name.clone(), value.clone()));
+                        // Set as regular variable
+                        ctx.variables.insert(name.clone(), value.clone());
+                        // Also set as CSS custom property
+                        let css_name = format!("--{}", name);
+                        ctx.css_vars.push((css_name, value));
+                    }
+                }
+                self.pos += 1;
+            }
+            ctx.theme_tokens = tokens;
+            return Ok(None);
+        }
+
+        // --- @deprecated annotation ---
+
+        if let Some(rest) = content.strip_prefix("@deprecated ") {
+            let message = rest.trim().to_string();
+            // Peek at the next line to get the function name
+            if self.pos < self.lines.len() {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    if let Some(fn_rest) = s.trim().strip_prefix("@fn ") {
+                        let parts: Vec<&str> = fn_rest.split_whitespace().collect();
+                        if let Some(&fn_name) = parts.first() {
+                            ctx.deprecated_fns.insert(fn_name.to_string(), message);
+                        }
+                    }
+                }
+            }
+            return Ok(None);
+        }
+
+        // --- @extends (template inheritance) ---
+
+        if let Some(rest) = content.strip_prefix("@extends ") {
+            let filename = substitute_vars(rest.trim(), &ctx.variables);
+            let resolved = match &ctx.base_path {
+                Some(base) => base.join(&filename),
+                None => PathBuf::from(&filename),
+            };
+
+            if ctx.include_stack.contains(&resolved) {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("circular extends '{}'", filename),
+                    severity: Severity::Error,
+                    source_line: Some(content.clone()),
+                });
+                return Ok(None);
+            }
+
+            let extends_text = if let Some(cached) = ctx.file_cache.get(&resolved) {
+                cached.clone()
+            } else {
+                match std::fs::read_to_string(&resolved) {
+                    Ok(text) => {
+                        ctx.file_cache.insert(resolved.clone(), text.clone());
+                        text
+                    }
+                    Err(e) => {
+                        ctx.diagnostics.push(Diagnostic {
+                            line: line_num,
+                            message: format!("cannot extend '{}': {}", filename, e),
+                            severity: Severity::Error,
+                            source_line: Some(content.clone()),
+                        });
+                        return Ok(None);
+                    }
+                }
+            };
+
+            // Collect slot blocks defined in the extending file
+            let mut slot_contents: HashMap<String, Vec<Line>> = HashMap::new();
+            while self.pos < self.lines.len() {
+                let line_indent = self.lines[self.pos].indent;
+                if line_indent < current_indent {
+                    break;
+                }
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    let trimmed = s.trim();
+                    if let Some(slot_name) = trimmed.strip_prefix("@slot ") {
+                        let slot_name = slot_name.trim().to_string();
+                        self.pos += 1;
+                        let mut slot_lines = Vec::new();
+                        while self.pos < self.lines.len() && self.lines[self.pos].indent > line_indent {
+                            slot_lines.push(self.lines[self.pos].clone());
+                            self.pos += 1;
+                        }
+                        slot_contents.insert(slot_name, slot_lines);
+                        continue;
+                    }
+                }
+                self.pos += 1;
+            }
+
+            // Parse slot contents into nodes
+            let mut slot_nodes: HashMap<String, Vec<Node>> = HashMap::new();
+            for (name, lines) in &slot_contents {
+                if lines.is_empty() {
+                    continue;
+                }
+                let min_indent = lines.iter().map(|l| l.indent).min().unwrap_or(0);
+                let adjusted: Vec<Line> = lines.iter().map(|l| Line {
+                    indent: l.indent - min_indent,
+                    content: l.content.clone(),
+                    line_num: l.line_num,
+                }).collect();
+                let mut slot_parser = Parser { lines: adjusted, pos: 0 };
+                let nodes = slot_parser.parse_children(0, ctx);
+                slot_nodes.insert(name.clone(), nodes);
+            }
+
+            // Parse the base layout file
+            ctx.included_files.push(resolved.clone());
+            ctx.include_stack.push(resolved.clone());
+            let saved_base = ctx.base_path.clone();
+            ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
+
+            let extends_lines = preprocess(&extends_text);
+            let mut extends_parser = Parser { lines: extends_lines, pos: 0 };
+            let layout_nodes = extends_parser.parse_children(0, ctx);
+
+            ctx.base_path = saved_base;
+            ctx.include_stack.pop();
+
+            // Replace @slot placeholders in layout with provided content
+            let result_nodes = replace_extends_slots(layout_nodes, &slot_nodes);
+            return Ok(Some(result_nodes));
         }
 
         // --- Function definition ---
@@ -1090,6 +1242,15 @@ impl Parser {
             let name = extract_element_name(&content);
             if ctx.functions.contains_key(name) {
                 ctx.used_functions.insert(name.to_string());
+                // Emit deprecation warning if function is marked @deprecated
+                if let Some(msg) = ctx.deprecated_fns.get(name) {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!("@{} is deprecated: {}", name, msg),
+                        severity: Severity::Warning,
+                        source_line: Some(content.clone()),
+                    });
+                }
                 let nodes =
                     self.expand_fn_call(name, &content, current_indent, line_num, ctx)?;
                 return Ok(Some(nodes));
@@ -1378,7 +1539,7 @@ const KNOWN_DIRECTIVES: &[&str] = &[
     "if", "else", "each", "meta", "head", "style",
     "match", "case", "default", "warn", "debug",
     "unless", "og", "breakpoint", "lang", "favicon",
-    "use",
+    "use", "theme", "deprecated", "extends",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -1540,7 +1701,7 @@ const KNOWN_ATTRS: &[&str] = &[
     "for", "action", "method", "autocomplete",
     "min", "max", "step", "pattern", "maxlength", "rows", "cols", "multiple",
     // Accessibility
-    "alt", "role", "tabindex", "title",
+    "alt", "role", "tabindex", "title", "autofocus",
     // CSS: aspect-ratio, outline, logical properties, scroll-snap
     "aspect-ratio", "outline",
     "padding-inline", "padding-block", "margin-inline", "margin-block",
@@ -2451,6 +2612,29 @@ fn contrast_ratio(c1: (u8, u8, u8), c2: (u8, u8, u8)) -> f64 {
     (lighter + 0.05) / (darker + 0.05)
 }
 
+fn lighten_color(rgb: (u8, u8, u8), amount: f64) -> (u8, u8, u8) {
+    let r = rgb.0 as f64 + (255.0 - rgb.0 as f64) * amount.clamp(0.0, 1.0);
+    let g = rgb.1 as f64 + (255.0 - rgb.1 as f64) * amount.clamp(0.0, 1.0);
+    let b = rgb.2 as f64 + (255.0 - rgb.2 as f64) * amount.clamp(0.0, 1.0);
+    (r.round() as u8, g.round() as u8, b.round() as u8)
+}
+
+fn darken_color(rgb: (u8, u8, u8), amount: f64) -> (u8, u8, u8) {
+    let factor = 1.0 - amount.clamp(0.0, 1.0);
+    let r = (rgb.0 as f64 * factor).round() as u8;
+    let g = (rgb.1 as f64 * factor).round() as u8;
+    let b = (rgb.2 as f64 * factor).round() as u8;
+    (r, g, b)
+}
+
+fn mix_colors(c1: (u8, u8, u8), c2: (u8, u8, u8), weight: f64) -> (u8, u8, u8) {
+    let w = weight.clamp(0.0, 1.0);
+    let r = (c1.0 as f64 * (1.0 - w) + c2.0 as f64 * w).round() as u8;
+    let g = (c1.1 as f64 * (1.0 - w) + c2.1 as f64 * w).round() as u8;
+    let b = (c1.2 as f64 * (1.0 - w) + c2.2 as f64 * w).round() as u8;
+    (r, g, b)
+}
+
 // ---------------------------------------------------------------------------
 // Variable substitution
 // ---------------------------------------------------------------------------
@@ -2518,6 +2702,75 @@ fn substitute_vars(input: &str, vars: &HashMap<String, String>) -> String {
     result
 }
 
+/// Parse a keyframe line in htmlang syntax: `from [opacity 0]` / `50% [transform scale(1.5)]`
+fn parse_keyframe_line(line: &str) -> Option<String> {
+    let (selector, rest) = if let Some(rest) = line.strip_prefix("from") {
+        ("from", rest.trim())
+    } else if let Some(rest) = line.strip_prefix("to") {
+        ("to", rest.trim())
+    } else if let Some(pct_end) = line.find('%') {
+        let rest = line[pct_end + 1..].trim();
+        let selector = &line[..pct_end + 1];
+        (selector, rest)
+    } else {
+        return None;
+    };
+
+    if !rest.starts_with('[') || !rest.ends_with(']') {
+        return None;
+    }
+
+    let inner = &rest[1..rest.len() - 1];
+    // Parse comma-separated key-value pairs into CSS
+    let mut css = String::new();
+    for part in inner.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = part.split_once(' ') {
+            css.push_str(key.trim());
+            css.push(':');
+            css.push_str(value.trim());
+            css.push(';');
+        }
+    }
+
+    if css.is_empty() {
+        return None;
+    }
+
+    Some(format!("{}{{{}}}", selector, css))
+}
+
+/// Replace @slot placeholders in the base layout with content from @extends
+fn replace_extends_slots(
+    nodes: Vec<Node>,
+    slot_nodes: &HashMap<String, Vec<Node>>,
+) -> Vec<Node> {
+    let mut result = Vec::new();
+    for node in nodes {
+        match node {
+            Node::Element(elem) if matches!(&elem.kind, ElementKind::Slot(name) if !name.is_empty()) => {
+                if let ElementKind::Slot(ref name) = elem.kind {
+                    if let Some(content) = slot_nodes.get(name) {
+                        result.extend(content.iter().cloned());
+                    } else if !elem.children.is_empty() {
+                        // Use slot's own children as default
+                        result.extend(elem.children);
+                    }
+                }
+            }
+            Node::Element(mut elem) => {
+                elem.children = replace_extends_slots(elem.children, slot_nodes);
+                result.push(Node::Element(elem));
+            }
+            other => result.push(other),
+        }
+    }
+    result
+}
+
 fn apply_filter(value: &str, filter: &str) -> String {
     if let Some(arg) = filter.strip_prefix("truncate:") {
         if let Ok(n) = arg.parse::<usize>() {
@@ -2536,6 +2789,49 @@ fn apply_filter(value: &str, filter: &str) -> String {
     if let Some(arg) = filter.strip_prefix("default:") {
         if value.is_empty() {
             return arg.to_string();
+        }
+        return value.to_string();
+    }
+    // Color functions: lighten:N, darken:N, alpha:N, mix:COLOR:N
+    if let Some(arg) = filter.strip_prefix("lighten:") {
+        if let Ok(amount) = arg.parse::<f64>() {
+            if let Some(rgb) = parse_hex_rgb(value) {
+                let (r, g, b) = lighten_color(rgb, amount / 100.0);
+                return format!("#{:02x}{:02x}{:02x}", r, g, b);
+            }
+        }
+        return value.to_string();
+    }
+    if let Some(arg) = filter.strip_prefix("darken:") {
+        if let Ok(amount) = arg.parse::<f64>() {
+            if let Some(rgb) = parse_hex_rgb(value) {
+                let (r, g, b) = darken_color(rgb, amount / 100.0);
+                return format!("#{:02x}{:02x}{:02x}", r, g, b);
+            }
+        }
+        return value.to_string();
+    }
+    if let Some(arg) = filter.strip_prefix("alpha:") {
+        if let Ok(a) = arg.parse::<f64>() {
+            if let Some((r, g, b)) = parse_hex_rgb(value) {
+                let a8 = (a.clamp(0.0, 1.0) * 255.0) as u8;
+                return format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a8);
+            }
+        }
+        return value.to_string();
+    }
+    if let Some(arg) = filter.strip_prefix("mix:") {
+        // mix:COLOR:PERCENTAGE (e.g., mix:#ffffff:50)
+        let parts: Vec<&str> = arg.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            if let (Some(c1), Some(c2), Ok(pct)) = (
+                parse_hex_rgb(value),
+                parse_hex_rgb(parts[0]),
+                parts[1].parse::<f64>(),
+            ) {
+                let (r, g, b) = mix_colors(c1, c2, pct / 100.0);
+                return format!("#{:02x}{:02x}{:02x}", r, g, b);
+            }
         }
         return value.to_string();
     }

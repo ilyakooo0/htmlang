@@ -696,6 +696,10 @@ htmlang --format json page.hl  # output diagnostics as JSON
 htmlang lint page.hl         # stricter lint checks (accessibility, nesting)
 htmlang lint src/            # lint all .hl files in a directory
 htmlang stats page.hl        # show file statistics (elements, CSS, colors)
+htmlang repl                 # interactive REPL (type .hl, get HTML)
+htmlang feed src/            # generate RSS feed from @page metadata
+htmlang feed src/ -b https://mysite.com  # with custom base URL
+htmlang components src/      # list all @fn definitions across project
 ```
 
 Watch mode recompiles automatically when the source file or any `@include`d/`@import`ed files change.
@@ -709,6 +713,106 @@ Each `.hl` file compiles to a single self-contained `.html` file:
 - Styles are scoped via generated class names in an embedded `<style>` block
 - No external CSS, no JavaScript (unless injected via `@raw`)
 - `@page` generates the HTML boilerplate; without it, output is an HTML fragment
+
+## Template inheritance (`@extends`)
+
+A page can inherit a base layout and fill named `@slot` blocks:
+
+**layout.hl:**
+```
+@page My Site
+@column [max-width 800, center-x, padding 40]
+  @slot header
+    @text [bold, size 32] Default Header
+  @slot content
+  @slot footer
+    @text [color #888] Default Footer
+```
+
+**about.hl:**
+```
+@extends layout.hl
+@slot header
+  @text [bold, size 32] About Us
+@slot content
+  @paragraph We are a team of...
+```
+
+Slots not filled by the extending page use the default children from the layout.
+
+## Design tokens (`@theme`)
+
+Centralized design token definitions. Each token becomes both a `$variable` and a `--css-custom-property`:
+
+```
+@theme
+  primary #3b82f6
+  secondary #10b981
+  spacing-sm 8
+  spacing-md 16
+  font-body system-ui, sans-serif
+```
+
+Equivalent to:
+```
+@let primary #3b82f6
+@let --primary #3b82f6
+@let secondary #10b981
+@let --secondary #10b981
+...
+```
+
+## Deprecation (`@deprecated`)
+
+Mark a function as deprecated. Callers receive a compile-time warning:
+
+```
+@deprecated Use @card-v2 instead
+@fn old-card $title
+  @el [padding 20]
+    @text $title
+    @children
+```
+
+When `@old-card` is called, the compiler emits: `warning: @old-card is deprecated: Use @card-v2 instead`
+
+## Color functions
+
+Color manipulation via variable filters:
+
+```
+@let primary #3b82f6
+
+@el [background $primary|lighten:20]        -- 20% lighter
+@el [background $primary|darken:10]         -- 10% darker
+@el [background $primary|alpha:0.5]         -- 50% transparent (#3b82f67f)
+@el [background $primary|mix:#ffffff:50]    -- 50% mixed with white
+```
+
+Filters: `lighten:N` (0-100), `darken:N` (0-100), `alpha:N` (0-1), `mix:COLOR:N` (0-100).
+
+## Enhanced `@keyframes`
+
+Keyframes support htmlang attribute syntax:
+
+```
+@keyframes fade-in
+  from [opacity 0]
+  to [opacity 1]
+
+@keyframes slide
+  0% [transform translateX(-100%)]
+  50% [transform translateX(0), opacity 1]
+  100% [transform translateX(100%), opacity 0]
+```
+
+Raw CSS syntax is also supported for backwards compatibility.
+
+## Additional attributes
+
+| Attribute | Effect |
+|-----------|--------|
+| `autofocus` | Auto-focus element on page load (boolean) |
 
 ## Editor support
 

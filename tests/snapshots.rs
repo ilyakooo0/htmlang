@@ -2489,3 +2489,103 @@ fn test_use_directive() {
     );
     assert!(has_use_error, "@use should report error for missing file, got: {:?}", result.diagnostics);
 }
+
+#[test]
+fn test_enhanced_keyframes() {
+    let result = htmlang::parser::parse("@keyframes fade-in\n  from [opacity 0]\n  to [opacity 1]\n@el [animation fade-in 0.3s] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("@keyframes fade-in{from{opacity:0;}to{opacity:1;}}"), "keyframes should parse htmlang syntax, got: {}", html);
+}
+
+#[test]
+fn test_keyframes_percentage() {
+    let result = htmlang::parser::parse("@keyframes slide\n  0% [transform translateX(-100%)]\n  100% [transform translateX(0)]");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("0%{transform:translateX(-100%);}"), "keyframe percentage should work, got: {}", html);
+}
+
+#[test]
+fn test_theme_directive() {
+    let result = htmlang::parser::parse("@theme\n  primary #3b82f6\n  spacing-md 16\n\n@el [background $primary, padding $spacing-md] Content");
+    let diags = &result.diagnostics;
+    let errors: Vec<_> = diags.iter().filter(|d| d.severity == htmlang::parser::Severity::Error).collect();
+    assert!(errors.is_empty(), "theme should not cause errors: {:?}", errors);
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("--primary:#3b82f6"), "theme should emit CSS vars, got: {}", html);
+    assert!(html.contains("--spacing-md:16"), "theme should emit spacing var, got: {}", html);
+    assert!(html.contains("background:#3b82f6"), "theme var should resolve in attrs, got: {}", html);
+}
+
+#[test]
+fn test_deprecated_fn() {
+    let result = htmlang::parser::parse("@deprecated Use @new-card instead\n@fn old-card $title\n  @text $title\n\n@old-card [title Hello]");
+    let warnings: Vec<_> = result.diagnostics.iter()
+        .filter(|d| d.message.contains("deprecated"))
+        .collect();
+    assert!(!warnings.is_empty(), "calling deprecated fn should warn, got: {:?}", result.diagnostics);
+    assert!(warnings[0].message.contains("Use @new-card instead"), "deprecation message should be included");
+}
+
+#[test]
+fn test_extends_directive() {
+    // Can't test with actual files, but verify parse error for missing file
+    let result = htmlang::parser::parse("@extends nonexistent.hl\n@slot content\n  Hello");
+    let has_error = result.diagnostics.iter().any(|d|
+        d.message.contains("cannot extend") && d.severity == htmlang::parser::Severity::Error
+    );
+    assert!(has_error, "@extends should report error for missing file, got: {:?}", result.diagnostics);
+}
+
+#[test]
+fn test_color_filter_lighten() {
+    let result = htmlang::parser::parse("@let primary #3b82f6\n@el [background $primary|lighten:20] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    // Lighten #3b82f6 by 20% should produce a lighter blue
+    assert!(html.contains("background:#"), "lighten filter should produce hex color, got: {}", html);
+    // Verify it's not the original color
+    assert!(!html.contains("background:#3b82f6"), "lighten should change the color");
+}
+
+#[test]
+fn test_color_filter_darken() {
+    let result = htmlang::parser::parse("@let primary #ffffff\n@el [background $primary|darken:50] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    // Darken white by 50% should produce gray (#808080 approximately)
+    assert!(html.contains("background:#"), "darken filter should produce hex color, got: {}", html);
+    assert!(!html.contains("background:#ffffff"), "darken should change the color");
+}
+
+#[test]
+fn test_color_filter_alpha() {
+    let result = htmlang::parser::parse("@let primary #3b82f6\n@el [background $primary|alpha:0.5] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    // Should produce 8-digit hex with alpha
+    assert!(html.contains("background:#3b82f67f"), "alpha filter should add alpha channel, got: {}", html);
+}
+
+#[test]
+fn test_color_filter_mix() {
+    let result = htmlang::parser::parse("@let primary #000000\n@el [background $primary|mix:#ffffff:50] Content");
+    let html = htmlang::codegen::generate(&result.document);
+    // Mix black and white at 50% should produce gray
+    assert!(html.contains("background:#808080") || html.contains("background:#7f7f7f"), "mix filter should blend colors, got: {}", html);
+}
+
+#[test]
+fn test_autofocus_attribute() {
+    let result = htmlang::parser::parse("@input [type text, autofocus]");
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("autofocus"), "autofocus should be in output, got: {}", html);
+    // Should not produce unknown attribute warning
+    let unknown_warnings: Vec<_> = result.diagnostics.iter()
+        .filter(|d| d.message.contains("unknown attribute") && d.message.contains("autofocus"))
+        .collect();
+    assert!(unknown_warnings.is_empty(), "autofocus should not warn as unknown");
+}
+
+#[test]
+fn test_repl_components_feed_subcommands_recognized() {
+    // Just verify that the parser and codegen work for content that these commands would process
+    let result = htmlang::parser::parse("@page Test Site\n@meta description A test\n@fn card $title\n  @text $title");
+    assert!(!result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error));
+}

@@ -687,6 +687,10 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@unless", "Inverse conditional (renders when false)", "@unless "),
         ("@og", "Add Open Graph meta tag", "@og "),
         ("@breakpoint", "Define custom responsive breakpoint", "@breakpoint "),
+        ("@theme", "Define design tokens (colors, spacing, fonts)", "@theme"),
+        ("@deprecated", "Mark next @fn as deprecated", "@deprecated "),
+        ("@extends", "Inherit a layout template and fill @slot blocks", "@extends "),
+        ("@use", "Selective import of definitions from a file", "@use "),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -1607,6 +1611,10 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@unless" => "**@unless** \u{2014} Inverse conditional\n\nRenders children when the condition is false (opposite of `@if`).\n\nUsage: `@unless $debug`",
         "@og" => "**@og** \u{2014} Open Graph meta tag\n\nAdds an Open Graph `<meta>` tag to `<head>`.\n\nUsage: `@og title My Page Title`",
         "@breakpoint" => "**@breakpoint** \u{2014} Custom breakpoint\n\nDefines a custom responsive breakpoint.\n\nUsage: `@breakpoint tablet 600`",
+        "@theme" => "**@theme** \u{2014} Design tokens\n\nDefines centralized design tokens (colors, spacing, fonts).\nEach token becomes both a `$variable` and a `--css-custom-property`.\n\n```\n@theme\n  primary #3b82f6\n  spacing-md 16\n  font-body system-ui, sans-serif\n```",
+        "@deprecated" => "**@deprecated** `<message>`\n\nMarks the next `@fn` as deprecated. Callers get a compile-time warning.\n\n```\n@deprecated Use @new-card instead\n@fn old-card $title\n  ...\n```",
+        "@extends" => "**@extends** `<file.hl>`\n\nInherit a layout template. Fill named `@slot` blocks.\n\n```\n@extends layout.hl\n@slot content\n  My page content\n@slot sidebar\n  Sidebar content\n```",
+        "@use" => "**@use** `<file.hl> name1, name2`\n\nSelective import: only imports named `@fn`/`@define` definitions.\n\n```\n@use components.hl card, button\n```",
         // Attributes
         "spacing" | "gap" => "**spacing** `<value>`\n\nGap between children. Supports CSS units (px, rem, em, %).\nMaps to CSS `gap`.",
         "padding" => "**padding** `<value>` | `<y> <x>` | `<t> <h> <b>` | `<t> <r> <b> <l>`\n\nInner padding. Supports CSS units. Accepts 1\u{2013}4 values.",
@@ -1795,8 +1803,6 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@carousel" => "**@carousel** \u{2014} Horizontal carousel\n\nRenders as `<div>` with horizontal scroll-snap.\nChildren auto-receive `scroll-snap-align: start` and `flex-shrink: 0`.\n\nUsage:\n```\n@carousel [gap 16]\n  @el [width 300] Slide 1\n  @el [width 300] Slide 2\n```",
         "@chip" => "**@chip** \u{2014} Chip / pill\n\nRenders as `<span>` with rounded borders, inline-flex layout.\n\nUsage: `@chip [background #e5e7eb] Category`",
         "@tag" => "**@tag** \u{2014} Tag label\n\nRenders as `<span>` with subtle rounded rectangle, bold small text.\n\nUsage: `@tag [background #dbeafe, color #1e40af] v2.0`",
-        // New directives
-        "@use" => "**@use** \u{2014} Selective import\n\nImport specific functions/defines from a file.\n\n```\n@use \"buttons.hl\" primary-button, secondary-button\n@use theme.hl card-style\n```\n\nOnly the named definitions are imported.",
         // CSS shorthands
         "truncate" => "**truncate** \u{2014} Truncate with ellipsis\n\nShorthand for: `overflow: hidden; text-overflow: ellipsis; white-space: nowrap`\n\nUsage: `@text [max-width 200, truncate] Long text here...`",
         "line-clamp" => "**line-clamp** `<N>` \u{2014} Multi-line truncation\n\nClamps text to N lines with ellipsis.\n\nUsage: `@paragraph [line-clamp 3] Long paragraph...`",
