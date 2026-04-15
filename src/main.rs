@@ -223,6 +223,9 @@ Commands:
   playground [out.html] Generate a self-contained HTML playground
   clean [dir]           Remove generated .html files
   outline <file.hl>     Show document structure tree
+  doctor                Check toolchain health
+  migrate [dir|file]    Auto-upgrade deprecated syntax
+  benchmark <file|dir>  Measure compile time and output size
 
 Options:
   -w, --watch       Watch for changes and recompile
@@ -1803,6 +1806,210 @@ document.getElementById('editor').addEventListener('keydown',e=>{if(e.key==='Ent
             }
         }
         print_outline(&result.document.nodes, 0);
+        return;
+    }
+
+    // Handle "doctor" subcommand — check toolchain health
+    if args.len() >= 2 && args[1] == "doctor" {
+        eprintln!("htmlang doctor — checking toolchain health\n");
+        let mut ok = true;
+
+        // Check htmlang version
+        eprintln!("  htmlang:     v{}", env!("CARGO_PKG_VERSION"));
+
+        // Check if htmlang-lsp binary is available
+        let lsp_status = process::Command::new("htmlang-lsp")
+            .arg("--version")
+            .output();
+        match lsp_status {
+            Ok(output) if output.status.success() => {
+                let ver = String::from_utf8_lossy(&output.stdout);
+                eprintln!("  htmlang-lsp: {}", ver.trim());
+            }
+            _ => {
+                eprintln!("  htmlang-lsp: not found (optional — needed for editor integration)");
+            }
+        }
+
+        // Check if cargo is available (for building from source)
+        let cargo_status = process::Command::new("cargo")
+            .arg("--version")
+            .output();
+        match cargo_status {
+            Ok(output) if output.status.success() => {
+                let ver = String::from_utf8_lossy(&output.stdout);
+                eprintln!("  cargo:       {}", ver.trim());
+            }
+            _ => {
+                eprintln!("  cargo:       not found");
+                ok = false;
+            }
+        }
+
+        // Check if git is available (for deploy)
+        let git_status = process::Command::new("git")
+            .arg("--version")
+            .output();
+        match git_status {
+            Ok(output) if output.status.success() => {
+                let ver = String::from_utf8_lossy(&output.stdout);
+                eprintln!("  git:         {}", ver.trim());
+            }
+            _ => {
+                eprintln!("  git:         not found (optional — needed for deploy)");
+            }
+        }
+
+        // Check for htmlang.toml in current directory
+        if Path::new("htmlang.toml").exists() {
+            eprintln!("  config:      htmlang.toml found");
+        } else {
+            eprintln!("  config:      no htmlang.toml (using defaults)");
+        }
+
+        // Check for .hl files
+        let hl_count = collect_hl_files_recursive(Path::new(".")).len();
+        eprintln!("  .hl files:   {} found in current directory", hl_count);
+
+        eprintln!();
+        if ok {
+            eprintln!("all checks passed");
+        } else {
+            eprintln!("some checks failed — see above");
+            process::exit(1);
+        }
+        return;
+    }
+
+    // Handle "migrate" subcommand — auto-upgrade deprecated syntax
+    if args.len() >= 2 && args[1] == "migrate" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let path = Path::new(target);
+        let hl_files = if path.is_dir() {
+            collect_hl_files_recursive(path)
+        } else {
+            vec![PathBuf::from(target)]
+        };
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", target);
+            process::exit(1);
+        }
+        let mut total_changes = 0usize;
+        for file in &hl_files {
+            let input = match fs::read_to_string(file) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let mut output = String::new();
+            let mut changes = 0usize;
+            for line in input.lines() {
+                let mut migrated = line.to_string();
+                // Migrate @divider -> @hr
+                if migrated.trim().starts_with("@divider") {
+                    migrated = migrated.replace("@divider", "@hr");
+                    changes += 1;
+                }
+                // Migrate @ul -> @list
+                if migrated.trim().starts_with("@ul") && !migrated.trim().starts_with("@unless") {
+                    migrated = migrated.replacen("@ul", "@list", 1);
+                    changes += 1;
+                }
+                // Migrate align-center -> center-x (common mistake)
+                if migrated.contains("align-center") {
+                    migrated = migrated.replace("align-center", "center-x");
+                    changes += 1;
+                }
+                output.push_str(&migrated);
+                output.push('\n');
+            }
+            // Remove trailing extra newline if original didn't end with one
+            if !input.ends_with('\n') && output.ends_with('\n') {
+                output.pop();
+            }
+            if changes > 0 {
+                match fs::write(file, &output) {
+                    Ok(()) => {
+                        eprintln!("migrated {} ({} change{})", file.display(), changes, if changes == 1 { "" } else { "s" });
+                        total_changes += changes;
+                    }
+                    Err(e) => eprintln!("error: {}: {}", file.display(), e),
+                }
+            }
+        }
+        if total_changes == 0 {
+            eprintln!("no migrations needed");
+        } else {
+            eprintln!("\n{} total change(s) across {} file(s)", total_changes, hl_files.len());
+        }
+        return;
+    }
+
+    // Handle "benchmark" subcommand — measure compile time and output size
+    if args.len() >= 2 && args[1] == "benchmark" {
+        if args.len() < 3 {
+            eprintln!("usage: htmlang benchmark <file.hl | dir>");
+            process::exit(1);
+        }
+        let target = &args[2];
+        let path = Path::new(target);
+        let hl_files = if path.is_dir() {
+            collect_hl_files_recursive(path)
+        } else {
+            vec![PathBuf::from(target)]
+        };
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", target);
+            process::exit(1);
+        }
+
+        let mut total_source = 0usize;
+        let mut total_output = 0usize;
+        let mut total_css_rules = 0usize;
+        let mut total_elements = 0usize;
+        let mut total_errors = 0usize;
+
+        let start = std::time::Instant::now();
+        for file in &hl_files {
+            let input = match fs::read_to_string(file) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            total_source += input.len();
+            let base = file.parent();
+            let result = htmlang::parser::parse_with_base(&input, base);
+            let has_errors = result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error);
+            if has_errors {
+                total_errors += 1;
+                continue;
+            }
+            let html = htmlang::codegen::generate(&result.document);
+            total_output += html.len();
+            total_css_rules += html.matches('{').count().saturating_sub(1);
+            let mut ec = 0;
+            let mut colors = std::collections::HashSet::new();
+            let mut fonts = std::collections::HashSet::new();
+            count_elements(&result.document.nodes, &mut ec, &mut colors, &mut fonts);
+            total_elements += ec;
+        }
+        let elapsed = start.elapsed();
+
+        eprintln!("--- benchmark results ---");
+        eprintln!("  files:          {}", hl_files.len());
+        eprintln!("  compile time:   {:.1}ms", elapsed.as_secs_f64() * 1000.0);
+        eprintln!("  source size:    {} bytes", total_source);
+        eprintln!("  output size:    {} bytes", total_output);
+        if total_source > 0 {
+            eprintln!("  ratio:          {:.1}x", total_output as f64 / total_source as f64);
+        }
+        eprintln!("  elements:       {}", total_elements);
+        eprintln!("  CSS rules:      ~{}", total_css_rules);
+        if total_errors > 0 {
+            eprintln!("  errors:         {} file(s) had errors", total_errors);
+        }
+        if hl_files.len() > 1 {
+            let per_file = elapsed.as_secs_f64() * 1000.0 / hl_files.len() as f64;
+            eprintln!("  per file:       {:.2}ms", per_file);
+        }
         return;
     }
 

@@ -2371,7 +2371,7 @@ fn css_px(value: &str) -> String {
     if CSS_UNITS.iter().any(|u| v.ends_with(u)) {
         return v.to_string();
     }
-    if v.starts_with("var(") || v.starts_with("calc(") {
+    if v.starts_with("var(") || v.starts_with("calc(") || v.starts_with("clamp(") || v.starts_with("min(") || v.starts_with("max(") {
         return v.to_string();
     }
     format!("{}px", v)

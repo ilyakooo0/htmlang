@@ -219,6 +219,30 @@ Creates a named attribute bundle. Referenced with `$name` inside attribute lists
 
 Attributes listed after `$name` override those in the definition.
 
+### `@mixin`
+
+Creates a composable style group. Like `@define`, but intended for reusable style patterns. Referenced with `...$name` (spread syntax) or `$name` inside attribute lists.
+
+```
+@mixin card-style [padding 20, rounded 8, background white]
+@mixin interactive [cursor pointer, hover:background #e5e7eb, transition all 0.15s ease]
+
+@el [...$card-style, ...$interactive, border 1 #ccc]
+  Composed styles from two mixins
+```
+
+### `@assert`
+
+Compile-time assertion. If the condition is false, a compile error is emitted. Useful for enforcing design system constraints.
+
+```
+@let spacing 16
+@let primary #3b82f6
+
+@assert $spacing == 16
+@assert $primary != red
+```
+
 ### `@fn`
 
 Defines a pure function (reusable component). Parameters are prefixed with `$`. Default values can be specified with `=`.

@@ -100,6 +100,12 @@ struct ParseContext {
     deprecated_fns: HashMap<String, String>,
     /// Theme tokens: (name, value) pairs from @theme
     theme_tokens: Vec<(String, String)>,
+    /// Mixin definitions: name -> list of attributes
+    mixins: HashMap<String, Vec<Attribute>>,
+    /// Line numbers of @mixin definitions (name -> line)
+    mixin_lines: HashMap<String, usize>,
+    /// Track which @mixin definitions are referenced (for unused warnings)
+    used_mixins: HashSet<String>,
     /// Canonical URL
     canonical: Option<String>,
     /// Base URL for relative links
@@ -154,6 +160,9 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
         base_url: None,
         font_faces: Vec::new(),
         json_ld_blocks: Vec::new(),
+        mixins: HashMap::new(),
+        mixin_lines: HashMap::new(),
+        used_mixins: HashSet::new(),
     };
     let nodes = parser.parse_children(0, &mut ctx);
     validate_tree(&nodes, None, &mut ctx.diagnostics);
@@ -474,6 +483,37 @@ impl Parser {
                 let (attrs, _) = parse_attr_brackets(attrs_str, line_num, ctx)?;
                 ctx.defines.insert(name.to_string(), attrs);
                 ctx.define_lines.entry(name.to_string()).or_insert(line_num);
+            }
+            return Ok(None);
+        }
+
+        // --- @mixin directive (composable style groups) ---
+
+        if let Some(rest) = content.strip_prefix("@mixin ") {
+            let rest = rest.trim();
+            if let Some(bracket_start) = rest.find('[') {
+                let name = rest[..bracket_start].trim();
+                let attrs_str = &rest[bracket_start..];
+                let (attrs, _) = parse_attr_brackets(attrs_str, line_num, ctx)?;
+                ctx.mixins.insert(name.to_string(), attrs);
+                ctx.mixin_lines.entry(name.to_string()).or_insert(line_num);
+            }
+            return Ok(None);
+        }
+
+        // --- @assert directive (compile-time assertions) ---
+
+        if let Some(rest) = content.strip_prefix("@assert ") {
+            let rest = rest.trim();
+            let condition = substitute_vars(rest, &ctx.variables);
+            track_var_refs(rest, &mut ctx.used_variables);
+            if !evaluate_condition(&condition) {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("assertion failed: {}", rest),
+                    severity: Severity::Error,
+                    source_line: Some(content.clone()),
+                });
             }
             return Ok(None);
         }
@@ -1617,6 +1657,7 @@ const KNOWN_DIRECTIVES: &[&str] = &[
     "unless", "og", "breakpoint", "lang", "favicon",
     "use", "theme", "deprecated", "extends",
     "canonical", "base", "font-face", "json-ld",
+    "mixin", "assert",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -1884,6 +1925,9 @@ fn has_css_unit(value: &str) -> bool {
     CSS_UNIT_SUFFIXES.iter().any(|u| value.ends_with(u))
         || value.starts_with("var(")
         || value.starts_with("calc(")
+        || value.starts_with("clamp(")
+        || value.starts_with("min(")
+        || value.starts_with("max(")
 }
 
 /// Attributes that accept numeric OR keyword values.
@@ -2029,12 +2073,29 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
             continue;
         }
 
+        // ...$mixin spread — expand mixin attributes
+        if part.starts_with("...$") {
+            let name = &part[4..];
+            if let Some(mixin_attrs) = ctx.mixins.get(name) {
+                ctx.used_mixins.insert(name.to_string());
+                attrs.extend(mixin_attrs.clone());
+                continue;
+            }
+            // Fall through to try as define
+        }
+
         // $define reference — expand
         if part.starts_with('$') {
             let name = &part[1..];
             if let Some(define_attrs) = ctx.defines.get(name) {
                 ctx.used_defines.insert(name.to_string());
                 attrs.extend(define_attrs.clone());
+                continue;
+            }
+            // Also try mixin expansion with $name syntax
+            if let Some(mixin_attrs) = ctx.mixins.get(name) {
+                ctx.used_mixins.insert(name.to_string());
+                attrs.extend(mixin_attrs.clone());
                 continue;
             }
         }
@@ -3039,6 +3100,18 @@ fn check_unused(ctx: &mut ParseContext) {
             ctx.diagnostics.push(Diagnostic {
                 line,
                 message: format!("unused function '@{}' (defined but never called)", name),
+                severity: Severity::Warning,
+                source_line: None,
+            });
+        }
+    }
+
+    // Check unused @mixin definitions
+    for (name, &line) in &ctx.mixin_lines {
+        if !ctx.used_mixins.contains(name) {
+            ctx.diagnostics.push(Diagnostic {
+                line,
+                message: format!("unused mixin '{}' (defined but never referenced)", name),
                 severity: Severity::Warning,
                 source_line: None,
             });

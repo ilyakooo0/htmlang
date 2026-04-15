@@ -89,7 +89,9 @@ impl LanguageServer for Backend {
                                 SemanticTokenType::COMMENT,
                                 SemanticTokenType::PROPERTY,
                             ],
-                            token_modifiers: vec![],
+                            token_modifiers: vec![
+                                SemanticTokenModifier::new("deprecated"), // bit 0 = 1 → dimmed/strikethrough
+                            ],
                         },
                         full: Some(SemanticTokensFullOptions::Bool(true)),
                         range: None,
@@ -700,6 +702,8 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@base", "Set base URL for relative links", "@base "),
         ("@font-face", "Define a custom font face", "@font-face"),
         ("@json-ld", "Add JSON-LD structured data to head", "@json-ld"),
+        ("@mixin", "Define a composable style group (use with ...$name)", "@mixin "),
+        ("@assert", "Compile-time assertion for variable values", "@assert "),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -1328,19 +1332,39 @@ fn function_completions(text: &str, range: Range) -> Vec<CompletionItem> {
         if let Some(rest) = trimmed.strip_prefix("@fn ") {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if let Some(name) = parts.first() {
-                let params = parts[1..].join(" ");
+                let params: Vec<&str> = parts[1..].iter()
+                    .map(|p| p.strip_prefix('$').unwrap_or(p))
+                    .collect();
                 let detail = if params.is_empty() {
                     "Function".to_string()
                 } else {
-                    format!("Function({})", params)
+                    format!("Function({})", params.join(", "))
                 };
-                items.push(item(
-                    &format!("@{}", name),
-                    CompletionItemKind::FUNCTION,
-                    &detail,
-                    &format!("@{}", name),
-                    range,
-                ));
+                // Generate snippet with tab stops for parameters
+                let insert_text = if params.is_empty() {
+                    format!("@{}", name)
+                } else {
+                    let param_snippets: Vec<String> = params.iter().enumerate().map(|(i, p)| {
+                        let p_name = p.split('=').next().unwrap_or(p);
+                        let default = p.split('=').nth(1).unwrap_or(p_name);
+                        format!("{} ${{{}:{}}}", p_name, i + 1, default)
+                    }).collect();
+                    format!("@{} [{}]", name, param_snippets.join(", "))
+                };
+                let mut ci = CompletionItem {
+                    label: format!("@{}", name),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    detail: Some(detail),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range,
+                        new_text: insert_text,
+                    })),
+                    ..Default::default()
+                };
+                if !params.is_empty() {
+                    ci.insert_text_format = Some(tower_lsp::lsp_types::InsertTextFormat::SNIPPET);
+                }
+                items.push(ci);
             }
         }
     }
@@ -2485,6 +2509,42 @@ fn code_actions(
             }
         }
 
+        // Quick-fix: remove unused @mixin
+        if msg.contains("unused mixin") {
+            let line = diag.range.start.line as usize;
+            let lines: Vec<&str> = text.lines().collect();
+            if let Some(source_line) = lines.get(line) {
+                let trimmed = source_line.trim_start();
+                if trimmed.starts_with("@mixin ") {
+                    let mixin_name = trimmed.strip_prefix("@mixin ")
+                        .and_then(|r| {
+                            let r = r.trim();
+                            r.find('[').map(|b| r[..b].trim()).or_else(|| r.split_whitespace().next())
+                        })
+                        .unwrap_or("?");
+                    let edit = TextEdit {
+                        range: Range::new(
+                            Position::new(diag.range.start.line, 0),
+                            Position::new(diag.range.start.line + 1, 0),
+                        ),
+                        new_text: String::new(),
+                    };
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: format!("Remove unused mixin '{}'", mixin_name),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+
         // Quick-fix: add alt attribute to @image
         if msg.contains("@image should have") && msg.contains("alt") {
             let line = diag.range.start.line as usize;
@@ -2929,6 +2989,44 @@ fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
     let mut prev_line: u32 = 0;
     let mut prev_start: u32 = 0;
 
+    // Build set of unused variables by parsing diagnostics
+    let result = htmlang::parser::parse(text);
+    let mut unused_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for d in &result.diagnostics {
+        if d.message.contains("unused variable '$") {
+            if let Some(start) = d.message.find("'$") {
+                let rest = &d.message[start + 2..];
+                if let Some(end) = rest.find('\'') {
+                    unused_vars.insert(rest[..end].to_string());
+                }
+            }
+        }
+        if d.message.contains("unused function '@") {
+            if let Some(start) = d.message.find("'@") {
+                let rest = &d.message[start + 2..];
+                if let Some(end) = rest.find('\'') {
+                    unused_vars.insert(format!("@{}", &rest[..end]));
+                }
+            }
+        }
+        if d.message.contains("unused define '$") {
+            if let Some(start) = d.message.find("'$") {
+                let rest = &d.message[start + 2..];
+                if let Some(end) = rest.find('\'') {
+                    unused_vars.insert(rest[..end].to_string());
+                }
+            }
+        }
+        if d.message.contains("unused mixin '") {
+            if let Some(start) = d.message.find("unused mixin '") {
+                let rest = &d.message[start + 14..];
+                if let Some(end) = rest.find('\'') {
+                    unused_vars.insert(rest[..end].to_string());
+                }
+            }
+        }
+    }
+
     for (line_idx, line) in text.lines().enumerate() {
         let trimmed = line.trim();
         let line_num = line_idx as u32;
@@ -2936,7 +3034,7 @@ fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
         // Detect comments
         if trimmed.starts_with("--") {
             let col = (line.len() - trimmed.len()) as u32;
-            push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, col, trimmed.len() as u32, 4);
+            push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, col, trimmed.len() as u32, 4, 0);
             continue;
         }
 
@@ -2957,13 +3055,20 @@ fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
                     | "@match" | "@case" | "@default" | "@slot" | "@children"
                     | "@warn" | "@debug" | "@lang" | "@favicon" | "@fragment"
                     | "@unless" | "@og" | "@breakpoint"
-                    | "@canonical" | "@base" | "@font-face" | "@json-ld" => 0, // keyword
+                    | "@canonical" | "@base" | "@font-face" | "@json-ld"
+                    | "@mixin" | "@assert" | "@theme" | "@deprecated" | "@extends"
+                    | "@use" => 0, // keyword
                     _ => {
                         // Check if it's a user function call (starts with @ but not a builtin element)
                         if is_builtin_element(word) { 0 } else { 2 } // function
                     }
                 };
-                push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, start as u32, (i - start) as u32, token_type);
+                // Mark unused @fn definitions with deprecated modifier (dimmed)
+                let modifier = if (trimmed.starts_with("@fn ") || trimmed.starts_with("@define ") || trimmed.starts_with("@mixin ")) && word != "@fn" && word != "@define" && word != "@mixin" {
+                    let name_part = &word[1..]; // strip @
+                    if unused_vars.contains(&format!("@{}", name_part)) { 1 } else { 0 }
+                } else { 0 };
+                push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, start as u32, (i - start) as u32, token_type, modifier);
             } else if bytes[i] == b'$' {
                 let start = i;
                 i += 1;
@@ -2971,7 +3076,10 @@ fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
                     i += 1;
                 }
                 if i > start + 1 {
-                    push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, start as u32, (i - start) as u32, 1); // variable
+                    // Check if this is an unused variable definition on a @let line
+                    let var_name = &line[start + 1..i];
+                    let modifier = if trimmed.starts_with("@let ") && unused_vars.contains(var_name) { 1 } else { 0 };
+                    push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, start as u32, (i - start) as u32, 1, modifier); // variable
                 }
             } else {
                 i += 1;
@@ -3005,6 +3113,7 @@ fn push_token(
     start: u32,
     length: u32,
     token_type: u32,
+    token_modifiers_bitset: u32,
 ) {
     let delta_line = line - *prev_line;
     let delta_start = if delta_line == 0 {
@@ -3017,7 +3126,7 @@ fn push_token(
         delta_start,
         length,
         token_type,
-        token_modifiers_bitset: 0,
+        token_modifiers_bitset,
     });
     *prev_line = line;
     *prev_start = start;

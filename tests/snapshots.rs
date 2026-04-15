@@ -2884,3 +2884,149 @@ fn no_warning_script_attrs() {
         diags
     );
 }
+
+// ---------------------------------------------------------------------------
+// @mixin and spread attributes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_mixin_spread() {
+    snapshot_test("mixin_spread");
+}
+
+#[test]
+fn mixin_expands_in_attrs() {
+    let output = compile("@mixin card [padding 20, rounded 8]\n@el [...$card]\n  Hi");
+    assert!(output.contains("padding:20px"), "mixin should expand padding: {}", output);
+    assert!(output.contains("border-radius:8px"), "mixin should expand rounded: {}", output);
+}
+
+#[test]
+fn mixin_with_dollar_syntax() {
+    let output = compile("@mixin card [padding 20, rounded 8]\n@el [$card]\n  Hi");
+    assert!(output.contains("padding:20px"), "mixin with $ syntax should expand: {}", output);
+}
+
+#[test]
+fn mixin_compose_with_extra_attrs() {
+    let output = compile("@mixin base [padding 10]\n@el [...$base, background red]\n  Hi");
+    assert!(output.contains("padding:10px"), "mixin should expand: {}", output);
+    assert!(output.contains("background:red"), "extra attrs should work: {}", output);
+}
+
+#[test]
+fn warning_unused_mixin() {
+    let diags = parse_diagnostics("@mixin card [padding 10]\n@el [background red]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("unused mixin")),
+        "expected unused mixin warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_used_mixin() {
+    let diags = parse_diagnostics("@mixin card [padding 10]\n@el [...$card]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unused mixin")),
+        "should not warn about used mixin, got: {:?}",
+        diags
+    );
+}
+
+// ---------------------------------------------------------------------------
+// @assert directive
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_assert_directive() {
+    snapshot_test("assert_directive");
+}
+
+#[test]
+fn assert_passes_no_error() {
+    let diags = parse_diagnostics("@let x hello\n@assert $x == hello\n@el [padding 10]");
+    assert!(
+        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        "passing assertion should produce no error, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn assert_fails_produces_error() {
+    let diags = parse_diagnostics("@let x hello\n@assert $x == world");
+    assert!(
+        diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("assertion failed")),
+        "failing assertion should produce error, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn assert_not_equal() {
+    let diags = parse_diagnostics("@let x hello\n@assert $x != world\n@el");
+    assert!(
+        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        "!= assertion should pass when values differ, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn assert_truthy() {
+    let diags = parse_diagnostics("@let x true\n@assert $x\n@el");
+    assert!(
+        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        "truthy assertion should pass, got: {:?}",
+        diags
+    );
+}
+
+// ---------------------------------------------------------------------------
+// clamp() / min() / max() CSS functions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_clamp_css() {
+    snapshot_test("clamp_css");
+}
+
+#[test]
+fn clamp_passthrough() {
+    let output = compile("@el [size clamp(16px, 2vw, 24px)]");
+    assert!(output.contains("font-size:clamp(16px, 2vw, 24px)"), "clamp should pass through: {}", output);
+}
+
+#[test]
+fn min_passthrough() {
+    let output = compile("@el [width min(100%, 800px)]");
+    assert!(output.contains("width:min(100%, 800px)"), "min() should pass through: {}", output);
+}
+
+#[test]
+fn max_passthrough() {
+    let output = compile("@el [padding max(10px, 2vw)]");
+    assert!(output.contains("padding:max(10px, 2vw)"), "max() should pass through: {}", output);
+}
+
+// ---------------------------------------------------------------------------
+// Round-trip test: parse -> codegen -> convert
+// ---------------------------------------------------------------------------
+
+#[test]
+fn round_trip_basic() {
+    let input = "@page Round Trip\n@column [padding 20, spacing 10]\n  @text [bold, size 24] Hello\n  @text World";
+    let result = htmlang::parser::parse(input);
+    assert!(!result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error));
+    let html = htmlang::codegen::generate_dev(&result.document);
+    // Convert back to .hl
+    let hl = htmlang::convert::convert(&html);
+    // The round-trip should produce valid .hl that parses without errors
+    let result2 = htmlang::parser::parse(&hl);
+    assert!(
+        !result2.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        "round-trip should produce valid .hl, got errors: {:?}",
+        result2.diagnostics
+    );
+}

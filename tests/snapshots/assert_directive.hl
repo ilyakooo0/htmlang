@@ -1,0 +1,10 @@
+@page Assert Test
+
+@let spacing 16
+@let primary #3b82f6
+
+@assert $spacing == 16
+@assert $primary != red
+
+@el [padding $spacing, color $primary]
+  Assertions passed
