@@ -336,7 +336,7 @@ impl Parser {
             return Ok(None);
         }
 
-        if content.strip_prefix("@head").is_some() {
+        if content == "@head" || content.starts_with("@head ") {
             // Collect indented body lines as raw head content
             let mut head_content = String::new();
             while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
@@ -682,6 +682,113 @@ impl Parser {
             return Ok(Some(all_nodes));
         }
 
+        // --- @match ---
+
+        if let Some(rest) = content.strip_prefix("@match ") {
+            let match_val = substitute_vars(rest.trim(), &ctx.variables);
+            track_var_refs(rest.trim(), &mut ctx.used_variables);
+
+            // Collect all child lines
+            let mut match_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                match_lines.push(self.lines[self.pos].clone());
+                self.pos += 1;
+            }
+
+            if match_lines.is_empty() {
+                return Ok(None);
+            }
+
+            let case_indent = match_lines[0].indent;
+
+            // Group into cases: (Some(value), body) or (None, body) for @default
+            let mut cases: Vec<(Option<String>, Vec<Line>)> = Vec::new();
+            let mut mi = 0;
+            while mi < match_lines.len() {
+                if match_lines[mi].indent == case_indent {
+                    if let LineContent::Normal(ref s) = match_lines[mi].content {
+                        let trimmed = s.trim();
+                        if let Some(case_val) = trimmed.strip_prefix("@case ") {
+                            let case_val = substitute_vars(case_val.trim(), &ctx.variables);
+                            mi += 1;
+                            let mut body = Vec::new();
+                            while mi < match_lines.len() && match_lines[mi].indent > case_indent {
+                                body.push(match_lines[mi].clone());
+                                mi += 1;
+                            }
+                            cases.push((Some(case_val), body));
+                        } else if trimmed == "@default" {
+                            mi += 1;
+                            let mut body = Vec::new();
+                            while mi < match_lines.len() && match_lines[mi].indent > case_indent {
+                                body.push(match_lines[mi].clone());
+                                mi += 1;
+                            }
+                            cases.push((None, body));
+                        } else {
+                            mi += 1;
+                        }
+                    } else {
+                        mi += 1;
+                    }
+                } else {
+                    mi += 1;
+                }
+            }
+
+            // Find first matching case or @default
+            let body_lines = cases
+                .into_iter()
+                .find(|(case_val, _)| match case_val {
+                    Some(v) => *v == match_val,
+                    None => true,
+                })
+                .map(|(_, lines)| lines)
+                .unwrap_or_default();
+
+            if body_lines.is_empty() {
+                return Ok(None);
+            }
+
+            let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
+            let adjusted: Vec<Line> = body_lines
+                .iter()
+                .map(|l| Line {
+                    indent: l.indent - min_indent,
+                    content: l.content.clone(),
+                    line_num: l.line_num,
+                })
+                .collect();
+
+            let saved_vars = ctx.variables.clone();
+            let mut body_parser = Parser {
+                lines: adjusted,
+                pos: 0,
+            };
+            let nodes = body_parser.parse_children(0, ctx);
+            ctx.variables = saved_vars;
+            return Ok(Some(nodes));
+        }
+
+        // --- @warn / @debug ---
+
+        if let Some(rest) = content.strip_prefix("@warn ") {
+            let msg = substitute_vars(rest.trim(), &ctx.variables);
+            ctx.diagnostics.push(Diagnostic {
+                line: line_num,
+                message: msg,
+                severity: Severity::Warning,
+                source_line: Some(content.clone()),
+            });
+            return Ok(None);
+        }
+
+        if let Some(rest) = content.strip_prefix("@debug ") {
+            let msg = substitute_vars(rest.trim(), &ctx.variables);
+            eprintln!("debug: line {}: {}", line_num, msg);
+            return Ok(None);
+        }
+
         // --- @keyframes directive ---
 
         if let Some(rest) = content.strip_prefix("@keyframes ") {
@@ -1015,11 +1122,16 @@ fn parse_single_element(
 const KNOWN_ELEMENTS: &[&str] = &[
     "row", "column", "col", "el", "text", "paragraph", "p", "image", "img", "link", "children",
     "input", "button", "select", "textarea", "option", "label", "slot",
+    "nav", "header", "footer", "main", "section", "article", "aside",
+    "list", "item", "li",
+    "table", "thead", "tbody", "tr", "td", "th",
+    "video", "audio",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
     "page", "let", "define", "fn", "include", "import", "raw", "keyframes",
     "if", "else", "each", "meta", "head", "style",
+    "match", "case", "default", "warn", "debug",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -1039,6 +1151,23 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "option" | "opt" => Ok(ElementKind::Option),
         "label" => Ok(ElementKind::Label),
         "slot" => Ok(ElementKind::Slot(String::new())), // slot name filled in by parse_single_element
+        "nav" => Ok(ElementKind::Nav),
+        "header" => Ok(ElementKind::Header),
+        "footer" => Ok(ElementKind::Footer),
+        "main" => Ok(ElementKind::Main),
+        "section" => Ok(ElementKind::Section),
+        "article" => Ok(ElementKind::Article),
+        "aside" => Ok(ElementKind::Aside),
+        "list" => Ok(ElementKind::List),
+        "item" | "li" => Ok(ElementKind::ListItem),
+        "table" => Ok(ElementKind::Table),
+        "thead" => Ok(ElementKind::TableHead),
+        "tbody" => Ok(ElementKind::TableBody),
+        "tr" => Ok(ElementKind::TableRow),
+        "td" => Ok(ElementKind::TableCell),
+        "th" => Ok(ElementKind::TableHeaderCell),
+        "video" => Ok(ElementKind::Video),
+        "audio" => Ok(ElementKind::Audio),
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
                 .iter()
@@ -1126,6 +1255,17 @@ const KNOWN_ATTRS: &[&str] = &[
     "min", "max", "step", "pattern", "maxlength", "rows", "cols", "multiple",
     // Accessibility
     "alt", "role", "tabindex", "title",
+    // CSS: aspect-ratio, outline, logical properties, scroll-snap
+    "aspect-ratio", "outline",
+    "padding-inline", "padding-block", "margin-inline", "margin-block",
+    "scroll-snap-type", "scroll-snap-align",
+    // Media attributes
+    "controls", "autoplay", "loop", "muted", "poster", "preload",
+    "loading", "decoding",
+    // List
+    "ordered",
+    // Media src (explicit attribute form)
+    "src",
 ];
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
@@ -1556,11 +1696,33 @@ fn element_kind_name(kind: &ElementKind) -> &'static str {
         ElementKind::Option => "@option",
         ElementKind::Label => "@label",
         ElementKind::Slot(_) => "@slot",
+        ElementKind::Nav => "@nav",
+        ElementKind::Header => "@header",
+        ElementKind::Footer => "@footer",
+        ElementKind::Main => "@main",
+        ElementKind::Section => "@section",
+        ElementKind::Article => "@article",
+        ElementKind::Aside => "@aside",
+        ElementKind::List => "@list",
+        ElementKind::ListItem => "@item",
+        ElementKind::Table => "@table",
+        ElementKind::TableHead => "@thead",
+        ElementKind::TableBody => "@tbody",
+        ElementKind::TableRow => "@tr",
+        ElementKind::TableCell => "@td",
+        ElementKind::TableHeaderCell => "@th",
+        ElementKind::Video => "@video",
+        ElementKind::Audio => "@audio",
     }
 }
 
 fn is_container(kind: &ElementKind) -> bool {
-    matches!(kind, ElementKind::Row | ElementKind::Column | ElementKind::El)
+    matches!(kind,
+        ElementKind::Row | ElementKind::Column | ElementKind::El
+        | ElementKind::Nav | ElementKind::Header | ElementKind::Footer
+        | ElementKind::Main | ElementKind::Section | ElementKind::Article
+        | ElementKind::Aside | ElementKind::List | ElementKind::ListItem
+    )
 }
 
 fn validate_tree(
@@ -1645,6 +1807,34 @@ fn validate_tree(
                         line: elem.line_num,
                         message: format!(
                             "'{}' has no effect on {} (only works on @textarea)",
+                            base, element_kind_name(&elem.kind)
+                        ),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+
+                // 'ordered' only on @list
+                if base == "ordered" && !matches!(elem.kind, ElementKind::List) {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: format!(
+                            "'ordered' has no effect on {} (only works on @list)",
+                            element_kind_name(&elem.kind)
+                        ),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+
+                // Media-specific attributes only on @video/@audio
+                if matches!(base, "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload")
+                    && !matches!(elem.kind, ElementKind::Video | ElementKind::Audio)
+                {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: format!(
+                            "'{}' has no effect on {} (only works on @video, @audio)",
                             base, element_kind_name(&elem.kind)
                         ),
                         severity: Severity::Warning,

@@ -55,6 +55,27 @@ pub enum ElementKind {
     Label,
     // Slots
     Slot(String),
+    // Semantic elements
+    Nav,
+    Header,
+    Footer,
+    Main,
+    Section,
+    Article,
+    Aside,
+    // List elements
+    List,
+    ListItem,
+    // Table elements
+    Table,
+    TableHead,
+    TableBody,
+    TableRow,
+    TableCell,
+    TableHeaderCell,
+    // Media elements
+    Video,
+    Audio,
 }
 
 #[derive(Debug, Clone)]

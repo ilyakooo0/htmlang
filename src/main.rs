@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process;
 
-fn compile(input_path: &str, dev: bool, error_overlay: bool) -> (bool, Vec<PathBuf>) {
+fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
@@ -35,20 +35,22 @@ fn compile(input_path: &str, dev: bool, error_overlay: bool) -> (bool, Vec<PathB
 
     let out_path = Path::new(input_path).with_extension("html");
 
-    if has_errors {
-        if error_overlay {
-            let error_html = generate_error_overlay(&result.diagnostics, input_path);
-            let _ = fs::write(&out_path, &error_html);
-        }
-    } else {
-        let html = if dev {
-            htmlang::codegen::generate_dev(&result.document)
+    if !check_only {
+        if has_errors {
+            if error_overlay {
+                let error_html = generate_error_overlay(&result.diagnostics, input_path);
+                let _ = fs::write(&out_path, &error_html);
+            }
         } else {
-            htmlang::codegen::generate(&result.document)
-        };
-        match fs::write(&out_path, &html) {
-            Ok(()) => eprintln!("wrote {}", out_path.display()),
-            Err(e) => eprintln!("error: {}: {}", out_path.display(), e),
+            let html = if dev {
+                htmlang::codegen::generate_dev(&result.document)
+            } else {
+                htmlang::codegen::generate(&result.document)
+            };
+            match fs::write(&out_path, &html) {
+                Ok(()) => eprintln!("wrote {}", out_path.display()),
+                Err(e) => eprintln!("error: {}: {}", out_path.display(), e),
+            }
         }
     }
 
@@ -103,8 +105,12 @@ Options:
   -s, --serve       Start dev server with hot reload (implies --watch)
   -p, --port <N>    Port for dev server (default: 3000)
   -d, --dev         Development mode
+  -c, --check       Check for errors without writing output
   -h, --help        Show this help
   -V, --version     Show version
+
+Commands:
+  fmt <file.hl>     Format a .hl file (normalizes indentation)
 
 Examples:
   htmlang page.hl           Compile page.hl to page.html
@@ -112,7 +118,9 @@ Examples:
   htmlang -w page.hl        Recompile on file changes
   htmlang -s page.hl        Start dev server with hot reload
   htmlang -s site/          Serve a multi-page site
-  htmlang -s -p 8080 page.hl",
+  htmlang -s -p 8080 page.hl
+  htmlang -c page.hl        Lint without writing output
+  htmlang fmt page.hl       Format a file",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -122,8 +130,31 @@ fn main() {
     let mut watch = false;
     let mut serve = false;
     let mut dev = false;
+    let mut check = false;
     let mut port: u16 = 3000;
     let mut input_path = None;
+
+    // Handle "fmt" subcommand
+    if args.len() >= 3 && args[1] == "fmt" {
+        let file = &args[2];
+        match fs::read_to_string(file) {
+            Ok(input) => {
+                let formatted = htmlang::fmt::format(&input);
+                match fs::write(file, &formatted) {
+                    Ok(()) => eprintln!("formatted {}", file),
+                    Err(e) => {
+                        eprintln!("error: {}: {}", file, e);
+                        process::exit(1);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("error: {}: {}", file, e);
+                process::exit(1);
+            }
+        }
+        return;
+    }
 
     let mut i = 1;
     while i < args.len() {
@@ -138,6 +169,7 @@ fn main() {
             }
             "--watch" | "-w" => watch = true,
             "--dev" | "-d" => dev = true,
+            "--check" | "-c" => check = true,
             "--serve" | "-s" => {
                 serve = true;
                 watch = true;
@@ -189,7 +221,7 @@ fn main() {
         let mut all_included: Vec<PathBuf> = Vec::new();
         for file in &hl_files {
             let path_str = file.to_string_lossy().to_string();
-            let (has_errors, included) = compile(&path_str, dev, serve);
+            let (has_errors, included) = compile(&path_str, dev, serve, check);
             if has_errors {
                 any_errors = true;
             }
@@ -222,7 +254,7 @@ fn main() {
     }
 
     // --- Single file mode ---
-    let (has_errors, included_files) = compile(&input_path, dev, serve);
+    let (has_errors, included_files) = compile(&input_path, dev, serve, check);
 
     if !watch {
         if has_errors {
@@ -383,7 +415,7 @@ fn watch_loop(
                 // Recompile all source files
                 for file in source_files {
                     let path_str = file.to_string_lossy().to_string();
-                    let (_, new_includes) = compile(&path_str, dev, serve);
+                    let (_, new_includes) = compile(&path_str, dev, serve, false);
                     for inc in &new_includes {
                         let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                         if let Some(h) = hash_file(inc) {
@@ -397,7 +429,7 @@ fn watch_loop(
                     for file in &collect_hl_files(watch_dir) {
                         if !source_files.contains(file) {
                             let path_str = file.to_string_lossy().to_string();
-                            let (_, new_includes) = compile(&path_str, dev, serve);
+                            let (_, new_includes) = compile(&path_str, dev, serve, false);
                             for inc in &new_includes {
                                 let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                             }

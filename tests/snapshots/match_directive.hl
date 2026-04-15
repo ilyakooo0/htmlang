@@ -1,0 +1,14 @@
+@page Match
+
+@let theme dark
+
+@match $theme
+  @case light
+    @el [background white, color black]
+      @text Light theme
+  @case dark
+    @el [background #333, color white]
+      @text Dark theme
+  @default
+    @el [background gray]
+      @text Default theme

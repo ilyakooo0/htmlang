@@ -328,6 +328,9 @@ fn generate_node(
             let needs_wrap = matches!(
                 parent_kind,
                 Some(ElementKind::Row) | Some(ElementKind::Column) | Some(ElementKind::El)
+                | Some(ElementKind::Nav) | Some(ElementKind::Header) | Some(ElementKind::Footer)
+                | Some(ElementKind::Main) | Some(ElementKind::Section) | Some(ElementKind::Article)
+                | Some(ElementKind::Aside) | Some(ElementKind::ListItem)
             );
             if needs_wrap {
                 out.push_str(&ctx.indent());
@@ -353,10 +356,19 @@ const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
     "for", "action", "method", "autocomplete",
     "min", "max", "step", "pattern", "maxlength", "rows", "cols", "multiple",
     "alt", "role", "tabindex", "title",
+    // Media
+    "controls", "autoplay", "loop", "muted", "poster", "preload",
+    // Image optimization
+    "loading", "decoding",
+    // Media src (explicit attribute form)
+    "src",
 ];
 
 /// Boolean HTML attributes (rendered without a value, e.g., `<input disabled>`).
-const BOOLEAN_HTML_ATTRS: &[&str] = &["disabled", "required", "checked", "multiple"];
+const BOOLEAN_HTML_ATTRS: &[&str] = &[
+    "disabled", "required", "checked", "multiple",
+    "controls", "autoplay", "loop", "muted",
+];
 
 fn emit_html_passthrough_attrs(out: &mut String, attrs: &[Attribute]) {
     for attr in attrs {
@@ -399,7 +411,7 @@ fn generate_element(
         return;
     }
 
-    let tag = match elem.kind {
+    let tag = match &elem.kind {
         ElementKind::Row | ElementKind::Column | ElementKind::El => "div",
         ElementKind::Text => "span",
         ElementKind::Paragraph => "p",
@@ -409,6 +421,29 @@ fn generate_element(
         ElementKind::Textarea => "textarea",
         ElementKind::Option => "option",
         ElementKind::Label => "label",
+        // Semantic elements
+        ElementKind::Nav => "nav",
+        ElementKind::Header => "header",
+        ElementKind::Footer => "footer",
+        ElementKind::Main => "main",
+        ElementKind::Section => "section",
+        ElementKind::Article => "article",
+        ElementKind::Aside => "aside",
+        // List
+        ElementKind::List => {
+            if elem.attrs.iter().any(|a| a.key == "ordered") { "ol" } else { "ul" }
+        }
+        ElementKind::ListItem => "li",
+        // Table
+        ElementKind::Table => "table",
+        ElementKind::TableHead => "thead",
+        ElementKind::TableBody => "tbody",
+        ElementKind::TableRow => "tr",
+        ElementKind::TableCell => "td",
+        ElementKind::TableHeaderCell => "th",
+        // Media
+        ElementKind::Video => "video",
+        ElementKind::Audio => "audio",
         ElementKind::Image | ElementKind::Input | ElementKind::Children | ElementKind::Slot(_) => unreachable!(),
     };
 
@@ -424,6 +459,23 @@ fn generate_element(
         ElementKind::Textarea => "textarea",
         ElementKind::Option => "option",
         ElementKind::Label => "label",
+        ElementKind::Nav => "nav",
+        ElementKind::Header => "header",
+        ElementKind::Footer => "footer",
+        ElementKind::Main => "main",
+        ElementKind::Section => "section",
+        ElementKind::Article => "article",
+        ElementKind::Aside => "aside",
+        ElementKind::List => "list",
+        ElementKind::ListItem => "item",
+        ElementKind::Table => "table",
+        ElementKind::TableHead => "thead",
+        ElementKind::TableBody => "tbody",
+        ElementKind::TableRow => "tr",
+        ElementKind::TableCell => "td",
+        ElementKind::TableHeaderCell => "th",
+        ElementKind::Video => "video",
+        ElementKind::Audio => "audio",
         _ => "",
     };
 
@@ -443,6 +495,15 @@ fn generate_element(
         if let Some(url) = &elem.argument {
             out.push_str(" href=\"");
             out.push_str(&html_escape(url));
+            out.push('"');
+        }
+    }
+
+    // Video/Audio src
+    if matches!(elem.kind, ElementKind::Video | ElementKind::Audio) {
+        if let Some(src) = &elem.argument {
+            out.push_str(" src=\"");
+            out.push_str(&html_escape(src));
             out.push('"');
         }
     }
@@ -468,6 +529,9 @@ fn generate_element(
             | ElementKind::Label
             | ElementKind::Option
             | ElementKind::Textarea
+            | ElementKind::ListItem
+            | ElementKind::TableCell
+            | ElementKind::TableHeaderCell
     ) {
         if let Some(text) = &elem.argument {
             out.push_str(&html_escape(text));
@@ -533,6 +597,16 @@ fn generate_self_closing(
     }
 
     emit_html_passthrough_attrs(out, &elem.attrs);
+
+    // Image optimization: auto-add loading="lazy" and decoding="async"
+    if elem.kind == ElementKind::Image {
+        if !elem.attrs.iter().any(|a| a.key == "loading") {
+            out.push_str(" loading=\"lazy\"");
+        }
+        if !elem.attrs.iter().any(|a| a.key == "decoding") {
+            out.push_str(" decoding=\"async\"");
+        }
+    }
 
     out.push('>');
     out.push_str(ctx.nl());
@@ -634,6 +708,13 @@ fn attrs_to_css(
             ElementKind::Column => css.push_str("display:flex;flex-direction:column;"),
             ElementKind::El => css.push_str("display:flex;flex-direction:column;"),
             ElementKind::Paragraph => css.push_str("margin:0;"),
+            // Semantic elements get flex column layout like @el
+            ElementKind::Nav | ElementKind::Header | ElementKind::Footer
+            | ElementKind::Main | ElementKind::Section | ElementKind::Article
+            | ElementKind::Aside => css.push_str("display:flex;flex-direction:column;"),
+            // Lists: reset browser defaults
+            ElementKind::List => css.push_str("margin:0;padding-left:0;list-style:none;"),
+            ElementKind::ListItem => css.push_str("display:flex;flex-direction:column;"),
             _ => {}
         }
     }
@@ -998,6 +1079,67 @@ fn attrs_to_css(
                 }
             }
 
+            // Aspect ratio
+            "aspect-ratio" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "aspect-ratio", v);
+                }
+            }
+
+            // Outline (like border but doesn't affect layout)
+            "outline" => {
+                if let Some(v) = val {
+                    let parts: Vec<&str> = v.splitn(2, ' ').collect();
+                    if parts.len() == 2 {
+                        push_css(
+                            &mut css,
+                            "outline",
+                            &format!("{} solid {}", css_px(parts[0]), parts[1]),
+                        );
+                    } else {
+                        push_css(
+                            &mut css,
+                            "outline",
+                            &format!("{} solid currentColor", css_px(parts[0])),
+                        );
+                    }
+                }
+            }
+
+            // Logical properties (i18n-aware)
+            "padding-inline" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "padding-inline", &css_px_multi(v));
+                }
+            }
+            "padding-block" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "padding-block", &css_px_multi(v));
+                }
+            }
+            "margin-inline" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "margin-inline", &css_px_multi(v));
+                }
+            }
+            "margin-block" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "margin-block", &css_px_multi(v));
+                }
+            }
+
+            // Scroll snap
+            "scroll-snap-type" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "scroll-snap-type", v);
+                }
+            }
+            "scroll-snap-align" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "scroll-snap-align", v);
+                }
+            }
+
             // Container queries
             "container" => {
                 push_css(&mut css, "container-type", "inline-size");
@@ -1018,7 +1160,9 @@ fn attrs_to_css(
             "type" | "placeholder" | "name" | "value" | "disabled" | "required"
             | "checked" | "for" | "action" | "method" | "autocomplete" | "min"
             | "max" | "step" | "pattern" | "maxlength" | "rows" | "cols"
-            | "multiple" | "alt" | "role" | "tabindex" | "title" => {}
+            | "multiple" | "alt" | "role" | "tabindex" | "title"
+            | "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload"
+            | "loading" | "decoding" | "ordered" | "src" => {}
 
             _ => {}
         }

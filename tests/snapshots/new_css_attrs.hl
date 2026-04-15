@@ -1,0 +1,17 @@
+@page CSS Attrs
+
+@el [aspect-ratio 16/9, width 400, background #eee]
+  @text Widescreen
+
+@el [outline 2 red, padding 10]
+  @text Outlined
+
+@el [padding-inline 20, padding-block 10]
+  @text Logical padding
+
+@el [margin-inline 20, margin-block 10]
+  @text Logical margin
+
+@el [scroll-snap-type x mandatory, overflow scroll]
+  @el [scroll-snap-align center, width 300]
+    @text Snap target

@@ -1,0 +1,17 @@
+@page Table Elements
+
+@table [width fill]
+  @thead
+    @tr
+      @th Name
+      @th Age
+      @th City
+  @tbody
+    @tr
+      @td Alice
+      @td 30
+      @td New York
+    @tr
+      @td Bob
+      @td 25
+      @td London

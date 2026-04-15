@@ -21,6 +21,23 @@ A minimalist layout language inspired by elm-ui that compiles to static HTML.
 | `@image`     | img              | Image                          |
 | `@link`      | a                | Anchor wrapping children       |
 | `@raw`       | verbatim HTML    | Escape hatch                   |
+| `@nav`       | nav              | Navigation landmark            |
+| `@header`    | header           | Page/section header            |
+| `@footer`    | footer           | Page/section footer            |
+| `@main`      | main             | Main content area              |
+| `@section`   | section          | Thematic section               |
+| `@article`   | article          | Self-contained content         |
+| `@aside`     | aside            | Sidebar/tangential content     |
+| `@list`      | ul/ol            | List (`[ordered]` for ol)      |
+| `@item`      | li               | List item                      |
+| `@table`     | table            | Table                          |
+| `@thead`     | thead            | Table head group               |
+| `@tbody`     | tbody            | Table body group               |
+| `@tr`        | tr               | Table row                      |
+| `@td`        | td               | Table cell                     |
+| `@th`        | th               | Table header cell              |
+| `@video`     | video            | Video element                  |
+| `@audio`     | audio            | Audio element                  |
 
 Bare lines (not starting with `@` or `[`) are text nodes.
 

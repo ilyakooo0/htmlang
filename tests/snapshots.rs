@@ -588,3 +588,358 @@ fn css_var_not_warned_unused() {
         diags
     );
 }
+
+// ---------------------------------------------------------------------------
+// Snapshot tests for new features
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_semantic_elements() {
+    snapshot_test("semantic_elements");
+}
+
+#[test]
+fn snapshot_list_elements() {
+    snapshot_test("list_elements");
+}
+
+#[test]
+fn snapshot_table_elements() {
+    snapshot_test("table_elements");
+}
+
+#[test]
+fn snapshot_media_elements() {
+    snapshot_test("media_elements");
+}
+
+#[test]
+fn snapshot_match_directive() {
+    snapshot_test("match_directive");
+}
+
+#[test]
+fn snapshot_new_css_attrs() {
+    snapshot_test("new_css_attrs");
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: semantic elements
+// ---------------------------------------------------------------------------
+
+#[test]
+fn semantic_nav_renders_nav_tag() {
+    let output = compile("@page T\n@nav\n  @text Links");
+    assert!(output.contains("<nav"));
+    assert!(output.contains("</nav>"));
+}
+
+#[test]
+fn semantic_header_renders_header_tag() {
+    let output = compile("@page T\n@header\n  @text Title");
+    assert!(output.contains("<header"));
+    assert!(output.contains("</header>"));
+}
+
+#[test]
+fn semantic_footer_renders_footer_tag() {
+    let output = compile("@page T\n@footer\n  @text Footer");
+    assert!(output.contains("<footer"));
+    assert!(output.contains("</footer>"));
+}
+
+#[test]
+fn semantic_main_renders_main_tag() {
+    let output = compile("@page T\n@main\n  @text Content");
+    assert!(output.contains("<main"));
+    assert!(output.contains("</main>"));
+}
+
+#[test]
+fn semantic_section_renders_section_tag() {
+    let output = compile("@page T\n@section\n  @text Section");
+    assert!(output.contains("<section"));
+    assert!(output.contains("</section>"));
+}
+
+#[test]
+fn semantic_article_renders_article_tag() {
+    let output = compile("@page T\n@article\n  @text Article");
+    assert!(output.contains("<article"));
+    assert!(output.contains("</article>"));
+}
+
+#[test]
+fn semantic_aside_renders_aside_tag() {
+    let output = compile("@page T\n@aside\n  @text Sidebar");
+    assert!(output.contains("<aside"));
+    assert!(output.contains("</aside>"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: list elements
+// ---------------------------------------------------------------------------
+
+#[test]
+fn list_renders_ul_by_default() {
+    let output = compile("@page T\n@list\n  @item Hello");
+    assert!(output.contains("<ul"));
+    assert!(output.contains("<li"));
+    assert!(output.contains("Hello"));
+}
+
+#[test]
+fn list_renders_ol_with_ordered() {
+    let output = compile("@page T\n@list [ordered]\n  @item First\n  @item Second");
+    assert!(output.contains("<ol"));
+    assert!(output.contains("<li"));
+}
+
+#[test]
+fn item_alias_li() {
+    let output = compile("@page T\n@list\n  @li Works");
+    assert!(output.contains("<li"));
+    assert!(output.contains("Works"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: table elements
+// ---------------------------------------------------------------------------
+
+#[test]
+fn table_renders_proper_tags() {
+    let output = compile("@page T\n@table\n  @thead\n    @tr\n      @th Header\n  @tbody\n    @tr\n      @td Cell");
+    assert!(output.contains("<table"));
+    assert!(output.contains("<thead"));
+    assert!(output.contains("<tbody"));
+    assert!(output.contains("<tr"));
+    assert!(output.contains("<th"));
+    assert!(output.contains("<td"));
+    assert!(output.contains("Header"));
+    assert!(output.contains("Cell"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: media elements
+// ---------------------------------------------------------------------------
+
+#[test]
+fn video_renders_with_src() {
+    let output = compile("@page T\n@video [controls] demo.mp4");
+    assert!(output.contains("<video"));
+    assert!(output.contains("src=\"demo.mp4\""));
+    assert!(output.contains("controls"));
+    assert!(output.contains("</video>"));
+}
+
+#[test]
+fn audio_renders_with_src() {
+    let output = compile("@page T\n@audio [controls] song.mp3");
+    assert!(output.contains("<audio"));
+    assert!(output.contains("src=\"song.mp3\""));
+    assert!(output.contains("controls"));
+}
+
+#[test]
+fn video_with_multiple_attrs() {
+    let output = compile("@page T\n@video [controls, muted, autoplay, loop] clip.mp4");
+    assert!(output.contains("controls"));
+    assert!(output.contains("muted"));
+    assert!(output.contains("autoplay"));
+    assert!(output.contains("loop"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: @match directive
+// ---------------------------------------------------------------------------
+
+#[test]
+fn match_selects_correct_case() {
+    let output = compile("@let x b\n@match $x\n  @case a\n    @text A\n  @case b\n    @text B\n  @default\n    @text D");
+    assert!(output.contains("B"));
+    assert!(!output.contains(">A<"));
+    assert!(!output.contains(">D<"));
+}
+
+#[test]
+fn match_falls_to_default() {
+    let output = compile("@let x z\n@match $x\n  @case a\n    @text A\n  @default\n    @text Default");
+    assert!(output.contains("Default"));
+    assert!(!output.contains(">A<"));
+}
+
+#[test]
+fn match_no_match_no_default() {
+    let output = compile("@let x z\n@match $x\n  @case a\n    @text A\n  @case b\n    @text B");
+    assert!(!output.contains(">A<"));
+    assert!(!output.contains(">B<"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: new CSS attributes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn css_aspect_ratio() {
+    let output = compile("@page T\n@el [aspect-ratio 16/9]");
+    assert!(output.contains("aspect-ratio:16/9"));
+}
+
+#[test]
+fn css_outline() {
+    let output = compile("@page T\n@el [outline 2 red]");
+    assert!(output.contains("outline:2px solid red"));
+}
+
+#[test]
+fn css_outline_no_color() {
+    let output = compile("@page T\n@el [outline 3]");
+    assert!(output.contains("outline:3px solid currentColor"));
+}
+
+#[test]
+fn css_padding_inline() {
+    let output = compile("@page T\n@el [padding-inline 20]");
+    assert!(output.contains("padding-inline:20px"));
+}
+
+#[test]
+fn css_padding_block() {
+    let output = compile("@page T\n@el [padding-block 10]");
+    assert!(output.contains("padding-block:10px"));
+}
+
+#[test]
+fn css_margin_inline() {
+    let output = compile("@page T\n@el [margin-inline 20]");
+    assert!(output.contains("margin-inline:20px"));
+}
+
+#[test]
+fn css_margin_block() {
+    let output = compile("@page T\n@el [margin-block 10]");
+    assert!(output.contains("margin-block:10px"));
+}
+
+#[test]
+fn css_scroll_snap_type() {
+    let output = compile("@page T\n@el [scroll-snap-type x mandatory]");
+    assert!(output.contains("scroll-snap-type:x mandatory"));
+}
+
+#[test]
+fn css_scroll_snap_align() {
+    let output = compile("@page T\n@el [scroll-snap-align center]");
+    assert!(output.contains("scroll-snap-align:center"));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: @warn / @debug
+// ---------------------------------------------------------------------------
+
+#[test]
+fn warn_produces_diagnostic() {
+    let diags = parse_diagnostics("@warn Something is wrong");
+    assert!(
+        diags.iter().any(|d| d.message == "Something is wrong"
+            && d.severity == htmlang::parser::Severity::Warning),
+        "expected @warn diagnostic, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warn_substitutes_variables() {
+    let diags = parse_diagnostics("@let name test\n@warn Missing $name value");
+    assert!(
+        diags.iter().any(|d| d.message.contains("Missing test value")),
+        "expected substituted @warn, got: {:?}",
+        diags
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: image optimization hints
+// ---------------------------------------------------------------------------
+
+#[test]
+fn image_auto_lazy_loading() {
+    let output = compile("@page T\n@image https://example.com/photo.jpg");
+    assert!(output.contains("loading=\"lazy\""));
+    assert!(output.contains("decoding=\"async\""));
+}
+
+#[test]
+fn image_explicit_loading_not_doubled() {
+    let output = compile("@page T\n@image [loading eager] https://example.com/photo.jpg");
+    assert!(output.contains("loading=\"eager\""));
+    assert!(!output.contains("loading=\"lazy\""));
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: element-specific attribute validation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn warning_ordered_on_non_list() {
+    let diags = parse_diagnostics("@el [ordered]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("ordered") && d.message.contains("@list")),
+        "expected ordered on non-list warning, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_ordered_on_list() {
+    let diags = parse_diagnostics("@list [ordered]\n  @item x");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("ordered") && d.message.contains("no effect")),
+        "should not warn about ordered on @list, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn warning_controls_on_non_media() {
+    let diags = parse_diagnostics("@el [controls]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("controls") && d.message.contains("@video")),
+        "expected controls on non-media warning, got: {:?}",
+        diags
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: formatter
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fmt_normalizes_indentation() {
+    let input = "@row\n      @col\n            @text hello\n      @col\n            @text world";
+    let formatted = htmlang::fmt::format(input);
+    assert_eq!(formatted, "@row\n  @col\n    @text hello\n  @col\n    @text world\n");
+}
+
+#[test]
+fn fmt_preserves_blank_lines() {
+    let input = "@page Test\n\n@row\n    @text hello";
+    let formatted = htmlang::fmt::format(input);
+    assert_eq!(formatted, "@page Test\n\n@row\n  @text hello\n");
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests: string interpolation (already exists, verify)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn string_interpolation_in_text() {
+    let output = compile("@let name World\n@text Hello $name!");
+    assert!(output.contains("Hello World!"));
+}
+
+#[test]
+fn string_interpolation_in_bare_text() {
+    let output = compile("@let greeting Hi\n@el\n  $greeting there");
+    assert!(output.contains("Hi there"));
+}

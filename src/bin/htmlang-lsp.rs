@@ -354,6 +354,28 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         ("@raw", "Raw HTML escape hatch"),
         ("@children", "Slot for caller's children (inside @fn)"),
         ("@slot", "Named slot inside @fn (e.g., @slot header)"),
+        // Semantic elements
+        ("@nav", "Navigation container (nav)"),
+        ("@header", "Page/section header (header)"),
+        ("@footer", "Page/section footer (footer)"),
+        ("@main", "Main content area (main)"),
+        ("@section", "Thematic section (section)"),
+        ("@article", "Self-contained content (article)"),
+        ("@aside", "Sidebar/tangential content (aside)"),
+        // List elements
+        ("@list", "List container (ul/ol, use [ordered] for ol)"),
+        ("@item", "List item (li)"),
+        ("@li", "List item (short for @item)"),
+        // Table elements
+        ("@table", "Table element"),
+        ("@thead", "Table head group"),
+        ("@tbody", "Table body group"),
+        ("@tr", "Table row"),
+        ("@td", "Table cell"),
+        ("@th", "Table header cell"),
+        // Media elements
+        ("@video", "Video element"),
+        ("@audio", "Audio element"),
     ]
     .iter()
     .map(|(name, detail)| item(name, CompletionItemKind::KEYWORD, detail, name, range))
@@ -377,6 +399,11 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@head", "Add raw content to <head>", "@head"),
         ("@style", "Add raw CSS to stylesheet", "@style"),
         ("@slot", "Named slot in @fn for caller content", "@slot "),
+        ("@match", "Pattern matching on a value", "@match "),
+        ("@case", "Match case (inside @match)", "@case "),
+        ("@default", "Default case (inside @match)", "@default"),
+        ("@warn", "Emit a compile-time warning", "@warn "),
+        ("@debug", "Print debug message during compilation", "@debug "),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -488,6 +515,28 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("aria-label", "Accessible label", true),
         ("aria-hidden", "Hide from assistive tech (true/false)", true),
         ("data-", "Custom data attribute", true),
+        // CSS: aspect-ratio, outline, logical properties, scroll-snap
+        ("aspect-ratio", "CSS aspect ratio (e.g., 16/9, 1)", true),
+        ("outline", "Outline (width [color])", true),
+        ("padding-inline", "Inline (horizontal) padding for i18n", true),
+        ("padding-block", "Block (vertical) padding for i18n", true),
+        ("margin-inline", "Inline (horizontal) margin for i18n", true),
+        ("margin-block", "Block (vertical) margin for i18n", true),
+        ("scroll-snap-type", "Scroll snap behavior (x/y mandatory/proximity)", true),
+        ("scroll-snap-align", "Snap alignment (start/center/end)", true),
+        // Media attributes
+        ("controls", "Show media controls (for @video, @audio)", false),
+        ("autoplay", "Auto-play media", false),
+        ("loop", "Loop media playback", false),
+        ("muted", "Mute media", false),
+        ("poster", "Video poster image URL", true),
+        ("preload", "Media preload hint (auto/metadata/none)", true),
+        ("loading", "Loading behavior (lazy/eager)", true),
+        ("decoding", "Image decoding (async/sync/auto)", true),
+        // List
+        ("ordered", "Use ordered list (ol instead of ul)", false),
+        // Media src
+        ("src", "Source URL for media elements", true),
         // State prefixes
         ("hover:", "Style on hover", false),
         ("active:", "Style on active/click", false),
@@ -761,6 +810,33 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@head" => "**@head** \u{2014} Head content\n\nAdds raw content to `<head>` (fonts, icons, etc.).\n\n```\n@head\n  <link rel=\"icon\" href=\"favicon.ico\">\n```",
         "@style" => "**@style** \u{2014} Custom CSS\n\nAdds raw CSS to the stylesheet.\n\n```\n@style\n  .custom { border: 1px solid red; }\n  @container sidebar (min-width: 400px) { ... }\n```",
         "@slot" => "**@slot** \u{2014} Named slot\n\nDefines a named insertion point inside `@fn`. Callers fill it with `@slot name` + children.\n\n```\n@fn layout\n  @slot header\n  @children\n  @slot footer\n```",
+        // Semantic elements
+        "@nav" => "**@nav** \u{2014} Navigation\n\nRenders as `<nav>`. Semantic landmark for navigation links.",
+        "@header" => "**@header** \u{2014} Header\n\nRenders as `<header>`. Page or section header.",
+        "@footer" => "**@footer** \u{2014} Footer\n\nRenders as `<footer>`. Page or section footer.",
+        "@main" => "**@main** \u{2014} Main content\n\nRenders as `<main>`. Primary content of the page.",
+        "@section" => "**@section** \u{2014} Section\n\nRenders as `<section>`. Thematic grouping of content.",
+        "@article" => "**@article** \u{2014} Article\n\nRenders as `<article>`. Self-contained, independently distributable content.",
+        "@aside" => "**@aside** \u{2014} Aside\n\nRenders as `<aside>`. Content tangentially related to surrounding content.",
+        // List elements
+        "@list" => "**@list** \u{2014} List\n\nRenders as `<ul>` (or `<ol>` with `[ordered]`).\n\nUsage:\n```\n@list [ordered]\n  @item First\n  @item Second\n```",
+        "@item" | "@li" => "**@item** \u{2014} List item\n\nRenders as `<li>`. Use inside `@list`.",
+        // Table elements
+        "@table" => "**@table** \u{2014} Table\n\nRenders as `<table>`.\n\n```\n@table\n  @thead\n    @tr\n      @th Name\n      @th Age\n  @tbody\n    @tr\n      @td Alice\n      @td 30\n```",
+        "@thead" => "**@thead** \u{2014} Table head\n\nRenders as `<thead>`. Groups header rows.",
+        "@tbody" => "**@tbody** \u{2014} Table body\n\nRenders as `<tbody>`. Groups body rows.",
+        "@tr" => "**@tr** \u{2014} Table row\n\nRenders as `<tr>`.",
+        "@td" => "**@td** \u{2014} Table cell\n\nRenders as `<td>`. Regular table data cell.",
+        "@th" => "**@th** \u{2014} Table header cell\n\nRenders as `<th>`. Header cell (typically bold/centered).",
+        // Media elements
+        "@video" => "**@video** \u{2014} Video\n\nRenders as `<video>`.\n\nUsage: `@video [controls] demo.mp4`",
+        "@audio" => "**@audio** \u{2014} Audio\n\nRenders as `<audio>`.\n\nUsage: `@audio [controls] song.mp3`",
+        // Directives
+        "@match" => "**@match** \u{2014} Pattern matching\n\nMatch a value against cases.\n\n```\n@match $theme\n  @case dark\n    @el [background #333]\n  @case light\n    @el [background white]\n  @default\n    @el [background gray]\n```",
+        "@case" => "**@case** \u{2014} Match case\n\nA case inside `@match`. Matches when the value equals the case value.",
+        "@default" => "**@default** \u{2014} Default case\n\nFallback case inside `@match` when no other case matches.",
+        "@warn" => "**@warn** \u{2014} Compile warning\n\nEmit a custom warning during compilation.\n\nUsage: `@warn This value is deprecated`",
+        "@debug" => "**@debug** \u{2014} Debug message\n\nPrint a debug message to stderr during compilation.\n\nUsage: `@debug Theme is $theme`",
         // Attributes
         "spacing" | "gap" => "**spacing** `<value>`\n\nGap between children. Supports CSS units (px, rem, em, %).\nMaps to CSS `gap`.",
         "padding" => "**padding** `<value>` | `<y> <x>` | `<t> <h> <b>` | `<t> <r> <b> <l>`\n\nInner padding. Supports CSS units. Accepts 1\u{2013}4 values.",
@@ -842,6 +918,26 @@ fn hover_builtin(word: &str) -> Option<String> {
         "role" => "**role** `<value>` \u{2014} ARIA role (e.g., `navigation`, `banner`, `main`).",
         "tabindex" => "**tabindex** `<value>` \u{2014} Tab order. `0` = natural order, `-1` = skip.",
         "title" => "**title** `<value>` \u{2014} Tooltip text.",
+        // New CSS attributes
+        "aspect-ratio" => "**aspect-ratio** `<value>` \u{2014} CSS aspect ratio (e.g., `16/9`, `1`, `4/3`).",
+        "outline" => "**outline** `<width> [color]` \u{2014} Outline (like border but doesn't affect layout).",
+        "padding-inline" => "**padding-inline** `<value>` \u{2014} Horizontal padding (logical property, i18n-aware).",
+        "padding-block" => "**padding-block** `<value>` \u{2014} Vertical padding (logical property, i18n-aware).",
+        "margin-inline" => "**margin-inline** `<value>` \u{2014} Horizontal margin (logical property, i18n-aware).",
+        "margin-block" => "**margin-block** `<value>` \u{2014} Vertical margin (logical property, i18n-aware).",
+        "scroll-snap-type" => "**scroll-snap-type** `<value>` \u{2014} Scroll snap type (`x mandatory`, `y proximity`).",
+        "scroll-snap-align" => "**scroll-snap-align** `<value>` \u{2014} Scroll snap alignment (`start`, `center`, `end`).",
+        // Media/image attributes
+        "loading" => "**loading** `<value>` \u{2014} Loading behavior for images (`lazy`, `eager`).",
+        "decoding" => "**decoding** `<value>` \u{2014} Image decoding mode (`async`, `sync`, `auto`).",
+        "controls" => "**controls** \u{2014} Show media controls (for @video, @audio).",
+        "autoplay" => "**autoplay** \u{2014} Auto-play media.",
+        "loop" => "**loop** \u{2014} Loop media playback.",
+        "muted" => "**muted** \u{2014} Mute media.",
+        "poster" => "**poster** `<url>` \u{2014} Poster image for video.",
+        "preload" => "**preload** `<value>` \u{2014} Media preload hint (`auto`, `metadata`, `none`).",
+        "ordered" => "**ordered** \u{2014} Use ordered list (`<ol>` instead of `<ul>`).",
+        "src" => "**src** `<url>` \u{2014} Source URL for media elements.",
         _ => return None,
     };
 
