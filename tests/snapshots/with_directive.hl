@@ -1,0 +1,5 @@
+@let user-name Alice
+@let greeting Hello
+
+@with $user-name as name
+  @text $name says $greeting

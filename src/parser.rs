@@ -114,6 +114,18 @@ struct ParseContext {
     font_faces: Vec<(String, String)>,
     /// @json-ld blocks
     json_ld_blocks: Vec<String>,
+    /// @scope CSS blocks
+    scope_blocks: Vec<String>,
+    /// @starting-style CSS blocks
+    starting_style_blocks: Vec<String>,
+    /// @manifest configuration
+    manifest: Option<crate::ast::ManifestConfig>,
+    /// Track @import paths for circular dependency detection
+    import_stack: Vec<PathBuf>,
+    /// i18n translations: locale -> (key -> value)
+    translations: HashMap<String, HashMap<String, String>>,
+    /// Current active locale for translations
+    active_locale: Option<String>,
 }
 
 struct Parser {
@@ -163,6 +175,12 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
         mixins: HashMap::new(),
         mixin_lines: HashMap::new(),
         used_mixins: HashSet::new(),
+        scope_blocks: Vec::new(),
+        starting_style_blocks: Vec::new(),
+        manifest: None,
+        import_stack: Vec::new(),
+        translations: HashMap::new(),
+        active_locale: None,
     };
     let nodes = parser.parse_children(0, &mut ctx);
     validate_tree(&nodes, None, &mut ctx.diagnostics);
@@ -186,10 +204,45 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
             base_url: ctx.base_url,
             font_faces: ctx.font_faces,
             json_ld_blocks: ctx.json_ld_blocks,
+            scope_blocks: ctx.scope_blocks,
+            starting_style_blocks: ctx.starting_style_blocks,
+            manifest: ctx.manifest,
+            preload_hints: collect_image_preload_hints(&nodes),
             nodes,
         },
         diagnostics: ctx.diagnostics,
         included_files: ctx.included_files,
+    }
+}
+
+/// Scan nodes for @image elements and generate preload hints for early images.
+fn collect_image_preload_hints(nodes: &[Node]) -> Vec<crate::ast::PreloadHint> {
+    let mut hints = Vec::new();
+    // Only preload the first few images (above-the-fold heuristic)
+    collect_images_recursive(nodes, &mut hints, 3);
+    hints
+}
+
+fn collect_images_recursive(nodes: &[Node], hints: &mut Vec<crate::ast::PreloadHint>, max: usize) {
+    for node in nodes {
+        if hints.len() >= max { return; }
+        if let Node::Element(elem) = node {
+            if elem.kind == ElementKind::Image {
+                if let Some(ref src) = elem.argument {
+                    if !src.is_empty()
+                        && !src.starts_with("data:")
+                        && !src.starts_with('#')
+                    {
+                        hints.push(crate::ast::PreloadHint {
+                            href: src.clone(),
+                            as_type: "image".to_string(),
+                            crossorigin: false,
+                        });
+                    }
+                }
+            }
+            collect_images_recursive(&elem.children, hints, max);
+        }
     }
 }
 
@@ -309,11 +362,21 @@ impl Parser {
                 Ok(Some(new_nodes)) => nodes.extend(new_nodes),
                 Ok(None) => {}
                 Err(e) => {
+                    // Error recovery: record the diagnostic and continue parsing
+                    // to report multiple errors in a single pass
+                    let source = if self.pos > 0 && self.pos <= self.lines.len() {
+                        match &self.lines[self.pos.saturating_sub(1)].content {
+                            LineContent::Normal(s) => Some(s.clone()),
+                            LineContent::Raw(s) => Some(s.clone()),
+                        }
+                    } else {
+                        None
+                    };
                     ctx.diagnostics.push(Diagnostic {
                         line: e.line,
                         message: e.message,
                         severity: Severity::Error,
-                        source_line: None,
+                        source_line: source,
                     });
                     // Skip forward past any deeper-indented children of the errored line
                     while self.pos < self.lines.len()
@@ -475,6 +538,147 @@ impl Parser {
             return Ok(None);
         }
 
+        // --- @scope block (CSS scoping) ---
+        if content.trim() == "@scope" || content.starts_with("@scope ") {
+            let scope_selector = content.strip_prefix("@scope").unwrap().trim().to_string();
+            let mut scope_content = String::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                match &self.lines[self.pos].content {
+                    LineContent::Normal(s) => {
+                        scope_content.push_str(s.trim());
+                        scope_content.push('\n');
+                    }
+                    LineContent::Raw(s) => {
+                        scope_content.push_str(s);
+                        scope_content.push('\n');
+                    }
+                }
+                self.pos += 1;
+            }
+            let trimmed = scope_content.trim().to_string();
+            if !trimmed.is_empty() {
+                let block = if scope_selector.is_empty() {
+                    format!("@scope {{\n{}\n}}", trimmed)
+                } else {
+                    format!("@scope ({}) {{\n{}\n}}", scope_selector, trimmed)
+                };
+                ctx.scope_blocks.push(block);
+            }
+            return Ok(None);
+        }
+
+        // --- @starting-style block (entry animations) ---
+        if content.trim() == "@starting-style" {
+            let mut ss_content = String::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                match &self.lines[self.pos].content {
+                    LineContent::Normal(s) => {
+                        ss_content.push_str(s.trim());
+                        ss_content.push('\n');
+                    }
+                    LineContent::Raw(s) => {
+                        ss_content.push_str(s);
+                        ss_content.push('\n');
+                    }
+                }
+                self.pos += 1;
+            }
+            let trimmed = ss_content.trim().to_string();
+            if !trimmed.is_empty() {
+                ctx.starting_style_blocks.push(trimmed);
+            }
+            return Ok(None);
+        }
+
+        // --- @markdown block (convert markdown to HTML) ---
+        if content.trim() == "@markdown" {
+            let mut md_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                match &self.lines[self.pos].content {
+                    LineContent::Normal(s) => md_lines.push(s.clone()),
+                    LineContent::Raw(s) => md_lines.push(s.clone()),
+                }
+                self.pos += 1;
+            }
+            let html = markdown_to_html(&md_lines);
+            return Ok(Some(vec![Node::Raw(html)]));
+        }
+
+        // --- @manifest (PWA web manifest) ---
+        if content.trim() == "@manifest" || content.starts_with("@manifest ") {
+            let mut name = content.strip_prefix("@manifest").unwrap().trim().to_string();
+            if name.is_empty() {
+                name = ctx.page_title.clone().unwrap_or_else(|| "App".to_string());
+            }
+            let name = substitute_vars(&name, &ctx.variables);
+            let mut manifest = crate::ast::ManifestConfig {
+                name: name.clone(),
+                short_name: None,
+                start_url: "/".to_string(),
+                display: "standalone".to_string(),
+                background_color: None,
+                theme_color: None,
+                description: None,
+                icons: Vec::new(),
+            };
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    let trimmed = s.trim();
+                    if let Some((key, value)) = trimmed.split_once(' ') {
+                        let value = substitute_vars(value.trim(), &ctx.variables);
+                        match key.trim() {
+                            "short_name" | "short-name" => manifest.short_name = Some(value),
+                            "start_url" | "start-url" => manifest.start_url = value,
+                            "display" => manifest.display = value,
+                            "background_color" | "background-color" => manifest.background_color = Some(value),
+                            "theme_color" | "theme-color" => manifest.theme_color = Some(value),
+                            "description" => manifest.description = Some(value),
+                            "icon" => {
+                                // icon src sizes (e.g., icon /icon-192.png 192x192)
+                                let parts: Vec<&str> = value.splitn(2, ' ').collect();
+                                if parts.len() == 2 {
+                                    manifest.icons.push((parts[0].to_string(), parts[1].to_string()));
+                                } else {
+                                    manifest.icons.push((value, "192x192".to_string()));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                self.pos += 1;
+            }
+            ctx.manifest = Some(manifest);
+            return Ok(None);
+        }
+
+        // --- @with $var as alias (temporary variable rebinding) ---
+        if let Some(rest) = content.strip_prefix("@with ") {
+            let rest = rest.trim();
+            // Parse: @with $source as alias
+            if let Some((source_part, alias)) = rest.split_once(" as ") {
+                let source_name = source_part.trim().strip_prefix('$').unwrap_or(source_part.trim());
+                let alias = alias.trim();
+                ctx.used_variables.insert(source_name.to_string());
+                let value = ctx.variables.get(source_name).cloned().unwrap_or_default();
+                let old_value = ctx.variables.get(alias).cloned();
+                ctx.variables.insert(alias.to_string(), value);
+                // Parse body
+                let children = self.parse_children(current_indent + 1, ctx);
+                // Restore previous value
+                if let Some(old) = old_value {
+                    ctx.variables.insert(alias.to_string(), old);
+                } else {
+                    ctx.variables.remove(alias);
+                }
+                return Ok(Some(children));
+            }
+            return Err(ParseError {
+                line: line_num,
+                message: "@with requires: @with $var as alias".to_string(),
+            });
+        }
+
         if let Some(rest) = content.strip_prefix("@define ") {
             let rest = rest.trim();
             if let Some(bracket_start) = rest.find('[') {
@@ -596,7 +800,7 @@ impl Parser {
                 None => PathBuf::from(&filename),
             };
 
-            if ctx.include_stack.contains(&resolved) {
+            if ctx.include_stack.contains(&resolved) || ctx.import_stack.contains(&resolved) {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
                     message: format!("circular import '{}'", filename),
@@ -628,6 +832,7 @@ impl Parser {
 
             ctx.included_files.push(resolved.clone());
             ctx.include_stack.push(resolved.clone());
+            ctx.import_stack.push(resolved.clone());
             let saved_base = ctx.base_path.clone();
             ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
 
@@ -695,6 +900,7 @@ impl Parser {
 
             ctx.base_path = saved_base;
             ctx.include_stack.pop();
+            ctx.import_stack.pop();
             return Ok(None); // No nodes emitted
         }
 
@@ -878,6 +1084,93 @@ impl Parser {
             return Ok(None);
         }
 
+        // --- @collection (load multiple JSON files matching a glob pattern) ---
+
+        if let Some(rest) = content.strip_prefix("@collection ") {
+            let rest = rest.trim();
+            // @collection $varname "pattern" OR @collection "pattern" as varname
+            let (var_name, pattern) = if rest.starts_with('$') {
+                let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+                if parts.len() == 2 {
+                    let name = parts[0].strip_prefix('$').unwrap_or(parts[0]);
+                    let pat = parts[1].trim().trim_matches('"');
+                    (name.to_string(), pat.to_string())
+                } else {
+                    return Err(ParseError {
+                        line: line_num,
+                        message: "@collection requires: @collection $var \"pattern\"".to_string(),
+                    });
+                }
+            } else {
+                let pat = rest.trim_matches('"');
+                ("_items".to_string(), pat.to_string())
+            };
+
+            let pattern = substitute_vars(&pattern, &ctx.variables);
+            let base = ctx.base_path.clone().unwrap_or_else(|| PathBuf::from("."));
+            let glob_pattern = base.join(&pattern);
+
+            // Simple glob: support * in filename part
+            let parent = glob_pattern.parent().unwrap_or(Path::new("."));
+            let file_pattern = glob_pattern.file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            let mut items = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(parent) {
+                let mut paths: Vec<PathBuf> = entries
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                            if file_pattern.contains('*') {
+                                let parts: Vec<&str> = file_pattern.split('*').collect();
+                                if parts.len() == 2 {
+                                    name.starts_with(parts[0]) && name.ends_with(parts[1])
+                                } else {
+                                    true
+                                }
+                            } else {
+                                name == file_pattern
+                            }
+                        } else {
+                            false
+                        }
+                    })
+                    .collect();
+                paths.sort();
+                for path in &paths {
+                    if let Ok(text) = std::fs::read_to_string(path) {
+                        // Store the file content as a JSON string for each item
+                        let stem = path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_string();
+                        items.push((stem, text));
+                    }
+                }
+            }
+
+            // Store item count and serialized data as variables
+            ctx.variables.insert(format!("{}_count", var_name), items.len().to_string());
+            // Store as space-separated list of stems for @each
+            let stems: Vec<String> = items.iter().map(|(stem, _)| stem.clone()).collect();
+            ctx.variables.insert(var_name.clone(), stems.join(" "));
+            // Also parse each JSON file and store keys as prefix_stem_key
+            for (stem, text) in &items {
+                if let Some(json) = parse_json(text.trim()) {
+                    if let JsonValue::Object(ref obj) = json {
+                        for (key, val) in obj {
+                            let var_key = format!("{}_{}", stem, key);
+                            ctx.variables.insert(var_key, json_value_to_string(val));
+                        }
+                    }
+                }
+            }
+
+            return Ok(None);
+        }
+
         // --- @if / @else ---
 
         if let Some(rest) = content.strip_prefix("@if ") {
@@ -1047,6 +1340,43 @@ impl Parser {
                 list_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
             };
 
+            // Pagination: check for [page N] or [page N per P] suffix
+            // Parse from the original rest before substitution
+            let (items, pagination_info) = {
+                // Check if list_str ended with a page directive (already consumed in items)
+                // Instead, check the raw rest for [page ...] syntax
+                let raw_rest = rest;
+                let page_size = if let Some(page_pos) = raw_rest.find("[page ") {
+                    let after = &raw_rest[page_pos + 6..];
+                    if let Some(close) = after.find(']') {
+                        let page_spec = after[..close].trim();
+                        page_spec.parse::<usize>().ok()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(size) = page_size {
+                    let current_page: usize = ctx.variables.get("_page")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(1);
+                    let total_items = items.len();
+                    let total_pages = (total_items + size - 1) / size;
+                    let start = (current_page - 1) * size;
+                    let end = (start + size).min(total_items);
+                    let page_items: Vec<String> = if start < total_items {
+                        items[start..end].to_vec()
+                    } else {
+                        Vec::new()
+                    };
+                    (page_items, Some((current_page, total_pages, size, total_items)))
+                } else {
+                    (items, None)
+                }
+            };
+
             // Collect body lines
             let mut body_lines = Vec::new();
             while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
@@ -1106,6 +1436,14 @@ impl Parser {
 
             let saved_vars = ctx.variables.clone();
             let mut all_nodes = Vec::new();
+
+            // Inject pagination variables if pagination is active
+            if let Some((page, total_pages, page_size, total_items)) = pagination_info {
+                ctx.variables.insert("_page".to_string(), page.to_string());
+                ctx.variables.insert("_total_pages".to_string(), total_pages.to_string());
+                ctx.variables.insert("_page_size".to_string(), page_size.to_string());
+                ctx.variables.insert("_total_items".to_string(), total_items.to_string());
+            }
 
             let has_extra_vars = var_names.len() > 2
                 || (var_names.len() == 2 && items.first().map_or(false, |it| it.contains(' ')));
@@ -1213,6 +1551,45 @@ impl Parser {
                 ctx.variables.insert(var_name.clone(), item.clone());
                 let mut body_parser = Parser { lines: adjusted.clone(), pos: 0 };
                 let nodes = body_parser.parse_children(0, ctx);
+                all_nodes.extend(nodes);
+            }
+            ctx.variables = saved_vars;
+            return Ok(Some(all_nodes));
+        }
+
+        // --- @repeat N (simple repetition) ---
+
+        if let Some(rest) = content.strip_prefix("@repeat ") {
+            let rest = rest.trim();
+            let count_str = substitute_vars(rest, &ctx.variables);
+            track_var_refs(rest, &mut ctx.used_variables);
+            let count: usize = count_str.parse().unwrap_or(0);
+
+            // Collect body lines
+            let mut body_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                body_lines.push(self.lines[self.pos].clone());
+                self.pos += 1;
+            }
+
+            if body_lines.is_empty() || count == 0 {
+                return Ok(None);
+            }
+
+            let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
+            let adjusted: Vec<Line> = body_lines.iter().map(|l| Line {
+                indent: l.indent - min_indent,
+                content: l.content.clone(),
+                line_num: l.line_num,
+            }).collect();
+
+            let mut all_nodes = Vec::new();
+            let saved_vars = ctx.variables.clone();
+            for i in 0..count {
+                ctx.variables.insert("_index".to_string(), i.to_string());
+                ctx.variables.insert("_count".to_string(), count.to_string());
+                let mut iter_parser = Parser { lines: adjusted.clone(), pos: 0 };
+                let nodes = iter_parser.parse_children(0, ctx);
                 all_nodes.extend(nodes);
             }
             ctx.variables = saved_vars;
@@ -1570,6 +1947,55 @@ impl Parser {
             return Ok(None);
         }
 
+        // --- @translations (i18n) ---
+
+        if content.trim() == "@translations" || content.starts_with("@translations ") {
+            let locale = content.strip_prefix("@translations").unwrap().trim().to_string();
+            let active_locale = if locale.is_empty() {
+                ctx.lang.clone().unwrap_or_else(|| "en".to_string())
+            } else {
+                locale
+            };
+
+            // Collect indented body: key value pairs, grouped by locale headers
+            let mut current_locale = active_locale.clone();
+            let mut first_locale_indent: Option<usize> = None;
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    let trimmed = s.trim();
+                    // Check for locale sub-header: e.g., "en:" or "fr:" or "es:"
+                    if trimmed.ends_with(':') && trimmed.len() <= 10 && !trimmed.contains(' ') {
+                        current_locale = trimmed[..trimmed.len()-1].to_string();
+                        first_locale_indent = Some(self.lines[self.pos].indent);
+                        self.pos += 1;
+                        continue;
+                    }
+                    // key value pair
+                    if let Some((key, value)) = trimmed.split_once(' ') {
+                        let key = key.trim().to_string();
+                        let value = substitute_vars(value.trim(), &ctx.variables);
+                        ctx.translations
+                            .entry(current_locale.clone())
+                            .or_insert_with(HashMap::new)
+                            .insert(key, value);
+                    }
+                }
+                self.pos += 1;
+            }
+            // Set the active locale
+            if ctx.active_locale.is_none() {
+                ctx.active_locale = Some(active_locale.clone());
+            }
+            let _ = first_locale_indent; // suppress unused
+            // Inject active locale's translations as $t.key variables
+            if let Some(strings) = ctx.translations.get(&active_locale) {
+                for (key, value) in strings {
+                    ctx.variables.insert(format!("t.{}", key), value.clone());
+                }
+            }
+            return Ok(None);
+        }
+
         // --- @deprecated annotation ---
 
         if let Some(rest) = content.strip_prefix("@deprecated ") {
@@ -1683,6 +2109,67 @@ impl Parser {
 
             // Replace @slot placeholders in layout with provided content
             let result_nodes = replace_extends_slots(layout_nodes, &slot_nodes);
+            return Ok(Some(result_nodes));
+        }
+
+        // --- @layout (lightweight layout wrapper using @children) ---
+
+        if let Some(rest) = content.strip_prefix("@layout ") {
+            let filename = substitute_vars(rest.trim(), &ctx.variables);
+            let resolved = match &ctx.base_path {
+                Some(base) => base.join(&filename),
+                None => PathBuf::from(&filename),
+            };
+
+            if ctx.include_stack.contains(&resolved) {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("circular layout '{}'", filename),
+                    severity: Severity::Error,
+                    source_line: Some(content.clone()),
+                });
+                return Ok(None);
+            }
+
+            let layout_text = if let Some(cached) = ctx.file_cache.get(&resolved) {
+                cached.clone()
+            } else {
+                match std::fs::read_to_string(&resolved) {
+                    Ok(text) => {
+                        ctx.file_cache.insert(resolved.clone(), text.clone());
+                        text
+                    }
+                    Err(e) => {
+                        ctx.diagnostics.push(Diagnostic {
+                            line: line_num,
+                            message: format!("cannot load layout '{}': {}", filename, e),
+                            severity: Severity::Error,
+                            source_line: Some(content.clone()),
+                        });
+                        return Ok(None);
+                    }
+                }
+            };
+
+            // Parse the body content (children of @layout)
+            let caller_children = self.parse_children(current_indent + 1, ctx);
+
+            // Parse the layout file
+            ctx.included_files.push(resolved.clone());
+            ctx.include_stack.push(resolved.clone());
+            let saved_base = ctx.base_path.clone();
+            ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
+
+            let layout_lines = preprocess(&layout_text);
+            let mut layout_parser = Parser { lines: layout_lines, pos: 0 };
+            let layout_nodes = layout_parser.parse_children(0, ctx);
+
+            ctx.base_path = saved_base;
+            ctx.include_stack.pop();
+
+            // Replace @children in layout with the caller's body content
+            let empty_slots: HashMap<String, Vec<Node>> = HashMap::new();
+            let result_nodes = replace_children_and_slots(layout_nodes, &caller_children, &empty_slots);
             return Ok(Some(result_nodes));
         }
 
@@ -2121,6 +2608,8 @@ const KNOWN_DIRECTIVES: &[&str] = &[
     "mixin", "assert",
     "for", "component", "switch",
     "log",
+    "markdown", "repeat", "with", "layout", "collection",
+    "manifest", "scope", "starting-style", "translations",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -2379,6 +2868,16 @@ const KNOWN_ATTRS: &[&str] = &[
     "animate",
     // Critical CSS hint
     "critical",
+    // CSS subgrid
+    "grid-template-columns", "grid-template-rows",
+    // Scroll-driven animations
+    "animation-timeline", "animation-range",
+    "view-timeline-name", "view-timeline-axis",
+    "scroll-timeline-name", "scroll-timeline-axis",
+    // Anchor positioning
+    "anchor-name", "position-anchor", "position-area", "inset-area",
+    // Drop caps
+    "initial-letter",
 ];
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
@@ -3424,9 +3923,13 @@ fn substitute_vars(input: &str, vars: &HashMap<String, String>) -> String {
             let start = i + 1;
             let mut end = start;
             while end < chars.len()
-                && (chars[end].is_alphanumeric() || chars[end] == '-' || chars[end] == '_')
+                && (chars[end].is_alphanumeric() || chars[end] == '-' || chars[end] == '_' || chars[end] == '.')
             {
                 end += 1;
+            }
+            // Strip trailing dot (not part of name if at end)
+            while end > start && chars[end - 1] == '.' {
+                end -= 1;
             }
             let name: String = chars[start..end].iter().collect();
 
@@ -3947,4 +4450,221 @@ fn json_value_to_string(v: &JsonValue) -> String {
         JsonValue::Null => String::new(),
         JsonValue::Array(_) | JsonValue::Object(_) => String::new(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Markdown → HTML conversion (minimal subset)
+// ---------------------------------------------------------------------------
+
+fn markdown_to_html(lines: &[String]) -> String {
+    let mut html = String::new();
+    let mut in_list = false;
+    let mut in_code_block = false;
+    let mut code_lang = String::new();
+    let mut code_buf = String::new();
+    let mut para_buf = String::new();
+
+    let flush_para = |para: &mut String, out: &mut String| {
+        let trimmed = para.trim();
+        if !trimmed.is_empty() {
+            out.push_str("<p>");
+            out.push_str(&md_inline(trimmed));
+            out.push_str("</p>\n");
+        }
+        para.clear();
+    };
+
+    for line in lines {
+        let trimmed = line.trim();
+
+        // Fenced code blocks
+        if trimmed.starts_with("```") {
+            if in_code_block {
+                html.push_str("<pre><code");
+                if !code_lang.is_empty() {
+                    html.push_str(&format!(" class=\"language-{}\"", code_lang));
+                }
+                html.push('>');
+                html.push_str(&html_escape_md(&code_buf));
+                html.push_str("</code></pre>\n");
+                code_buf.clear();
+                code_lang.clear();
+                in_code_block = false;
+            } else {
+                flush_para(&mut para_buf, &mut html);
+                code_lang = trimmed[3..].trim().to_string();
+                in_code_block = true;
+            }
+            continue;
+        }
+        if in_code_block {
+            if !code_buf.is_empty() {
+                code_buf.push('\n');
+            }
+            code_buf.push_str(trimmed);
+            continue;
+        }
+
+        // Blank line ends paragraph
+        if trimmed.is_empty() {
+            flush_para(&mut para_buf, &mut html);
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
+            continue;
+        }
+
+        // Headings
+        if trimmed.starts_with("###### /* ") {
+            // skip
+        }
+        let heading_level = trimmed.bytes().take_while(|&b| b == b'#').count();
+        if (1..=6).contains(&heading_level) && trimmed.as_bytes().get(heading_level) == Some(&b' ') {
+            flush_para(&mut para_buf, &mut html);
+            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            let text = &trimmed[heading_level + 1..];
+            html.push_str(&format!("<h{}>{}</h{}>\n", heading_level, md_inline(text), heading_level));
+            continue;
+        }
+
+        // Unordered list items
+        if (trimmed.starts_with("- ") || trimmed.starts_with("* ")) && trimmed.len() > 2 {
+            flush_para(&mut para_buf, &mut html);
+            if !in_list {
+                html.push_str("<ul>\n");
+                in_list = true;
+            }
+            html.push_str(&format!("<li>{}</li>\n", md_inline(&trimmed[2..])));
+            continue;
+        }
+
+        // Ordered list items
+        if let Some(dot_pos) = trimmed.find(". ") {
+            if dot_pos <= 3 && trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit()) {
+                flush_para(&mut para_buf, &mut html);
+                if in_list { html.push_str("</ul>\n"); in_list = false; }
+                // We use <ol> but just emit <li> for simplicity
+                html.push_str(&format!("<li>{}</li>\n", md_inline(&trimmed[dot_pos + 2..])));
+                continue;
+            }
+        }
+
+        // Horizontal rule
+        if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+            flush_para(&mut para_buf, &mut html);
+            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            html.push_str("<hr>\n");
+            continue;
+        }
+
+        // Blockquote
+        if trimmed.starts_with("> ") {
+            flush_para(&mut para_buf, &mut html);
+            html.push_str(&format!("<blockquote><p>{}</p></blockquote>\n", md_inline(&trimmed[2..])));
+            continue;
+        }
+
+        // Otherwise, accumulate paragraph text
+        if !para_buf.is_empty() {
+            para_buf.push(' ');
+        }
+        para_buf.push_str(trimmed);
+    }
+
+    // Flush remaining
+    if in_list { html.push_str("</ul>\n"); }
+    flush_para(&mut para_buf, &mut html);
+
+    html
+}
+
+fn md_inline(text: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        // Bold: **text** or __text__
+        if i + 1 < chars.len() && ((chars[i] == '*' && chars[i+1] == '*') || (chars[i] == '_' && chars[i+1] == '_')) {
+            let marker = chars[i];
+            if let Some(end) = find_closing_double(&chars, i + 2, marker) {
+                let inner: String = chars[i+2..end].iter().collect();
+                result.push_str("<strong>");
+                result.push_str(&md_inline(&inner));
+                result.push_str("</strong>");
+                i = end + 2;
+                continue;
+            }
+        }
+        // Italic: *text* or _text_
+        if (chars[i] == '*' || chars[i] == '_') && i + 1 < chars.len() && chars[i+1] != chars[i] {
+            let marker = chars[i];
+            if let Some(end) = find_closing_single(&chars, i + 1, marker) {
+                let inner: String = chars[i+1..end].iter().collect();
+                result.push_str("<em>");
+                result.push_str(&md_inline(&inner));
+                result.push_str("</em>");
+                i = end + 1;
+                continue;
+            }
+        }
+        // Inline code: `text`
+        if chars[i] == '`' {
+            if let Some(end) = chars[i+1..].iter().position(|&c| c == '`') {
+                let inner: String = chars[i+1..i+1+end].iter().collect();
+                result.push_str("<code>");
+                result.push_str(&html_escape_md(&inner));
+                result.push_str("</code>");
+                i = i + 2 + end;
+                continue;
+            }
+        }
+        // Links: [text](url)
+        if chars[i] == '[' {
+            if let Some(close_bracket) = chars[i+1..].iter().position(|&c| c == ']') {
+                let after = i + 1 + close_bracket + 1;
+                if after < chars.len() && chars[after] == '(' {
+                    if let Some(close_paren) = chars[after+1..].iter().position(|&c| c == ')') {
+                        let text: String = chars[i+1..i+1+close_bracket].iter().collect();
+                        let url: String = chars[after+1..after+1+close_paren].iter().collect();
+                        result.push_str(&format!("<a href=\"{}\">{}</a>", html_escape_md(&url), md_inline(&text)));
+                        i = after + 2 + close_paren;
+                        continue;
+                    }
+                }
+            }
+        }
+        result.push(chars[i]);
+        i += 1;
+    }
+
+    result
+}
+
+fn find_closing_double(chars: &[char], start: usize, marker: char) -> Option<usize> {
+    let mut i = start;
+    while i + 1 < chars.len() {
+        if chars[i] == marker && chars[i+1] == marker {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+fn find_closing_single(chars: &[char], start: usize, marker: char) -> Option<usize> {
+    for i in start..chars.len() {
+        if chars[i] == marker {
+            return Some(i);
+        }
+    }
+    None
+}
+
+fn html_escape_md(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+     .replace('"', "&quot;")
 }

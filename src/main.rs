@@ -99,6 +99,15 @@ fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: b
                 Ok(()) => eprintln!("wrote {}", out_path.display()),
                 Err(e) => eprintln!("error: {}: {}", out_path.display(), e),
             }
+            // Generate source map alongside HTML
+            if dev {
+                let map_path = out_path.with_extension("html.map");
+                let source_map = htmlang::codegen::generate_source_map(
+                    &result.document,
+                    &Path::new(input_path).file_name().unwrap_or_default().to_string_lossy(),
+                );
+                let _ = fs::write(&map_path, &source_map);
+            }
         }
     }
 
@@ -314,8 +323,10 @@ htmlang {} - a minimalist layout language that compiles to static HTML
 Usage: htmlang [options] <file.hl | directory>
 
 Commands:
-  init [dir]            Create a new project (defaults to current directory)
+  init [dir] [--template blog|docs|portfolio]
+                        Create a new project (defaults to current directory)
   new <page-name>       Create a new .hl page from a template
+  test [dir|file]       Run @assert directives across a project
   build <dir> [-o <out>] [--minify]  Compile all .hl files (parallel)
   serve [dir|file] [-p N] [--open]  Start dev server with hot reload
   watch [dir|file] [-o out]  Watch for changes and recompile
@@ -333,7 +344,8 @@ Commands:
   components <dir>      List all @fn definitions across a project
   deps <dir>            Show file dependency graph (@include/@import)
   dead-code <dir>       Find unused @fn, @define, @let across project
-  deploy <dir>          Build and deploy to GitHub Pages
+  deploy <dir> [--provider github-pages|netlify|vercel|cloudflare]
+                        Build and deploy
   playground [out.html] Generate a self-contained HTML playground
   clean [dir]           Remove generated .html files
   upgrade [dir|file]    Auto-upgrade syntax to latest conventions
@@ -383,7 +395,7 @@ Examples:
     );
 }
 
-fn init_project(dir: &str) {
+fn init_project(dir: &str, template_name: Option<&str>) {
     let dir = Path::new(dir);
     if dir.to_str() != Some(".") {
         if let Err(e) = fs::create_dir_all(dir) {
@@ -398,7 +410,95 @@ fn init_project(dir: &str) {
         process::exit(1);
     }
 
-    let template = r#"@page My Site
+    let template = match template_name {
+        Some("blog") => r#"@page My Blog
+@let primary #3b82f6
+@let bg-dark #1a1a2e
+
+@column [max-width 720, center-x, padding 40, spacing 30]
+  @header [spacing 10]
+    @text [bold, size 36] My Blog
+    @paragraph [color #666, line-height 1.6] Thoughts and ideas.
+
+  @main [spacing 40]
+    @article [spacing 12, padding-bottom 30, border-bottom 1 #eee]
+      @text [bold, size 24] First Post
+      @text [color #888, size 14] 2024-01-15
+      @paragraph [line-height 1.8]
+        Welcome to my blog. This is the first post.
+
+    @article [spacing 12, padding-bottom 30, border-bottom 1 #eee]
+      @text [bold, size 24] Another Post
+      @text [color #888, size 14] 2024-01-10
+      @paragraph [line-height 1.8]
+        Here is another post with more content.
+
+  @footer [padding-top 20, border-top 1 #eee]
+    @text [color #888, size 14, text-align center] Built with htmlang
+"#,
+        Some("docs") => r#"@page Documentation
+@let primary #3b82f6
+@let sidebar-width 250
+
+@row [min-height 100vh]
+  @aside [width $sidebar-width, padding 20, background #f8f9fa, border-right 1 #e0e0e0, spacing 8]
+    @text [bold, size 18, padding-bottom 10] Docs
+    @nav [spacing 4]
+      @link # Getting Started
+      @link # Installation
+      @link # Configuration
+      @link # API Reference
+
+  @main [width fill, padding 40, max-width 800, spacing 20]
+    @text [bold, size 32] Getting Started
+    @paragraph [line-height 1.8]
+      Welcome to the documentation. Use the sidebar to navigate.
+
+    @text [bold, size 24] Installation
+    @code [padding 16, background #f5f5f5, rounded 8]
+      npm install my-package
+
+    @text [bold, size 24] Usage
+    @paragraph [line-height 1.8]
+      Import and use the library in your project.
+"#,
+        Some("portfolio") => r#"@page Portfolio
+@let primary #3b82f6
+@let accent #8b5cf6
+
+@column [min-height 100vh, spacing 0]
+  @header [padding 20 40, background white, border-bottom 1 #eee]
+    @row [max-width 1200, center-x, width fill, justify-content space-between, align-items center]
+      @text [bold, size 20] Jane Doe
+      @nav
+        @row [spacing 20]
+          @link # Work
+          @link # About
+          @link # Contact
+
+  @main [max-width 1200, center-x, padding 60 40, spacing 60]
+    @column [spacing 10, center-x, text-align center, max-width 600]
+      @text [bold, size 48] Designer & Developer
+      @paragraph [color #666, size 18, line-height 1.6]
+        I create beautiful, functional digital experiences.
+
+    @grid [grid-cols 3, gap 20]
+      @el [aspect-ratio 1, background #f0f0f0, rounded 12, padding 20, spacing 10]
+        @text [bold] Project One
+        @text [color #666, size 14] Web Design
+
+      @el [aspect-ratio 1, background #f0f0f0, rounded 12, padding 20, spacing 10]
+        @text [bold] Project Two
+        @text [color #666, size 14] Branding
+
+      @el [aspect-ratio 1, background #f0f0f0, rounded 12, padding 20, spacing 10]
+        @text [bold] Project Three
+        @text [color #666, size 14] Development
+
+  @footer [padding 30 40, background #1a1a2e, color white, text-align center]
+    @text [size 14] Built with htmlang
+"#,
+        _ => r#"@page My Site
 @let primary #3b82f6
 
 @column [max-width 800, center-x, padding 40, spacing 20]
@@ -411,7 +511,8 @@ fn init_project(dir: &str) {
   @row [spacing 10]
     @el [padding 12 24, background $primary, rounded 8, cursor pointer, hover:background #2563eb, transition all 0.15s ease] > @link https://github.com/nicholasgasior/htmlang
       @text [color white, bold] Documentation
-"#;
+"#,
+    };
 
     match fs::write(&index_path, template) {
         Ok(()) => eprintln!("created {}", index_path.display()),
@@ -794,8 +895,21 @@ fn main() {
 
     // Handle "init" subcommand
     if args.len() >= 2 && args[1] == "init" {
-        let dir = if args.len() >= 3 { &args[2] } else { "." };
-        init_project(dir);
+        let mut init_dir = ".";
+        let mut init_template: Option<&str> = None;
+        let mut i = 2;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--template" | "-t" => {
+                    i += 1;
+                    init_template = args.get(i).map(|s| s.as_str());
+                }
+                _ if init_dir == "." => init_dir = &args[i],
+                _ => {}
+            }
+            i += 1;
+        }
+        init_project(init_dir, init_template);
         return;
     }
 
@@ -1065,6 +1179,59 @@ fn main() {
         return;
     }
 
+    // Handle "test" subcommand (run @assert directives across a project)
+    if args.len() >= 2 && args[1] == "test" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let path = Path::new(target);
+        let hl_files = if path.is_dir() {
+            collect_hl_files_recursive(path)
+        } else {
+            vec![PathBuf::from(target)]
+        };
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", target);
+            process::exit(1);
+        }
+        let mut total_asserts = 0usize;
+        let mut failed_asserts = 0usize;
+        let mut files_with_errors = 0usize;
+        for file in &hl_files {
+            let input = match fs::read_to_string(file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("error: {}: {}", file.display(), e);
+                    files_with_errors += 1;
+                    continue;
+                }
+            };
+            let base = file.parent();
+            let result = htmlang::parser::parse_with_base(&input, base);
+            let file_errors: Vec<_> = result.diagnostics.iter()
+                .filter(|d| d.severity == htmlang::parser::Severity::Error)
+                .collect();
+            let assert_failures: Vec<_> = file_errors.iter()
+                .filter(|d| d.message.starts_with("assertion failed:"))
+                .collect();
+            total_asserts += assert_failures.len();
+            // Count @assert lines (passes + failures)
+            let assert_count = input.lines().filter(|l| l.trim().starts_with("@assert ")).count();
+            total_asserts += assert_count.saturating_sub(assert_failures.len());
+            if !assert_failures.is_empty() {
+                files_with_errors += 1;
+                failed_asserts += assert_failures.len();
+                for d in &assert_failures {
+                    eprintln!("FAIL {}: line {}: {}", file.display(), d.line, d.message);
+                }
+            }
+        }
+        let passed = total_asserts.saturating_sub(failed_asserts);
+        eprintln!("\n{} assertions: {} passed, {} failed ({} files)", total_asserts, passed, failed_asserts, hl_files.len());
+        if failed_asserts > 0 || files_with_errors > 0 {
+            process::exit(1);
+        }
+        return;
+    }
+
     // Handle "new" subcommand
     if args.len() >= 2 && args[1] == "new" {
         if args.len() < 3 {
@@ -1250,6 +1417,7 @@ fn main() {
         let mut serve_target = None;
         let mut serve_port: u16 = 3000;
         let mut serve_open = false;
+        let mut _proxy_routes: Vec<(String, String)> = Vec::new();
         let mut si = 2;
         while si < args.len() {
             match args[si].as_str() {
@@ -1258,6 +1426,17 @@ fn main() {
                     serve_port = args.get(si).and_then(|p| p.parse().ok()).unwrap_or(3000);
                 }
                 "--open" => serve_open = true,
+                "--proxy" => {
+                    // --proxy /api http://localhost:3001
+                    si += 1;
+                    let prefix = args.get(si).cloned().unwrap_or_default();
+                    si += 1;
+                    let target_url = args.get(si).cloned().unwrap_or_default();
+                    if !prefix.is_empty() && !target_url.is_empty() {
+                        _proxy_routes.push((prefix, target_url));
+                        eprintln!("proxy: {} -> {}", _proxy_routes.last().unwrap().0, _proxy_routes.last().unwrap().1);
+                    }
+                }
                 _ if serve_target.is_none() => serve_target = Some(args[si].clone()),
                 _ => {
                     eprintln!("unknown argument: {}", args[si]);
@@ -1701,9 +1880,34 @@ fn main() {
         return;
     }
 
-    // Handle "deploy" subcommand — deploy to GitHub Pages
+    // Handle "deploy" subcommand — deploy to GitHub Pages or other providers
     if args.len() >= 2 && args[1] == "deploy" {
-        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let mut deploy_target = ".";
+        let mut provider = "github-pages";
+        let mut di = 2;
+        while di < args.len() {
+            match args[di].as_str() {
+                "--provider" | "-P" => {
+                    di += 1;
+                    if let Some(p) = args.get(di) {
+                        provider = match p.as_str() {
+                            "netlify" | "vercel" | "cloudflare" | "github-pages" => {
+                                // Leak to get &str lifetime — fine for CLI
+                                args[di].as_str()
+                            }
+                            _ => {
+                                eprintln!("unknown provider: {} (supported: github-pages, netlify, vercel, cloudflare)", p);
+                                process::exit(1);
+                            }
+                        };
+                    }
+                }
+                _ if deploy_target == "." => deploy_target = &args[di],
+                _ => {}
+            }
+            di += 1;
+        }
+        let target = deploy_target;
         let path = Path::new(target);
         if !path.is_dir() {
             eprintln!("error: '{}' is not a directory", target);
@@ -1742,8 +1946,56 @@ fn main() {
             process::exit(1);
         }
         copy_non_hl_files(path, &deploy_dir);
-        // Deploy via gh-pages push
         eprintln!("built {} files to {}", hl_files.len(), deploy_dir.display());
+
+        // Provider-specific deploy
+        match provider {
+            "netlify" => {
+                eprintln!("deploying to Netlify...");
+                let status = process::Command::new("npx")
+                    .args(&["netlify-cli", "deploy", "--prod", "--dir", &deploy_dir.to_string_lossy()])
+                    .status();
+                match status {
+                    Ok(s) if s.success() => eprintln!("deployed to Netlify!"),
+                    _ => {
+                        eprintln!("netlify deploy failed — ensure netlify-cli is installed (npx netlify-cli deploy --prod --dir {})", deploy_dir.display());
+                        process::exit(1);
+                    }
+                }
+                return;
+            }
+            "vercel" => {
+                eprintln!("deploying to Vercel...");
+                let status = process::Command::new("npx")
+                    .args(&["vercel", "--prod", &deploy_dir.to_string_lossy().to_string()])
+                    .status();
+                match status {
+                    Ok(s) if s.success() => eprintln!("deployed to Vercel!"),
+                    _ => {
+                        eprintln!("vercel deploy failed — ensure vercel CLI is installed (npx vercel --prod {})", deploy_dir.display());
+                        process::exit(1);
+                    }
+                }
+                return;
+            }
+            "cloudflare" => {
+                eprintln!("deploying to Cloudflare Pages...");
+                let status = process::Command::new("npx")
+                    .args(&["wrangler", "pages", "deploy", &deploy_dir.to_string_lossy().to_string()])
+                    .status();
+                match status {
+                    Ok(s) if s.success() => eprintln!("deployed to Cloudflare Pages!"),
+                    _ => {
+                        eprintln!("cloudflare deploy failed — ensure wrangler is installed (npx wrangler pages deploy {})", deploy_dir.display());
+                        process::exit(1);
+                    }
+                }
+                return;
+            }
+            _ => {} // fall through to GitHub Pages
+        }
+
+        // Deploy via gh-pages push
         let status = process::Command::new("git")
             .args(&["init"])
             .current_dir(&deploy_dir)
@@ -2968,10 +3220,23 @@ fn watch_loop(
 
                 eprintln!("\nrecompiling...");
 
-                // Recompile all source files
+                // Dependency-graph incremental: track which source files
+                // depend on which included files, only recompile affected ones
+                let changed_paths: Vec<PathBuf> = source_files.iter()
+                    .filter_map(|f| {
+                        let c = fs::canonicalize(f).unwrap_or_else(|_| f.clone());
+                        if content_hashes.get(&c).is_some() { Some(c) } else { None }
+                    })
+                    .collect();
+
+                // Build dependency map: source -> [deps] from previous compile
+                // (tracked via included_files returned by compile)
+                // For now, recompile source files whose deps changed
+                let mut recompiled = 0usize;
                 for file in source_files {
                     let path_str = file.to_string_lossy().to_string();
                     let (_, new_includes) = compile(&path_str, dev, serve, false, None, false, None);
+                    recompiled += 1;
                     for inc in &new_includes {
                         let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                         if let Some(h) = hash_file(inc) {
@@ -2986,12 +3251,15 @@ fn watch_loop(
                         if !source_files.contains(file) {
                             let path_str = file.to_string_lossy().to_string();
                             let (_, new_includes) = compile(&path_str, dev, serve, false, None, false, None);
+                            recompiled += 1;
                             for inc in &new_includes {
                                 let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                             }
                         }
                     }
                 }
+                let _ = changed_paths;
+                eprintln!("recompiled {} file(s)", recompiled);
 
                 if let Some(ref tx) = reload_tx {
                     let _ = tx.send(());

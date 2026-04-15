@@ -683,6 +683,36 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
         }
     }
 
+    // @scope blocks
+    for block in &doc.scope_blocks {
+        if dev {
+            element_css.push_str(block);
+            element_css.push('\n');
+        } else {
+            let minified: String = block.lines().map(|l| l.trim()).collect::<Vec<_>>().join("");
+            element_css.push_str(&minified);
+        }
+    }
+
+    // @starting-style blocks
+    if !doc.starting_style_blocks.is_empty() {
+        if dev {
+            element_css.push_str("@starting-style {\n");
+            for block in &doc.starting_style_blocks {
+                element_css.push_str(block);
+                element_css.push('\n');
+            }
+            element_css.push_str("}\n");
+        } else {
+            element_css.push_str("@starting-style{");
+            for block in &doc.starting_style_blocks {
+                let minified: String = block.lines().map(|l| l.trim()).collect::<Vec<_>>().join("");
+                element_css.push_str(&minified);
+            }
+            element_css.push('}');
+        }
+    }
+
     // Build meta tags string
     let meta_html = if doc.meta_tags.is_empty() {
         String::new()
@@ -838,6 +868,75 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
         }
     }).collect();
 
+    // Manifest link
+    let manifest_html = if let Some(ref manifest) = doc.manifest {
+        let mut json = String::from("{");
+        json.push_str(&format!("\"name\":\"{}\",", manifest.name));
+        if let Some(ref short) = manifest.short_name {
+            json.push_str(&format!("\"short_name\":\"{}\",", short));
+        }
+        json.push_str(&format!("\"start_url\":\"{}\",", manifest.start_url));
+        json.push_str(&format!("\"display\":\"{}\"", manifest.display));
+        if let Some(ref bg) = manifest.background_color {
+            json.push_str(&format!(",\"background_color\":\"{}\"", bg));
+        }
+        if let Some(ref tc) = manifest.theme_color {
+            json.push_str(&format!(",\"theme_color\":\"{}\"", tc));
+        }
+        if let Some(ref desc) = manifest.description {
+            json.push_str(&format!(",\"description\":\"{}\"", desc));
+        }
+        if !manifest.icons.is_empty() {
+            json.push_str(",\"icons\":[");
+            for (i, (src, sizes)) in manifest.icons.iter().enumerate() {
+                if i > 0 { json.push(','); }
+                json.push_str(&format!("{{\"src\":\"{}\",\"sizes\":\"{}\",\"type\":\"image/png\"}}", src, sizes));
+            }
+            json.push(']');
+        }
+        json.push('}');
+
+        // Inline the manifest as a data URI
+        let encoded = base64_encode(json.as_bytes());
+        if dev {
+            format!("<link rel=\"manifest\" href=\"data:application/manifest+json;base64,{}\">\n", encoded)
+        } else {
+            format!("<link rel=\"manifest\" href=\"data:application/manifest+json;base64,{}\">", encoded)
+        }
+    } else {
+        String::new()
+    };
+
+    // Preload hints (auto-detect fonts from @font-face)
+    let mut preload_html = String::new();
+    for (_, url) in &doc.font_faces {
+        if dev {
+            preload_html.push_str(&format!(
+                "<link rel=\"preload\" href=\"{}\" as=\"font\" type=\"font/woff2\" crossorigin>\n", url
+            ));
+        } else {
+            preload_html.push_str(&format!(
+                "<link rel=\"preload\" href=\"{}\" as=\"font\" type=\"font/woff2\" crossorigin>", url
+            ));
+        }
+    }
+    // Explicit preload hints from the document
+    for hint in &doc.preload_hints {
+        if dev {
+            preload_html.push_str(&format!(
+                "<link rel=\"preload\" href=\"{}\" as=\"{}\"{}>\n",
+                html_escape(&hint.href), hint.as_type,
+                if hint.crossorigin { " crossorigin" } else { "" }
+            ));
+        } else {
+            preload_html.push_str(&format!(
+                "<link rel=\"preload\" href=\"{}\" as=\"{}\"{}>",
+                html_escape(&hint.href), hint.as_type,
+                if hint.crossorigin { " crossorigin" } else { "" }
+            ));
+        }
+    }
+
     match &doc.page_title {
         Some(title) => {
             if dev {
@@ -849,7 +948,7 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
 <meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
 <title>{title}</title>
-{base_html}{canonical_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}\
+{base_html}{canonical_html}{manifest_html}{preload_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}\
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
@@ -866,6 +965,8 @@ img {{ display: block; }}
                     lang_attr = lang_attr,
                     base_html = base_html,
                     canonical_html = canonical_html,
+                    manifest_html = manifest_html,
+                    preload_html = preload_html,
                     meta_html = meta_html,
                     favicon_html = favicon_html,
                     json_ld_html = json_ld_html,
@@ -876,11 +977,13 @@ img {{ display: block; }}
                 )
             } else {
                 format!(
-                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{base_html}{canonical_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
+                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{base_html}{canonical_html}{manifest_html}{preload_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
                     title = html_escape(title),
                     lang_attr = lang_attr,
                     base_html = base_html,
                     canonical_html = canonical_html,
+                    manifest_html = manifest_html,
+                    preload_html = preload_html,
                     meta_html = meta_html,
                     og_html = og_html,
                     favicon_html = favicon_html,
@@ -2590,6 +2693,54 @@ fn attrs_to_css(
                 if let Some(v) = val { push_css(&mut css, "animation", v); }
             }
 
+            // CSS subgrid
+            "grid-template-columns" => {
+                if let Some(v) = val { push_css(&mut css, "grid-template-columns", v); }
+            }
+            "grid-template-rows" => {
+                if let Some(v) = val { push_css(&mut css, "grid-template-rows", v); }
+            }
+
+            // Scroll-driven animations
+            "animation-timeline" => {
+                if let Some(v) = val { push_css(&mut css, "animation-timeline", v); }
+            }
+            "animation-range" => {
+                if let Some(v) = val { push_css(&mut css, "animation-range", v); }
+            }
+            "view-timeline-name" => {
+                if let Some(v) = val { push_css(&mut css, "view-timeline-name", v); }
+            }
+            "view-timeline-axis" => {
+                if let Some(v) = val { push_css(&mut css, "view-timeline-axis", v); }
+            }
+            "scroll-timeline-name" => {
+                if let Some(v) = val { push_css(&mut css, "scroll-timeline-name", v); }
+            }
+            "scroll-timeline-axis" => {
+                if let Some(v) = val { push_css(&mut css, "scroll-timeline-axis", v); }
+            }
+
+            // Anchor positioning
+            "anchor-name" => {
+                if let Some(v) = val { push_css(&mut css, "anchor-name", v); }
+            }
+            "position-anchor" => {
+                if let Some(v) = val { push_css(&mut css, "position-anchor", v); }
+            }
+            "position-area" => {
+                if let Some(v) = val { push_css(&mut css, "position-area", v); }
+            }
+            "inset-area" => {
+                // Legacy alias for position-area
+                if let Some(v) = val { push_css(&mut css, "position-area", v); }
+            }
+
+            // initial-letter (drop caps)
+            "initial-letter" => {
+                if let Some(v) = val { push_css(&mut css, "initial-letter", v); }
+            }
+
             // Critical CSS hint — not CSS, handled elsewhere
             "critical" => {}
 
@@ -2695,4 +2846,41 @@ fn base64_encode(data: &[u8]) -> String {
         }
     }
     result
+}
+
+// ---------------------------------------------------------------------------
+// Source map generation
+// ---------------------------------------------------------------------------
+
+/// Generate a JSON source map that maps HTML output lines to .hl source lines.
+/// Uses a simplified format (not full VLQ) for easy consumption.
+pub fn generate_source_map(doc: &Document, source_file: &str) -> String {
+    let mut mappings: Vec<(usize, usize)> = Vec::new(); // (html_line, hl_line)
+    collect_source_lines(&doc.nodes, &mut mappings);
+    mappings.sort_by_key(|m| m.0);
+    mappings.dedup_by_key(|m| m.0);
+
+    let mut json = String::from("{");
+    json.push_str("\"version\":3,");
+    json.push_str(&format!("\"file\":\"{}\",", source_file.replace(".hl", ".html").replace('\\', "\\\\")));
+    json.push_str(&format!("\"sourceRoot\":\"\","));
+    json.push_str(&format!("\"sources\":[\"{}\"],", source_file.replace('\\', "\\\\")));
+    json.push_str("\"mappings\":[");
+    for (i, (html_line, hl_line)) in mappings.iter().enumerate() {
+        if i > 0 { json.push(','); }
+        json.push_str(&format!("{{\"generated\":{},\"source\":{}}}", html_line, hl_line));
+    }
+    json.push_str("]}");
+    json
+}
+
+fn collect_source_lines(nodes: &[Node], mappings: &mut Vec<(usize, usize)>) {
+    for node in nodes {
+        if let Node::Element(elem) = node {
+            if elem.line_num > 0 {
+                mappings.push((mappings.len() + 1, elem.line_num));
+            }
+            collect_source_lines(&elem.children, mappings);
+        }
+    }
 }

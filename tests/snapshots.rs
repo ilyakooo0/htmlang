@@ -3450,3 +3450,223 @@ fn test_round_trip() {
     assert!(html2.contains("Hello"), "round-trip should preserve text content 'Hello'");
     assert!(html2.contains("This is a test"), "round-trip should preserve text content 'This is a test'");
 }
+
+// ---------------------------------------------------------------------------
+// New improvement tests (batch)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_markdown_block() {
+    snapshot_test("markdown_block");
+}
+
+#[test]
+fn snapshot_repeat_directive() {
+    snapshot_test("repeat_directive");
+}
+
+#[test]
+fn snapshot_with_directive() {
+    snapshot_test("with_directive");
+}
+
+#[test]
+fn snapshot_scope_css() {
+    snapshot_test("scope_css");
+}
+
+#[test]
+fn snapshot_starting_style() {
+    snapshot_test("starting_style");
+}
+
+#[test]
+fn snapshot_manifest_directive() {
+    snapshot_test("manifest_directive");
+}
+
+#[test]
+fn snapshot_subgrid_css() {
+    snapshot_test("subgrid_css");
+}
+
+#[test]
+fn snapshot_anchor_positioning() {
+    snapshot_test("anchor_positioning");
+}
+
+#[test]
+fn snapshot_scroll_driven_animations() {
+    snapshot_test("scroll_driven_animations");
+}
+
+#[test]
+fn snapshot_initial_letter() {
+    snapshot_test("initial_letter");
+}
+
+// --- Inline unit tests for new features ---
+
+#[test]
+fn repeat_directive_basic() {
+    let output = compile("@repeat 3\n  @text hello");
+    // Should contain 3 spans with "hello"
+    let count = output.matches("hello").count();
+    assert_eq!(count, 3, "expected 3 repetitions, got {}", count);
+}
+
+#[test]
+fn with_directive_rebinding() {
+    let output = compile("@let x hello\n@with $x as y\n  @text $y");
+    assert!(output.contains("hello"), "expected @with to rebind variable");
+}
+
+#[test]
+fn markdown_renders_heading() {
+    let output = compile("@markdown\n  # Title\n  Some text");
+    assert!(output.contains("<h1>Title</h1>"), "markdown should render # as <h1>");
+    assert!(output.contains("<p>Some text</p>"), "markdown should render paragraphs");
+}
+
+#[test]
+fn markdown_renders_bold_italic() {
+    let output = compile("@markdown\n  This is **bold** and *italic*");
+    assert!(output.contains("<strong>bold</strong>"), "markdown should render **bold**");
+    assert!(output.contains("<em>italic</em>"), "markdown should render *italic*");
+}
+
+#[test]
+fn markdown_renders_code() {
+    let output = compile("@markdown\n  Use `code` here");
+    assert!(output.contains("<code>code</code>"), "markdown should render `code`");
+}
+
+#[test]
+fn markdown_renders_link() {
+    let output = compile("@markdown\n  Visit [example](https://example.com)");
+    assert!(output.contains("<a href=\"https://example.com\">example</a>"), "markdown should render links");
+}
+
+#[test]
+fn markdown_renders_list() {
+    let output = compile("@markdown\n  - one\n  - two\n  - three");
+    assert!(output.contains("<ul>"), "markdown should render unordered list");
+    assert!(output.contains("<li>one</li>"), "markdown should render list items");
+}
+
+#[test]
+fn scope_block_generates_css() {
+    let output = compile("@page Test\n@scope .card\n  .title { color: red; }\n@text hello");
+    assert!(output.contains("@scope"), "should generate @scope CSS block");
+}
+
+#[test]
+fn starting_style_generates_css() {
+    let output = compile("@page Test\n@starting-style\n  .fade { opacity: 0; }\n@text hello");
+    assert!(output.contains("@starting-style"), "should generate @starting-style CSS block");
+}
+
+#[test]
+fn manifest_generates_link() {
+    let output = compile("@page App\n@manifest My App\n  display standalone\n@text hi");
+    assert!(output.contains("rel=\"manifest\""), "should generate manifest link");
+}
+
+#[test]
+fn subgrid_support() {
+    let output = compile("@el [grid-template-columns subgrid]");
+    assert!(output.contains("grid-template-columns:subgrid"), "should support CSS subgrid");
+}
+
+#[test]
+fn anchor_positioning_support() {
+    let output = compile("@el [anchor-name --my-anchor]\n  @text anchor");
+    assert!(output.contains("anchor-name:--my-anchor"), "should support anchor-name CSS property");
+}
+
+#[test]
+fn scroll_driven_animation_support() {
+    let output = compile("@el [animation-timeline scroll()]\n  @text scroll");
+    assert!(output.contains("animation-timeline:scroll()"), "should support animation-timeline CSS property");
+}
+
+#[test]
+fn initial_letter_support() {
+    let output = compile("@text [initial-letter 3] O");
+    assert!(output.contains("initial-letter:3"), "should support initial-letter CSS property");
+}
+
+#[test]
+fn position_area_support() {
+    let output = compile("@el [position-area top]\n  @text tooltip");
+    assert!(output.contains("position-area:top"), "should support position-area CSS property");
+}
+
+// --- Snapshot tests for batch 2 ---
+
+#[test]
+fn snapshot_translations_i18n() {
+    snapshot_test("translations_i18n");
+}
+
+#[test]
+fn snapshot_pagination_each() {
+    snapshot_test("pagination_each");
+}
+
+// --- Inline tests for batch 2 ---
+
+#[test]
+fn translations_inject_variables() {
+    let output = compile("@translations\n  en:\n    hello Hi\n    world Earth\n@text $t.hello $t.world");
+    assert!(output.contains("Hi"), "should inject translation for hello");
+    assert!(output.contains("Earth"), "should inject translation for world");
+}
+
+#[test]
+fn pagination_limits_items() {
+    let output = compile("@let _page 1\n@each $item in a,b,c,d,e [page 2]\n  @text $item");
+    // Page 1 with page size 2 should show items a,b only
+    assert!(output.contains(">a<"), "page 1 should contain item a");
+    assert!(output.contains(">b<"), "page 1 should contain item b");
+    assert!(!output.contains(">c<"), "page 1 should NOT contain item c");
+}
+
+#[test]
+fn pagination_page_2() {
+    let output = compile("@let _page 2\n@each $item in a,b,c,d,e [page 2]\n  @text $item");
+    assert!(output.contains(">c<"), "page 2 should contain item c");
+    assert!(output.contains(">d<"), "page 2 should contain item d");
+    assert!(!output.contains(">a<"), "page 2 should NOT contain item a");
+}
+
+#[test]
+fn image_auto_preload() {
+    let output = compile("@page Test\n@image logo.png\n@image hero.jpg");
+    assert!(output.contains("rel=\"preload\""), "should auto-preload images");
+    assert!(output.contains("logo.png"), "should preload logo.png");
+}
+
+#[test]
+fn source_map_generation() {
+    let input = "@page Test\n@text [bold] Hello";
+    let result = htmlang::parser::parse(input);
+    let map = htmlang::codegen::generate_source_map(&result.document, "test.hl");
+    assert!(map.contains("\"version\":3"), "source map should have version 3");
+    assert!(map.contains("test.hl"), "source map should reference source file");
+}
+
+#[test]
+fn parser_multiple_errors() {
+    let diags = parse_diagnostics("@unknown1\n@text hello\n@unknown2");
+    let errors: Vec<_> = diags.iter().filter(|d| d.severity == htmlang::parser::Severity::Error).collect();
+    assert!(errors.len() >= 2, "parser should report multiple errors, got {}", errors.len());
+}
+
+#[test]
+fn repeat_with_index() {
+    let output = compile("@repeat 3\n  @text $_index");
+    assert!(output.contains("0"), "should have index 0");
+    assert!(output.contains("1"), "should have index 1");
+    assert!(output.contains("2"), "should have index 2");
+}

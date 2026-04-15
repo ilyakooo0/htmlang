@@ -1,0 +1,2 @@
+@repeat 3
+  @text [bold] Item $_index

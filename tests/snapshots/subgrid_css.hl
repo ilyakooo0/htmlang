@@ -1,0 +1,5 @@
+@grid [grid-template-columns 1fr 2fr 1fr, gap 10]
+  @el [grid-template-rows subgrid, row-span 2]
+    @text First
+  @text Second
+  @text Third

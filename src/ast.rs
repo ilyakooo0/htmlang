@@ -20,7 +20,30 @@ pub struct Document {
     pub base_url: Option<String>,
     pub font_faces: Vec<(String, String)>,
     pub json_ld_blocks: Vec<String>,
+    pub scope_blocks: Vec<String>,
+    pub starting_style_blocks: Vec<String>,
+    pub manifest: Option<ManifestConfig>,
+    pub preload_hints: Vec<PreloadHint>,
     pub nodes: Vec<Node>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ManifestConfig {
+    pub name: String,
+    pub short_name: Option<String>,
+    pub start_url: String,
+    pub display: String,
+    pub background_color: Option<String>,
+    pub theme_color: Option<String>,
+    pub description: Option<String>,
+    pub icons: Vec<(String, String)>, // (src, sizes)
+}
+
+#[derive(Debug, Clone)]
+pub struct PreloadHint {
+    pub href: String,
+    pub as_type: String, // "font", "image", "style", "script"
+    pub crossorigin: bool,
 }
 
 #[derive(Debug, Clone)]

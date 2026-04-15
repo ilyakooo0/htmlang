@@ -2999,6 +2999,61 @@ fn code_actions(
         }
     }
 
+    // Refactoring: extract attributes to @define
+    // Works on a single line with [attrs] — extracts attrs into a @define
+    {
+        let lines: Vec<&str> = text.lines().collect();
+        let line_idx = selection.start.line as usize;
+        if line_idx < lines.len() {
+            let line = lines[line_idx];
+            if let Some(bracket_start) = line.find('[') {
+                if let Some(bracket_end) = line[bracket_start..].find(']') {
+                    let attrs_str = &line[bracket_start + 1..bracket_start + bracket_end];
+                    // Only offer if there are at least 2 attributes
+                    let attr_count = attrs_str.split(',').count();
+                    if attr_count >= 2 {
+                        let define_name = "extracted-style";
+                        let define_line = format!("@define {} [{}]\n", define_name, attrs_str.trim());
+                        let indent = " ".repeat(line.len() - line.trim_start().len());
+
+                        // Replace [attrs] with [$extracted-style]
+                        let new_line = format!(
+                            "{}{}[${}]{}",
+                            indent,
+                            &line.trim_start()[..line.trim_start().find('[').unwrap_or(0)],
+                            define_name,
+                            &line[bracket_start + bracket_end + 1..]
+                        );
+
+                        let replace_edit = TextEdit {
+                            range: Range::new(
+                                Position::new(line_idx as u32, 0),
+                                Position::new(line_idx as u32, line.len() as u32),
+                            ),
+                            new_text: new_line,
+                        };
+                        let insert_edit = TextEdit {
+                            range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+                            new_text: define_line,
+                        };
+                        let mut changes = HashMap::new();
+                        changes.insert(uri.clone(), vec![insert_edit, replace_edit]);
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: "Extract to @define".into(),
+                            kind: Some(CodeActionKind::REFACTOR_EXTRACT),
+                            diagnostics: None,
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
     actions
 }
 
@@ -3038,6 +3093,7 @@ fn find_colors(text: &str) -> Vec<ColorInformation> {
     let mut colors = Vec::new();
     for (line_idx, line) in text.lines().enumerate() {
         let mut start = 0;
+        // Detect hex colors (#fff, #ffffff, #ffffffff)
         while let Some(pos) = line[start..].find('#') {
             let abs_pos = start + pos;
             let hex_start = abs_pos + 1;
@@ -3065,9 +3121,77 @@ fn find_colors(text: &str) -> Vec<ColorInformation> {
             }
             start = hex_end;
         }
+        // Detect named CSS colors
+        for &(name, r, g, b) in NAMED_CSS_COLORS {
+            let lower_line = line.to_lowercase();
+            let mut search_start = 0;
+            while let Some(pos) = lower_line[search_start..].find(name) {
+                let abs = search_start + pos;
+                let end = abs + name.len();
+                // Ensure it's a word boundary (not inside another word)
+                let before_ok = abs == 0 || !line.as_bytes()[abs - 1].is_ascii_alphanumeric();
+                let after_ok = end >= line.len() || !line.as_bytes()[end].is_ascii_alphanumeric();
+                if before_ok && after_ok {
+                    colors.push(ColorInformation {
+                        range: Range::new(
+                            Position::new(line_idx as u32, abs as u32),
+                            Position::new(line_idx as u32, end as u32),
+                        ),
+                        color: Color {
+                            red: r as f32 / 255.0,
+                            green: g as f32 / 255.0,
+                            blue: b as f32 / 255.0,
+                            alpha: 1.0,
+                        },
+                    });
+                }
+                search_start = end;
+            }
+        }
     }
     colors
 }
+
+/// Named CSS colors: (name, r, g, b)
+const NAMED_CSS_COLORS: &[(&str, u8, u8, u8)] = &[
+    ("red", 255, 0, 0), ("green", 0, 128, 0), ("blue", 0, 0, 255),
+    ("white", 255, 255, 255), ("black", 0, 0, 0),
+    ("orange", 255, 165, 0), ("yellow", 255, 255, 0), ("purple", 128, 0, 128),
+    ("pink", 255, 192, 203), ("gray", 128, 128, 128), ("grey", 128, 128, 128),
+    ("navy", 0, 0, 128), ("teal", 0, 128, 128), ("maroon", 128, 0, 0),
+    ("aqua", 0, 255, 255), ("cyan", 0, 255, 255), ("fuchsia", 255, 0, 255),
+    ("magenta", 255, 0, 255), ("lime", 0, 255, 0), ("olive", 128, 128, 0),
+    ("silver", 192, 192, 192), ("coral", 255, 127, 80), ("salmon", 250, 128, 114),
+    ("tomato", 255, 99, 71), ("gold", 255, 215, 0), ("khaki", 240, 230, 140),
+    ("violet", 238, 130, 238), ("indigo", 75, 0, 130), ("crimson", 220, 20, 60),
+    ("turquoise", 64, 224, 208), ("plum", 221, 160, 221), ("orchid", 218, 112, 214),
+    ("sienna", 160, 82, 45), ("tan", 210, 180, 140), ("peru", 205, 133, 63),
+    ("chocolate", 210, 105, 30), ("firebrick", 178, 34, 34),
+    ("darkred", 139, 0, 0), ("darkgreen", 0, 100, 0), ("darkblue", 0, 0, 139),
+    ("darkgray", 169, 169, 169), ("darkgrey", 169, 169, 169),
+    ("lightgray", 211, 211, 211), ("lightgrey", 211, 211, 211),
+    ("lightblue", 173, 216, 230), ("lightgreen", 144, 238, 144),
+    ("lightyellow", 255, 255, 224), ("lightcoral", 240, 128, 128),
+    ("lightpink", 255, 182, 193), ("lightsalmon", 255, 160, 122),
+    ("steelblue", 70, 130, 180), ("royalblue", 65, 105, 225),
+    ("dodgerblue", 30, 144, 255), ("deepskyblue", 0, 191, 255),
+    ("cornflowerblue", 100, 149, 237), ("midnightblue", 25, 25, 112),
+    ("slateblue", 106, 90, 205), ("mediumblue", 0, 0, 205),
+    ("springgreen", 0, 255, 127), ("limegreen", 50, 205, 50),
+    ("forestgreen", 34, 139, 34), ("seagreen", 46, 139, 87),
+    ("darkslategray", 47, 79, 79), ("darkslategrey", 47, 79, 79),
+    ("cadetblue", 95, 158, 160), ("mediumaquamarine", 102, 205, 170),
+    ("darkorange", 255, 140, 0), ("orangered", 255, 69, 0),
+    ("deeppink", 255, 20, 147), ("hotpink", 255, 105, 180),
+    ("mediumvioletred", 199, 21, 133), ("palevioletred", 219, 112, 147),
+    ("sandybrown", 244, 164, 96), ("goldenrod", 218, 165, 32),
+    ("darkgoldenrod", 184, 134, 11), ("saddlebrown", 139, 69, 19),
+    ("wheat", 245, 222, 179), ("beige", 245, 245, 220),
+    ("linen", 250, 240, 230), ("ivory", 255, 255, 240),
+    ("snow", 255, 250, 250), ("honeydew", 240, 255, 240),
+    ("azure", 240, 255, 255), ("lavender", 230, 230, 250),
+    ("mistyrose", 255, 228, 225), ("seashell", 255, 245, 238),
+];
 
 fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8, u8)> {
     match hex.len() {

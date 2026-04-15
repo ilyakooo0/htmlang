@@ -1,0 +1,5 @@
+@el [anchor-name --tooltip-anchor, position relative]
+  @text Hover me
+
+@el [position-anchor --tooltip-anchor, position absolute, position-area top]
+  @text Tooltip content

@@ -1,0 +1,12 @@
+@page Markdown Test
+
+@column [padding 20]
+  @markdown
+    # Hello World
+    This is a **bold** paragraph with *italic* text.
+    Here is `inline code` and a [link](https://example.com).
+    - Item one
+    - Item two
+    - Item three
+    ---
+    > A blockquote here.
