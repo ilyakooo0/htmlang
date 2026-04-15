@@ -129,6 +129,34 @@ Variables can be used in the filename:
 
 Circular includes are detected and reported as errors. Nested includes are supported.
 
+### `@import`
+
+Like `@include`, but only imports definitions (`@let`, `@define`, `@fn`) without emitting DOM nodes. Use this for shared theme/component libraries.
+
+```
+@import theme.hl     -- imports variables, defines, functions only
+@include header.hl   -- inlines everything including DOM nodes
+```
+
+### `@meta`
+
+Adds a `<meta>` tag to the document `<head>`. Requires `@page`.
+
+```
+@meta description A portfolio site
+@meta og:image https://example.com/preview.png
+```
+
+### `@head`
+
+Adds raw content to the document `<head>`. Use for external fonts, favicons, or custom CSS/JS.
+
+```
+@head
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">
+```
+
 ### `@define`
 
 Creates a named attribute bundle. Referenced with `$name` inside attribute lists.
@@ -146,10 +174,10 @@ Attributes listed after `$name` override those in the definition.
 
 ### `@fn`
 
-Defines a pure function (reusable component). Parameters are prefixed with `$`.
+Defines a pure function (reusable component). Parameters are prefixed with `$`. Default values can be specified with `=`.
 
 ```
-@fn card $title
+@fn card $title $variant=primary
   @el [padding 20, background white, rounded 8, border 1 #e5e7eb]
     @text [bold, size 18] $title
     @children
@@ -161,7 +189,12 @@ Call it like any element, passing parameters in `[...]`:
 @card [title Hello World]
   This is the card body.
   @text [italic] With styled text.
+
+@card [title Warning, variant danger]
+  Overridden variant.
 ```
+
+Parameters with defaults can be omitted in calls — the default value is used.
 
 ### `@children`
 
@@ -261,6 +294,18 @@ Triple-quoted block pasted verbatim into output. Use for arbitrary HTML, CSS, or
 """
 ```
 
+## Units
+
+All numeric values default to pixels. You can use CSS units explicitly:
+
+```
+@el [width 50%, height 100vh, padding 2rem, max-width 80ch, size 1.2em]
+```
+
+Supported units: `%`, `rem`, `em`, `vh`, `vw`, `vmin`, `vmax`, `dvh`, `svh`, `ch`, `ex`, `cm`, `mm`, `in`, `pt`, `pc`, `fr`.
+
+`var()` and `calc()` expressions are also passed through as-is.
+
 ## Attributes reference
 
 ### Layout (set on parent)
@@ -268,6 +313,7 @@ Triple-quoted block pasted verbatim into output. Use for arbitrary HTML, CSS, or
 | Attribute              | Effect                           |
 |------------------------|----------------------------------|
 | `spacing N`            | Gap between children             |
+| `gap N`               | Alias for `spacing`              |
 | `gap-x N`             | Horizontal gap (column-gap)      |
 | `gap-y N`             | Vertical gap (row-gap)           |
 | `padding N`            | Uniform padding                  |
@@ -310,6 +356,10 @@ Triple-quoted block pasted verbatim into output. Use for arbitrary HTML, CSS, or
 | `background COLOR`     | Background color                 |
 | `color COLOR`          | Text color                       |
 | `border N COLOR`       | Border width and color           |
+| `border-top N COLOR`   | Top border                       |
+| `border-bottom N COLOR`| Bottom border                    |
+| `border-left N COLOR`  | Left border                      |
+| `border-right N COLOR` | Right border                     |
 | `rounded N`            | Border radius                    |
 | `shadow VALUE`         | Box shadow (CSS value)           |
 | `bold`                 | Bold text                        |
@@ -319,12 +369,23 @@ Triple-quoted block pasted verbatim into output. Use for arbitrary HTML, CSS, or
 | `font NAME`            | Font family                      |
 | `text-align VALUE`     | Text alignment (left/center/right/justify) |
 | `line-height VALUE`    | Line height (unitless or px)     |
+| `letter-spacing N`     | Letter spacing                   |
+| `text-transform VALUE` | Transform (uppercase/lowercase/capitalize) |
+| `white-space VALUE`    | White-space (nowrap/pre/normal)  |
 | `transition VALUE`     | CSS transition                   |
 | `cursor VALUE`         | Cursor style                     |
 | `opacity VALUE`        | Opacity (0–1)                    |
 | `overflow VALUE`       | Overflow (hidden/scroll/auto/visible) |
 | `position VALUE`       | Position (relative/absolute/fixed/sticky) |
+| `top N`                | Top offset (positioned elements) |
+| `right N`              | Right offset                     |
+| `bottom N`             | Bottom offset                    |
+| `left N`               | Left offset                      |
 | `z-index N`            | Stack order                      |
+| `display VALUE`        | Display mode (none/block/flex/grid) |
+| `visibility VALUE`     | Visibility (visible/hidden)      |
+| `transform VALUE`      | CSS transform (e.g., rotate(45deg)) |
+| `backdrop-filter VALUE`| Backdrop filter (e.g., blur(10px)) |
 
 ### Pseudo-states
 
@@ -337,11 +398,16 @@ Prefix any style attribute with `hover:`, `active:`, or `focus:` to apply it on 
 
 All style attributes support state prefixes: `hover:color`, `active:rounded`, `focus:border`, etc.
 
-### Flow
+### Flow & Grid
 
 | Attribute              | Effect                           |
 |------------------------|----------------------------------|
 | `wrap`                 | Enable flex-wrap (on `@row`)     |
+| `grid`                 | Enable CSS grid layout           |
+| `grid-cols N`          | Grid template columns (N equal)  |
+| `grid-rows N`          | Grid template rows (N equal)     |
+| `col-span N`           | Span N columns in grid           |
+| `row-span N`           | Span N rows in grid              |
 
 ### Identity
 
@@ -354,11 +420,13 @@ All style attributes support state prefixes: `hover:color`, `active:rounded`, `f
 
 ```
 htmlang page.hl              # compile page.hl → page.html
+htmlang site/                # compile all .hl files in directory
 htmlang --watch page.hl      # compile and watch for changes
 htmlang -w page.hl           # short form
+htmlang --serve site/        # serve a multi-page site with hot reload
 ```
 
-Watch mode recompiles automatically when the source file or any `@include`d files change.
+Watch mode recompiles automatically when the source file or any `@include`d/`@import`ed files change.
 
 ## Compilation target
 

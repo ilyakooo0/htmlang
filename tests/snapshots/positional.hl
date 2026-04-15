@@ -1,0 +1,6 @@
+@page Positional
+@el [position relative, width 300, height 300]
+  @el [position absolute, top 0, right 0, width 40, height 40, background red]
+    @text X
+  @el [position absolute, bottom 10, left 10, background blue]
+    @text Y

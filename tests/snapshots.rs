@@ -137,6 +137,41 @@ fn snapshot_accessibility() {
     snapshot_test("accessibility");
 }
 
+#[test]
+fn snapshot_css_units() {
+    snapshot_test("css_units");
+}
+
+#[test]
+fn snapshot_positional() {
+    snapshot_test("positional");
+}
+
+#[test]
+fn snapshot_else_if() {
+    snapshot_test("else_if");
+}
+
+#[test]
+fn snapshot_meta_head() {
+    snapshot_test("meta_head");
+}
+
+#[test]
+fn snapshot_extra_css() {
+    snapshot_test("extra_css");
+}
+
+#[test]
+fn snapshot_fn_defaults() {
+    snapshot_test("fn_defaults");
+}
+
+#[test]
+fn snapshot_each_index() {
+    snapshot_test("each_index");
+}
+
 // ---------------------------------------------------------------------------
 // Error case tests
 // ---------------------------------------------------------------------------
@@ -258,6 +293,54 @@ fn warning_fill_outside_row() {
         "expected fill context warning, got: {:?}",
         diags
     );
+}
+
+#[test]
+fn error_else_if_without_if() {
+    let diags = parse_diagnostics("@else if $x == 1");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.message.contains("@else without matching @if")),
+        "expected @else error, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn else_if_chain() {
+    let output = compile("@let x 2\n@if $x == 1\n  @text one\n@else if $x == 2\n  @text two\n@else\n  @text other");
+    assert!(output.contains("two"));
+    assert!(!output.contains("one"));
+    assert!(!output.contains("other"));
+}
+
+#[test]
+fn fn_default_used() {
+    let output = compile("@fn test $x=hello\n  @text $x\n@test");
+    assert!(output.contains("hello"));
+}
+
+#[test]
+fn fn_default_overridden() {
+    let output = compile("@fn test $x=hello\n  @text $x\n@test [x world]");
+    assert!(output.contains("world"));
+    assert!(!output.contains("hello"));
+}
+
+#[test]
+fn each_with_index() {
+    let output = compile("@each $item, $i in a,b,c\n  @text $i");
+    assert!(output.contains("0"));
+    assert!(output.contains("1"));
+    assert!(output.contains("2"));
+}
+
+#[test]
+fn css_unit_passthrough() {
+    let output = compile("@page T\n@el [width 50%, padding 2rem]");
+    assert!(output.contains("width:50%"));
+    assert!(output.contains("padding:2rem"));
 }
 
 #[test]

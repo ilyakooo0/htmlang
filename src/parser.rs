@@ -60,11 +60,14 @@ struct Line {
 #[derive(Clone)]
 struct FnDef {
     params: Vec<String>,
+    defaults: HashMap<String, String>,
     body_lines: Vec<Line>,
 }
 
 struct ParseContext {
     page_title: Option<String>,
+    meta_tags: Vec<(String, String)>,
+    head_blocks: Vec<String>,
     variables: HashMap<String, String>,
     defines: HashMap<String, Vec<Attribute>>,
     functions: HashMap<String, FnDef>,
@@ -92,6 +95,8 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
     let mut parser = Parser { lines, pos: 0 };
     let mut ctx = ParseContext {
         page_title: None,
+        meta_tags: Vec::new(),
+        head_blocks: Vec::new(),
         variables: HashMap::new(),
         defines: HashMap::new(),
         functions: HashMap::new(),
@@ -109,6 +114,8 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
     ParseResult {
         document: Document {
             page_title: ctx.page_title,
+            meta_tags: ctx.meta_tags,
+            head_blocks: ctx.head_blocks,
             variables: ctx.variables,
             defines: ctx.defines,
             keyframes: ctx.keyframes,
@@ -296,6 +303,38 @@ impl Parser {
             return Ok(None);
         }
 
+        if let Some(rest) = content.strip_prefix("@meta ") {
+            let rest = rest.trim();
+            if let Some((name, value)) = rest.split_once(' ') {
+                let value = substitute_vars(value.trim(), &ctx.variables);
+                ctx.meta_tags.push((name.trim().to_string(), value));
+            }
+            return Ok(None);
+        }
+
+        if content.strip_prefix("@head").is_some() {
+            // Collect indented body lines as raw head content
+            let mut head_content = String::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                match &self.lines[self.pos].content {
+                    LineContent::Normal(s) => {
+                        head_content.push_str(s.trim());
+                        head_content.push('\n');
+                    }
+                    LineContent::Raw(s) => {
+                        head_content.push_str(s);
+                        head_content.push('\n');
+                    }
+                }
+                self.pos += 1;
+            }
+            let trimmed = head_content.trim().to_string();
+            if !trimmed.is_empty() {
+                ctx.head_blocks.push(trimmed);
+            }
+            return Ok(None);
+        }
+
         if let Some(rest) = content.strip_prefix("@define ") {
             let rest = rest.trim();
             if let Some(bracket_start) = rest.find('[') {
@@ -363,6 +402,63 @@ impl Parser {
             return Ok(Some(nodes));
         }
 
+        // --- @import (definitions only, no DOM nodes) ---
+
+        if let Some(rest) = content.strip_prefix("@import ") {
+            let filename = substitute_vars(rest.trim(), &ctx.variables);
+            let resolved = match &ctx.base_path {
+                Some(base) => base.join(&filename),
+                None => PathBuf::from(&filename),
+            };
+
+            if ctx.include_stack.contains(&resolved) {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    message: format!("circular import '{}'", filename),
+                    severity: Severity::Error,
+                    source_line: Some(content.clone()),
+                });
+                return Ok(None);
+            }
+
+            let imported_text = if let Some(cached) = ctx.file_cache.get(&resolved) {
+                cached.clone()
+            } else {
+                match std::fs::read_to_string(&resolved) {
+                    Ok(text) => {
+                        ctx.file_cache.insert(resolved.clone(), text.clone());
+                        text
+                    }
+                    Err(e) => {
+                        ctx.diagnostics.push(Diagnostic {
+                            line: line_num,
+                            message: format!("cannot import '{}': {}", filename, e),
+                            severity: Severity::Error,
+                            source_line: Some(content.clone()),
+                        });
+                        return Ok(None);
+                    }
+                }
+            };
+
+            ctx.included_files.push(resolved.clone());
+            ctx.include_stack.push(resolved.clone());
+            let saved_base = ctx.base_path.clone();
+            ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
+
+            // Parse the file but discard DOM nodes — only keep definitions
+            let imported_lines = preprocess(&imported_text);
+            let mut imported_parser = Parser {
+                lines: imported_lines,
+                pos: 0,
+            };
+            let _discarded_nodes = imported_parser.parse_children(0, ctx);
+
+            ctx.base_path = saved_base;
+            ctx.include_stack.pop();
+            return Ok(None); // No nodes emitted
+        }
+
         // --- @if / @else ---
 
         if let Some(rest) = content.strip_prefix("@if ") {
@@ -377,23 +473,55 @@ impl Parser {
                 self.pos += 1;
             }
 
-            // Check for @else at same indent
-            let mut else_lines = Vec::new();
-            if self.pos < self.lines.len() && self.lines[self.pos].indent == current_indent {
+            // Build branches: [(condition_result, body_lines), ...]
+            let mut branches: Vec<(bool, Vec<Line>)> = vec![(result, then_lines)];
+
+            // Check for @else if / @else chains at same indent
+            loop {
+                if self.pos >= self.lines.len() || self.lines[self.pos].indent != current_indent {
+                    break;
+                }
                 if let LineContent::Normal(ref s) = self.lines[self.pos].content {
-                    if s.trim() == "@else" {
-                        self.pos += 1; // consume @else
+                    let trimmed = s.trim();
+                    if let Some(else_if_cond) = trimmed.strip_prefix("@else if ") {
+                        self.pos += 1; // consume @else if
+                        let cond = substitute_vars(else_if_cond.trim(), &ctx.variables);
+                        let cond_result = evaluate_condition(&cond);
+                        let mut body = Vec::new();
                         while self.pos < self.lines.len()
                             && self.lines[self.pos].indent > current_indent
                         {
-                            else_lines.push(self.lines[self.pos].clone());
+                            body.push(self.lines[self.pos].clone());
                             self.pos += 1;
                         }
+                        branches.push((cond_result, body));
+                    } else if trimmed == "@else" {
+                        self.pos += 1; // consume @else
+                        let mut body = Vec::new();
+                        while self.pos < self.lines.len()
+                            && self.lines[self.pos].indent > current_indent
+                        {
+                            body.push(self.lines[self.pos].clone());
+                            self.pos += 1;
+                        }
+                        // @else is always true (fallback)
+                        branches.push((true, body));
+                        break;
+                    } else {
+                        break;
                     }
+                } else {
+                    break;
                 }
             }
 
-            let body_lines = if result { then_lines } else { else_lines };
+            // Pick the first branch whose condition is true
+            let body_lines = branches
+                .into_iter()
+                .find(|(cond, _)| *cond)
+                .map(|(_, lines)| lines)
+                .unwrap_or_default();
+
             if body_lines.is_empty() {
                 return Ok(None);
             }
@@ -416,7 +544,7 @@ impl Parser {
             return Ok(Some(nodes));
         }
 
-        if content.trim() == "@else" {
+        if content.trim() == "@else" || content.trim().starts_with("@else if ") {
             return Err(ParseError {
                 line: line_num,
                 message: "@else without matching @if".to_string(),
@@ -427,15 +555,25 @@ impl Parser {
 
         if let Some(rest) = content.strip_prefix("@each ") {
             let rest = rest.trim();
-            let parts: Vec<&str> = rest.splitn(3, ' ').collect();
-            if parts.len() < 3 || parts[1] != "in" {
+            // Support: @each $var in list  OR  @each $var, $index in list
+            let (var_name, index_var, list_str) = if let Some((before_in, after_in)) = rest.split_once(" in ") {
+                let before_in = before_in.trim();
+                if let Some((var_part, idx_part)) = before_in.split_once(',') {
+                    let var = var_part.trim().strip_prefix('$').unwrap_or(var_part.trim()).to_string();
+                    let idx = idx_part.trim().strip_prefix('$').unwrap_or(idx_part.trim()).to_string();
+                    (var, Some(idx), after_in.trim().to_string())
+                } else {
+                    let var = before_in.strip_prefix('$').unwrap_or(before_in).to_string();
+                    (var, None, after_in.trim().to_string())
+                }
+            } else {
                 return Err(ParseError {
                     line: line_num,
                     message: "@each requires: @each $var in list".to_string(),
                 });
-            }
-            let var_name = parts[0].strip_prefix('$').unwrap_or(parts[0]).to_string();
-            let list_str = substitute_vars(parts[2], &ctx.variables);
+            };
+
+            let list_str = substitute_vars(&list_str, &ctx.variables);
             let items: Vec<String> = list_str
                 .split(',')
                 .map(|s| s.trim().to_string())
@@ -466,8 +604,11 @@ impl Parser {
             let saved_vars = ctx.variables.clone();
             let mut all_nodes = Vec::new();
 
-            for item in &items {
+            for (i, item) in items.iter().enumerate() {
                 ctx.variables.insert(var_name.clone(), item.clone());
+                if let Some(ref idx_name) = index_var {
+                    ctx.variables.insert(idx_name.clone(), i.to_string());
+                }
                 let mut body_parser = Parser {
                     lines: adjusted.clone(),
                     pos: 0,
@@ -514,10 +655,17 @@ impl Parser {
                 });
             }
             let name = parts[0].to_string();
-            let params: Vec<String> = parts[1..]
-                .iter()
-                .map(|p| p.strip_prefix('$').unwrap_or(p).to_string())
-                .collect();
+            let mut params = Vec::new();
+            let mut defaults = HashMap::new();
+            for part in &parts[1..] {
+                let part = part.strip_prefix('$').unwrap_or(part);
+                if let Some((param_name, default_val)) = part.split_once('=') {
+                    params.push(param_name.to_string());
+                    defaults.insert(param_name.to_string(), default_val.to_string());
+                } else {
+                    params.push(part.to_string());
+                }
+            }
 
             // Collect body lines (all lines indented deeper than @fn)
             let mut body_lines = Vec::new();
@@ -526,7 +674,7 @@ impl Parser {
                 self.pos += 1;
             }
 
-            ctx.functions.insert(name, FnDef { params, body_lines });
+            ctx.functions.insert(name, FnDef { params, defaults, body_lines });
             return Ok(None);
         }
 
@@ -600,6 +748,7 @@ impl Parser {
                 .find(|a| a.key == *param)
                 .and_then(|a| a.value.clone())
                 .or_else(|| args.get(i).and_then(|a| a.value.clone()))
+                .or_else(|| fn_def.defaults.get(param).cloned())
                 .unwrap_or_default();
             ctx.variables.insert(param.clone(), value);
         }
@@ -771,7 +920,8 @@ const KNOWN_ELEMENTS: &[&str] = &[
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
-    "page", "let", "define", "fn", "include", "raw", "keyframes", "if", "else", "each",
+    "page", "let", "define", "fn", "include", "import", "raw", "keyframes",
+    "if", "else", "each", "meta", "head",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -849,15 +999,22 @@ fn suggest_closest<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
 
 const KNOWN_ATTRS: &[&str] = &[
     // Layout
-    "spacing", "padding", "padding-x", "padding-y",
+    "spacing", "gap", "padding", "padding-x", "padding-y",
     "width", "height", "min-width", "max-width", "min-height", "max-height",
     "center-x", "center-y", "align-left", "align-right", "align-top", "align-bottom",
     // Style
-    "background", "color", "border", "rounded",
-    "bold", "italic", "underline",
+    "background", "color", "border", "border-top", "border-bottom", "border-left", "border-right",
+    "rounded", "bold", "italic", "underline",
     "size", "font", "transition", "cursor", "opacity",
-    "text-align", "line-height", "overflow", "position", "z-index", "shadow",
+    "text-align", "line-height", "letter-spacing", "text-transform", "white-space",
+    "overflow", "position", "top", "right", "bottom", "left", "z-index", "shadow",
     "wrap", "gap-x", "gap-y",
+    // Display & visibility
+    "display", "visibility",
+    // Transform & filters
+    "transform", "backdrop-filter",
+    // Grid
+    "grid", "grid-cols", "grid-rows", "col-span", "row-span",
     // Identity
     "id", "class",
     // Animation
@@ -870,12 +1027,24 @@ const KNOWN_ATTRS: &[&str] = &[
     "alt", "role", "tabindex", "title",
 ];
 
-/// Attributes that expect purely numeric values (px-based).
+/// Attributes that expect purely numeric values (px-based) or values with CSS units.
 const NUMERIC_ATTRS: &[&str] = &[
-    "spacing", "padding", "padding-x", "padding-y",
+    "spacing", "gap", "padding", "padding-x", "padding-y",
     "min-width", "max-width", "min-height", "max-height",
     "rounded", "size", "gap-x", "gap-y",
+    "top", "right", "bottom", "left", "letter-spacing",
 ];
+
+const CSS_UNIT_SUFFIXES: &[&str] = &[
+    "%", "rem", "em", "vh", "vw", "vmin", "vmax", "dvh", "svh", "lvh",
+    "ch", "ex", "cm", "mm", "in", "pt", "pc", "fr",
+];
+
+fn has_css_unit(value: &str) -> bool {
+    CSS_UNIT_SUFFIXES.iter().any(|u| value.ends_with(u))
+        || value.starts_with("var(")
+        || value.starts_with("calc(")
+}
 
 /// Attributes that accept numeric OR keyword values.
 const NUMERIC_OR_KEYWORD_ATTRS: &[&str] = &["width", "height"];
@@ -897,13 +1066,13 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
 
     if let Some(val) = &attr.value {
         if NUMERIC_ATTRS.contains(&base_key) {
-            // All space-separated parts must be numeric (for padding with multiple values)
+            // All space-separated parts must be numeric or have a CSS unit
             for part in val.split_whitespace() {
-                if part.parse::<f64>().is_err() {
+                if part.parse::<f64>().is_err() && !has_css_unit(part) {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
                         message: format!(
-                            "'{}' expects a numeric value, got '{}'",
+                            "'{}' expects a numeric value (with optional unit), got '{}'",
                             attr.key, val
                         ),
                         severity: Severity::Warning,
@@ -915,7 +1084,8 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
         } else if NUMERIC_OR_KEYWORD_ATTRS.contains(&base_key) {
             let is_keyword = SIZE_KEYWORDS.contains(&val.as_str());
             let is_numeric = val.parse::<f64>().is_ok();
-            if !is_keyword && !is_numeric {
+            let has_unit = has_css_unit(val);
+            if !is_keyword && !is_numeric && !has_unit {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
                     message: format!(

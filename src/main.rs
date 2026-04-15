@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process;
 
-fn compile(input_path: &str, dev: bool) -> (bool, Vec<PathBuf>) {
+fn compile(input_path: &str, dev: bool, error_overlay: bool) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
@@ -33,13 +33,19 @@ fn compile(input_path: &str, dev: bool) -> (bool, Vec<PathBuf>) {
         .iter()
         .any(|d| d.severity == htmlang::parser::Severity::Error);
 
-    if !has_errors {
+    let out_path = Path::new(input_path).with_extension("html");
+
+    if has_errors {
+        if error_overlay {
+            let error_html = generate_error_overlay(&result.diagnostics, input_path);
+            let _ = fs::write(&out_path, &error_html);
+        }
+    } else {
         let html = if dev {
             htmlang::codegen::generate_dev(&result.document)
         } else {
             htmlang::codegen::generate(&result.document)
         };
-        let out_path = Path::new(input_path).with_extension("html");
         match fs::write(&out_path, &html) {
             Ok(()) => eprintln!("wrote {}", out_path.display()),
             Err(e) => eprintln!("error: {}: {}", out_path.display(), e),
@@ -49,12 +55,48 @@ fn compile(input_path: &str, dev: bool) -> (bool, Vec<PathBuf>) {
     (has_errors, result.included_files)
 }
 
+fn generate_error_overlay(diagnostics: &[htmlang::parser::Diagnostic], file: &str) -> String {
+    let mut errors = String::new();
+    for d in diagnostics {
+        let prefix = match d.severity {
+            htmlang::parser::Severity::Error => "error",
+            htmlang::parser::Severity::Warning => "warning",
+        };
+        let escaped = d.message
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        errors.push_str(&format!(
+            "<div class=\"entry\"><span class=\"badge {}\">{}</span> line {}: {}</div>",
+            prefix, prefix, d.line, escaped
+        ));
+    }
+    format!(
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>Build Error</title><style>
+*{{margin:0;box-sizing:border-box}}
+body{{background:#1a1a2e;color:#eee;font-family:ui-monospace,monospace;padding:2rem}}
+h1{{color:#ff6b6b;margin-bottom:1rem;font-size:1.5rem}}
+.file{{color:#888;margin-bottom:1.5rem;font-size:0.9rem}}
+.entry{{padding:0.5rem 0;border-bottom:1px solid #333}}
+.badge{{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.8rem;margin-right:8px}}
+.badge.error{{background:#c0392b;color:white}}
+.badge.warning{{background:#f39c12;color:white}}
+</style></head><body>
+<h1>Build Error</h1>
+<div class="file">{file}</div>
+{errors}
+</body></html>"#,
+        file = file,
+        errors = errors,
+    )
+}
+
 fn print_help() {
     eprintln!(
         "\
 htmlang {} - a minimalist layout language that compiles to static HTML
 
-Usage: htmlang [options] <file.hl>
+Usage: htmlang [options] <file.hl | directory>
 
 Options:
   -w, --watch       Watch for changes and recompile
@@ -66,8 +108,10 @@ Options:
 
 Examples:
   htmlang page.hl           Compile page.hl to page.html
+  htmlang site/             Compile all .hl files in directory
   htmlang -w page.hl        Recompile on file changes
   htmlang -s page.hl        Start dev server with hot reload
+  htmlang -s site/          Serve a multi-page site
   htmlang -s -p 8080 page.hl",
         env!("CARGO_PKG_VERSION")
     );
@@ -130,7 +174,55 @@ fn main() {
         }
     };
 
-    let (has_errors, included_files) = compile(&input_path, dev);
+    let is_dir = Path::new(&input_path).is_dir();
+
+    // --- Directory mode: compile all .hl files ---
+    if is_dir {
+        let dir = Path::new(&input_path);
+        let hl_files = collect_hl_files(dir);
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", input_path);
+            process::exit(1);
+        }
+
+        let mut any_errors = false;
+        let mut all_included: Vec<PathBuf> = Vec::new();
+        for file in &hl_files {
+            let path_str = file.to_string_lossy().to_string();
+            let (has_errors, included) = compile(&path_str, dev, serve);
+            if has_errors {
+                any_errors = true;
+            }
+            all_included.extend(included);
+        }
+
+        if !watch {
+            if any_errors {
+                process::exit(1);
+            }
+            return;
+        }
+
+        // For directory serve mode, serve the directory with index.html
+        let reload_tx = if serve {
+            let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
+            let index_path = dir.join("index.html");
+            let server_tx = tx.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
+                rt.block_on(htmlang::serve::run(port, index_path, server_tx));
+            });
+            Some(tx)
+        } else {
+            None
+        };
+
+        watch_loop(dir, &hl_files, &all_included, dev, serve, reload_tx);
+        return;
+    }
+
+    // --- Single file mode ---
+    let (has_errors, included_files) = compile(&input_path, dev, serve);
 
     if !watch {
         if has_errors {
@@ -153,7 +245,39 @@ fn main() {
         None
     };
 
-    // Watch mode
+    let files = vec![PathBuf::from(&input_path)];
+    watch_loop(
+        Path::new(&input_path).parent().unwrap_or(Path::new(".")),
+        &files,
+        &included_files,
+        dev,
+        serve,
+        reload_tx,
+    );
+}
+
+fn collect_hl_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |e| e == "hl") {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+fn watch_loop(
+    watch_dir: &Path,
+    source_files: &[PathBuf],
+    included_files: &[PathBuf],
+    dev: bool,
+    serve: bool,
+    reload_tx: Option<tokio::sync::broadcast::Sender<()>>,
+) {
     use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
     use std::sync::mpsc;
 
@@ -168,18 +292,22 @@ fn main() {
     )
     .expect("failed to create file watcher");
 
-    let input_canonical =
-        fs::canonicalize(&input_path).unwrap_or_else(|_| PathBuf::from(&input_path));
-    watcher
-        .watch(&input_canonical, RecursiveMode::NonRecursive)
-        .expect("failed to watch file");
-
-    for inc in &included_files {
+    // Watch all source files
+    for file in source_files {
+        let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+        watcher
+            .watch(&canonical, RecursiveMode::NonRecursive)
+            .unwrap_or_else(|_| eprintln!("warning: could not watch {}", file.display()));
+    }
+    for inc in included_files {
         let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
     }
 
+    // Also watch the directory itself for new files
+    let _ = watcher.watch(watch_dir, RecursiveMode::NonRecursive);
+
     if serve {
-        eprintln!("watching for changes at http://127.0.0.1:{port}");
+        eprintln!("watching for changes at http://127.0.0.1:3000");
     } else {
         eprintln!("watching for changes...");
     }
@@ -195,10 +323,13 @@ fn main() {
     }
 
     // Seed initial hashes
-    if let Some(h) = hash_file(&input_canonical) {
-        content_hashes.insert(input_canonical.clone(), h);
+    for file in source_files {
+        let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+        if let Some(h) = hash_file(&canonical) {
+            content_hashes.insert(canonical, h);
+        }
     }
-    for inc in &included_files {
+    for inc in included_files {
         if let Some(h) = hash_file(inc) {
             content_hashes.insert(inc.clone(), h);
         }
@@ -224,12 +355,22 @@ fn main() {
                     false
                 };
 
-                if check_path(&input_canonical, &mut content_hashes) {
-                    any_changed = true;
-                }
-                for inc in &included_files {
-                    if check_path(inc, &mut content_hashes) {
+                for file in source_files {
+                    let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+                    if check_path(&canonical, &mut content_hashes) {
                         any_changed = true;
+                    }
+                }
+
+                // Check for new .hl files in directory
+                if watch_dir.is_dir() {
+                    let current_files = collect_hl_files(watch_dir);
+                    for file in &current_files {
+                        let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+                        if check_path(&canonical, &mut content_hashes) {
+                            any_changed = true;
+                            let _ = watcher.watch(&canonical, RecursiveMode::NonRecursive);
+                        }
                     }
                 }
 
@@ -238,12 +379,29 @@ fn main() {
                 }
 
                 eprintln!("\nrecompiling...");
-                let (_, new_includes) = compile(&input_path, dev);
 
-                for inc in &new_includes {
-                    let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
-                    if let Some(h) = hash_file(inc) {
-                        content_hashes.insert(inc.clone(), h);
+                // Recompile all source files
+                for file in source_files {
+                    let path_str = file.to_string_lossy().to_string();
+                    let (_, new_includes) = compile(&path_str, dev, serve);
+                    for inc in &new_includes {
+                        let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
+                        if let Some(h) = hash_file(inc) {
+                            content_hashes.insert(inc.clone(), h);
+                        }
+                    }
+                }
+
+                // Also compile any new .hl files in directory mode
+                if watch_dir.is_dir() {
+                    for file in &collect_hl_files(watch_dir) {
+                        if !source_files.contains(file) {
+                            let path_str = file.to_string_lossy().to_string();
+                            let (_, new_includes) = compile(&path_str, dev, serve);
+                            for inc in &new_includes {
+                                let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
+                            }
+                        }
                     }
                 }
 

@@ -203,6 +203,43 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
         }
     }
 
+    // Build meta tags string
+    let meta_html = if doc.meta_tags.is_empty() {
+        String::new()
+    } else {
+        let mut m = String::new();
+        for (name, content) in &doc.meta_tags {
+            if dev {
+                m.push_str(&format!(
+                    "<meta name=\"{}\" content=\"{}\">\n",
+                    html_escape(name),
+                    html_escape(content)
+                ));
+            } else {
+                m.push_str(&format!(
+                    "<meta name=\"{}\" content=\"{}\">",
+                    html_escape(name),
+                    html_escape(content)
+                ));
+            }
+        }
+        m
+    };
+
+    // Build head blocks string
+    let head_html = if doc.head_blocks.is_empty() {
+        String::new()
+    } else {
+        let mut h = String::new();
+        for block in &doc.head_blocks {
+            h.push_str(block);
+            if dev {
+                h.push('\n');
+            }
+        }
+        h
+    };
+
     match &doc.page_title {
         Some(title) => {
             if dev {
@@ -214,6 +251,7 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
 <meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
 <title>{title}</title>
+{meta_html}{head_html}\
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
@@ -227,13 +265,17 @@ img {{ display: block; }}
 </html>
 ",
                     title = html_escape(title),
+                    meta_html = meta_html,
+                    head_html = head_html,
                     element_css = element_css,
                     body = body,
                 )
             } else {
                 format!(
-                    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title><style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
+                    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{meta_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{element_css}</style></head><body>{body}</body></html>",
                     title = html_escape(title),
+                    meta_html = meta_html,
+                    head_html = head_html,
                     element_css = element_css,
                     body = body,
                 )
@@ -595,51 +637,26 @@ fn attrs_to_css(
 
         match effective_key {
             // Layout
-            "spacing" => {
+            "spacing" | "gap" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "gap", &format!("{}px", v));
+                    push_css(&mut css, "gap", &css_px(v));
                 }
             }
             "padding" => {
                 if let Some(v) = val {
-                    let parts: Vec<&str> = v.split_whitespace().collect();
-                    match parts.len() {
-                        1 => push_css(&mut css, "padding", &format!("{}px", parts[0])),
-                        2 => push_css(
-                            &mut css,
-                            "padding",
-                            &format!("{}px {}px", parts[0], parts[1]),
-                        ),
-                        3 => push_css(
-                            &mut css,
-                            "padding",
-                            &format!(
-                                "{}px {}px {}px",
-                                parts[0], parts[1], parts[2]
-                            ),
-                        ),
-                        4 => push_css(
-                            &mut css,
-                            "padding",
-                            &format!(
-                                "{}px {}px {}px {}px",
-                                parts[0], parts[1], parts[2], parts[3]
-                            ),
-                        ),
-                        _ => {}
-                    }
+                    push_css(&mut css, "padding", &css_px_multi(v));
                 }
             }
             "padding-x" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "padding-left", &format!("{}px", v));
-                    push_css(&mut css, "padding-right", &format!("{}px", v));
+                    push_css(&mut css, "padding-left", &css_px(v));
+                    push_css(&mut css, "padding-right", &css_px(v));
                 }
             }
             "padding-y" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "padding-top", &format!("{}px", v));
-                    push_css(&mut css, "padding-bottom", &format!("{}px", v));
+                    push_css(&mut css, "padding-top", &css_px(v));
+                    push_css(&mut css, "padding-bottom", &css_px(v));
                 }
             }
 
@@ -655,7 +672,7 @@ fn attrs_to_css(
                             _ => push_css(&mut css, "width", "100%"),
                         },
                         "shrink" => push_css(&mut css, "flex-shrink", "0"),
-                        _ => push_css(&mut css, "width", &format!("{}px", v)),
+                        _ => push_css(&mut css, "width", &css_px(v)),
                     }
                 }
             }
@@ -670,28 +687,28 @@ fn attrs_to_css(
                             _ => push_css(&mut css, "height", "100%"),
                         },
                         "shrink" => push_css(&mut css, "flex-shrink", "0"),
-                        _ => push_css(&mut css, "height", &format!("{}px", v)),
+                        _ => push_css(&mut css, "height", &css_px(v)),
                     }
                 }
             }
             "min-width" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "min-width", &format!("{}px", v));
+                    push_css(&mut css, "min-width", &css_px(v));
                 }
             }
             "max-width" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "max-width", &format!("{}px", v));
+                    push_css(&mut css, "max-width", &css_px(v));
                 }
             }
             "min-height" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "min-height", &format!("{}px", v));
+                    push_css(&mut css, "min-height", &css_px(v));
                 }
             }
             "max-height" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "max-height", &format!("{}px", v));
+                    push_css(&mut css, "max-height", &css_px(v));
                 }
             }
 
@@ -751,20 +768,38 @@ fn attrs_to_css(
                         push_css(
                             &mut css,
                             "border",
-                            &format!("{}px solid {}", parts[0], parts[1]),
+                            &format!("{} solid {}", css_px(parts[0]), parts[1]),
                         );
                     } else {
                         push_css(
                             &mut css,
                             "border",
-                            &format!("{}px solid currentColor", parts[0]),
+                            &format!("{} solid currentColor", css_px(parts[0])),
+                        );
+                    }
+                }
+            }
+            "border-top" | "border-bottom" | "border-left" | "border-right" => {
+                if let Some(v) = val {
+                    let parts: Vec<&str> = v.splitn(2, ' ').collect();
+                    if parts.len() == 2 {
+                        push_css(
+                            &mut css,
+                            effective_key,
+                            &format!("{} solid {}", css_px(parts[0]), parts[1]),
+                        );
+                    } else {
+                        push_css(
+                            &mut css,
+                            effective_key,
+                            &format!("{} solid currentColor", css_px(parts[0])),
                         );
                     }
                 }
             }
             "rounded" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "border-radius", &format!("{}px", v));
+                    push_css(&mut css, "border-radius", &css_px(v));
                 }
             }
             "bold" => push_css(&mut css, "font-weight", "bold"),
@@ -772,7 +807,7 @@ fn attrs_to_css(
             "underline" => push_css(&mut css, "text-decoration", "underline"),
             "size" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "font-size", &format!("{}px", v));
+                    push_css(&mut css, "font-size", &css_px(v));
                 }
             }
             "font" => {
@@ -807,6 +842,21 @@ fn attrs_to_css(
                     push_css(&mut css, "line-height", v);
                 }
             }
+            "letter-spacing" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "letter-spacing", &css_px(v));
+                }
+            }
+            "text-transform" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "text-transform", v);
+                }
+            }
+            "white-space" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "white-space", v);
+                }
+            }
 
             // Overflow & positioning
             "overflow" => {
@@ -819,9 +869,53 @@ fn attrs_to_css(
                     push_css(&mut css, "position", v);
                 }
             }
+            "top" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "top", &css_px(v));
+                }
+            }
+            "right" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "right", &css_px(v));
+                }
+            }
+            "bottom" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "bottom", &css_px(v));
+                }
+            }
+            "left" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "left", &css_px(v));
+                }
+            }
             "z-index" => {
                 if let Some(v) = val {
                     push_css(&mut css, "z-index", v);
+                }
+            }
+
+            // Display & visibility
+            "display" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "display", v);
+                }
+            }
+            "visibility" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "visibility", v);
+                }
+            }
+
+            // Transform & filters
+            "transform" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "transform", v);
+                }
+            }
+            "backdrop-filter" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "backdrop-filter", v);
                 }
             }
 
@@ -836,12 +930,45 @@ fn attrs_to_css(
             "wrap" => push_css(&mut css, "flex-wrap", "wrap"),
             "gap-x" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "column-gap", &format!("{}px", v));
+                    push_css(&mut css, "column-gap", &css_px(v));
                 }
             }
             "gap-y" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "row-gap", &format!("{}px", v));
+                    push_css(&mut css, "row-gap", &css_px(v));
+                }
+            }
+
+            // Grid
+            "grid" => {
+                push_css(&mut css, "display", "grid");
+            }
+            "grid-cols" => {
+                if let Some(v) = val {
+                    if let Ok(n) = v.parse::<u32>() {
+                        push_css(&mut css, "grid-template-columns", &format!("repeat({},1fr)", n));
+                    } else {
+                        push_css(&mut css, "grid-template-columns", v);
+                    }
+                }
+            }
+            "grid-rows" => {
+                if let Some(v) = val {
+                    if let Ok(n) = v.parse::<u32>() {
+                        push_css(&mut css, "grid-template-rows", &format!("repeat({},1fr)", n));
+                    } else {
+                        push_css(&mut css, "grid-template-rows", v);
+                    }
+                }
+            }
+            "col-span" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "grid-column", &format!("span {}", v));
+                }
+            }
+            "row-span" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "grid-row", &format!("span {}", v));
                 }
             }
 
@@ -871,6 +998,37 @@ fn push_css(css: &mut String, prop: &str, value: &str) {
     css.push(':');
     css.push_str(value);
     css.push(';');
+}
+
+/// Known CSS units — if a value ends with one, skip appending `px`.
+const CSS_UNITS: &[&str] = &[
+    "%", "rem", "em", "vh", "vw", "vmin", "vmax", "dvh", "svh", "lvh",
+    "ch", "ex", "cm", "mm", "in", "pt", "pc", "fr",
+];
+
+/// Format a numeric value: if it already has a CSS unit, pass through as-is;
+/// otherwise append `px`.
+fn css_px(value: &str) -> String {
+    let v = value.trim();
+    if v == "0" {
+        return "0".to_string();
+    }
+    if CSS_UNITS.iter().any(|u| v.ends_with(u)) {
+        return v.to_string();
+    }
+    if v.starts_with("var(") || v.starts_with("calc(") {
+        return v.to_string();
+    }
+    format!("{}px", v)
+}
+
+/// Format multiple space-separated values, each getting px if needed.
+fn css_px_multi(value: &str) -> String {
+    value
+        .split_whitespace()
+        .map(|p| css_px(p))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn extract_id_class(attrs: &[Attribute]) -> (Option<String>, Option<String>) {

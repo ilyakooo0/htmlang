@@ -4,6 +4,8 @@ use std::collections::HashMap;
 #[allow(dead_code)]
 pub struct Document {
     pub page_title: Option<String>,
+    pub meta_tags: Vec<(String, String)>,
+    pub head_blocks: Vec<String>,
     pub variables: HashMap<String, String>,
     pub defines: HashMap<String, Vec<Attribute>>,
     pub keyframes: Vec<(String, String)>,

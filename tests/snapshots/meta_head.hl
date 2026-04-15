@@ -1,0 +1,9 @@
+@page My Site
+@meta description A portfolio site
+@meta og:image https://example.com/preview.png
+
+@head
+  <link rel="icon" href="favicon.ico">
+
+@column [padding 20]
+  @text Hello

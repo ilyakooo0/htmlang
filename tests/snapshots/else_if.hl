@@ -1,0 +1,8 @@
+@let theme dark
+
+@if $theme == light
+  @text Light mode
+@else if $theme == dark
+  @text Dark mode
+@else
+  @text Unknown
