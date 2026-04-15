@@ -1,0 +1,11 @@
+@page Data Test
+@data test_data.json
+
+@text [bold, size 24] $title
+@text Version: $version
+
+@each $tag in $tags
+  @text [color blue] $tag
+
+@each $label, $url in $links
+  @link $url $label

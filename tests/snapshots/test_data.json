@@ -1,0 +1,10 @@
+{
+  "title": "My Site",
+  "version": "1.0",
+  "tags": ["rust", "html", "css"],
+  "links": [
+    {"label": "Home", "url": "/"},
+    {"label": "About", "url": "/about"},
+    {"label": "Contact", "url": "/contact"}
+  ]
+}

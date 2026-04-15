@@ -14,14 +14,10 @@ struct DiagnosticJson {
 }
 
 fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>) -> (bool, Vec<PathBuf>) {
-    compile_inner(input_path, dev, error_overlay, check_only, output_path, format_json, json_collector, false)
+    compile_inner(input_path, dev, error_overlay, check_only, output_path, format_json, json_collector, false, false)
 }
 
-fn compile_minified(input_path: &str, output_path: Option<&str>) -> (bool, Vec<PathBuf>) {
-    compile_inner(input_path, false, false, false, output_path, false, None, true)
-}
-
-fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>, minify: bool) -> (bool, Vec<PathBuf>) {
+fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>, minify: bool, compat: bool) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
@@ -90,12 +86,13 @@ fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: b
                 let _ = fs::write(&out_path, &error_html);
             }
         } else {
-            let html = if minify {
-                htmlang::codegen::generate_minified(&result.document)
-            } else if dev {
-                htmlang::codegen::generate_dev(&result.document)
-            } else {
-                htmlang::codegen::generate(&result.document)
+            let html = match (minify, dev, compat) {
+                (true, _, true) => htmlang::codegen::generate_minified_compat(&result.document),
+                (true, _, false) => htmlang::codegen::generate_minified(&result.document),
+                (false, true, true) => htmlang::codegen::generate_dev_compat(&result.document),
+                (false, true, false) => htmlang::codegen::generate_dev(&result.document),
+                (false, false, true) => htmlang::codegen::generate_compat(&result.document),
+                (false, false, false) => htmlang::codegen::generate(&result.document),
             };
             match fs::write(&out_path, &html) {
                 Ok(()) => eprintln!("wrote {}", out_path.display()),
@@ -122,6 +119,11 @@ fn print_json_diagnostics(diagnostics: &[DiagnosticJson]) {
     }
     json.push_str("]}");
     println!("{}", json);
+}
+
+fn json_escape_string(s: &str) -> String {
+    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+    format!("\"{}\"", escaped)
 }
 
 fn kebab_to_title(s: &str) -> String {
@@ -247,6 +249,7 @@ Options:
   -o, --output <path>  Output file/directory path
   -d, --dev         Development mode
   -c, --check       Check for errors without writing output
+  --compat          Add vendor prefixes for broader browser support
   --format json     Output diagnostics as JSON to stdout
   -h, --help        Show this help
   -V, --version     Show version
@@ -677,6 +680,7 @@ fn main() {
     let mut dev = false;
     let mut check = false;
     let mut format_json = false;
+    let mut compat = false;
     let mut open_browser = false;
     let mut port: u16 = 3000;
     let mut output_path: Option<String> = None;
@@ -716,6 +720,7 @@ fn main() {
         let mut src_dir = None;
         let mut out_dir = None;
         let mut build_minify = false;
+        let mut build_compat = false;
         let mut i = 2;
         while i < args.len() {
             match args[i].as_str() {
@@ -724,6 +729,7 @@ fn main() {
                     out_dir = args.get(i).map(|s| s.as_str());
                 }
                 "--minify" => build_minify = true,
+                "--compat" => build_compat = true,
                 _ if src_dir.is_none() => src_dir = Some(args[i].as_str()),
                 _ => {
                     eprintln!("unknown argument: {}", args[i]);
@@ -782,8 +788,8 @@ fn main() {
                         }
                     }
                     let path_str = file.to_string_lossy().to_string();
-                    let (has_errors, _) = if build_minify {
-                        compile_minified(&path_str, effective_out.as_deref())
+                    let (has_errors, _) = if build_minify || build_compat {
+                        compile_inner(&path_str, false, false, false, effective_out.as_deref(), false, None, build_minify, build_compat)
                     } else {
                         compile(&path_str, false, false, false, effective_out.as_deref(), false, None)
                     };
@@ -832,13 +838,28 @@ fn main() {
 
     // Handle "lint" subcommand
     if args.len() >= 2 && args[1] == "lint" {
-        let target = if args.len() >= 3 { &args[2] } else { "." };
-        let path = Path::new(target);
+        let mut lint_target = ".";
+        let mut lint_json = false;
+        let mut i = 2;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--format" => {
+                    i += 1;
+                    if args.get(i).map(|s| s.as_str()) == Some("json") {
+                        lint_json = true;
+                    }
+                }
+                _ if lint_target == "." => lint_target = &args[i],
+                _ => {}
+            }
+            i += 1;
+        }
+        let path = Path::new(lint_target);
         let mut all_warnings = Vec::new();
         if path.is_dir() {
             let hl_files = collect_hl_files_recursive(path);
             if hl_files.is_empty() {
-                eprintln!("no .hl files found in {}", target);
+                eprintln!("no .hl files found in {}", lint_target);
                 process::exit(1);
             }
             for file in &hl_files {
@@ -846,9 +867,20 @@ fn main() {
                 all_warnings.extend(lint_file(&path_str));
             }
         } else {
-            all_warnings.extend(lint_file(target));
+            all_warnings.extend(lint_file(lint_target));
         }
-        if all_warnings.is_empty() {
+        if lint_json {
+            let mut json = String::from("{\"diagnostics\":[");
+            for (i, w) in all_warnings.iter().enumerate() {
+                if i > 0 { json.push(','); }
+                json.push_str(&format!(
+                    "{{\"severity\":\"warning\",\"message\":{}}}",
+                    json_escape_string(w)
+                ));
+            }
+            json.push_str("]}");
+            println!("{}", json);
+        } else if all_warnings.is_empty() {
             eprintln!("no issues found");
         } else {
             for w in &all_warnings {
@@ -1438,7 +1470,23 @@ fn main() {
 
     // Handle "dead-code" subcommand — project-wide unused definitions
     if args.len() >= 2 && args[1] == "dead-code" {
-        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let mut dc_json = false;
+        let mut dc_target = ".".to_string();
+        let mut i = 2;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--format" => {
+                    i += 1;
+                    if args.get(i).map(|s| s.as_str()) == Some("json") {
+                        dc_json = true;
+                    }
+                }
+                _ if dc_target == "." => dc_target = args[i].clone(),
+                _ => {}
+            }
+            i += 1;
+        }
+        let target = dc_target.as_str();
         let path = Path::new(target);
         let hl_files = if path.is_dir() {
             collect_hl_files_recursive(path)
@@ -1506,29 +1554,43 @@ fn main() {
             }
         }
         // Pass 2: report unused
-        let mut count = 0;
+        let mut unused: Vec<(String, String, String, usize)> = Vec::new(); // (kind, name, file, line)
         for (name, file, line) in &all_fn_defs {
             if !all_refs.contains(name) {
-                println!("unused @fn '{}' — {}:{}", name, file, line);
-                count += 1;
+                unused.push(("@fn".to_string(), name.clone(), file.clone(), *line));
             }
         }
         for (name, file, line) in &all_def_defs {
             if !all_refs.contains(name) {
-                println!("unused @define '{}' — {}:{}", name, file, line);
-                count += 1;
+                unused.push(("@define".to_string(), name.clone(), file.clone(), *line));
             }
         }
         for (name, file, line) in &all_let_defs {
             if !all_refs.contains(name) && !name.starts_with("--") {
-                println!("unused @let '{}' — {}:{}", name, file, line);
-                count += 1;
+                unused.push(("@let".to_string(), name.clone(), file.clone(), *line));
             }
         }
-        if count == 0 {
+        if dc_json {
+            let mut json = String::from("{\"unused\":[");
+            for (i, (kind, name, file, line)) in unused.iter().enumerate() {
+                if i > 0 { json.push(','); }
+                json.push_str(&format!(
+                    "{{\"kind\":{},\"name\":{},\"file\":{},\"line\":{}}}",
+                    json_escape_string(kind),
+                    json_escape_string(name),
+                    json_escape_string(file),
+                    line
+                ));
+            }
+            json.push_str("]}");
+            println!("{}", json);
+        } else if unused.is_empty() {
             eprintln!("no unused definitions found");
         } else {
-            eprintln!("\n{} unused definition(s) found", count);
+            for (kind, name, file, line) in &unused {
+                println!("unused {} '{}' — {}:{}", kind, name, file, line);
+            }
+            eprintln!("\n{} unused definition(s) found", unused.len());
         }
         return;
     }
@@ -2364,6 +2426,7 @@ compile();
             "--watch" | "-w" => watch = true,
             "--dev" | "-d" => dev = true,
             "--check" | "-c" => check = true,
+            "--compat" => compat = true,
             "--open" => open_browser = true,
             "--format" => {
                 i += 1;
@@ -2454,7 +2517,7 @@ compile();
                 }
                 out_p.to_string_lossy().to_string()
             });
-            let (has_errors, included) = compile(&path_str, dev, serve, check, effective_out.as_deref(), format_json, json_collector.as_ref());
+            let (has_errors, included) = compile_inner(&path_str, dev, serve, check, effective_out.as_deref(), format_json, json_collector.as_ref(), false, compat);
             if has_errors {
                 any_errors = true;
             }
@@ -2497,7 +2560,7 @@ compile();
 
     // --- Single file mode ---
     let json_collector_single = if format_json { Some(Mutex::new(Vec::new())) } else { None };
-    let (has_errors, included_files) = compile(&input_path, dev, serve, check, output_path.as_deref(), format_json, json_collector_single.as_ref());
+    let (has_errors, included_files) = compile_inner(&input_path, dev, serve, check, output_path.as_deref(), format_json, json_collector_single.as_ref(), false, compat);
     if format_json {
         if let Some(ref collector) = json_collector_single {
             print_json_diagnostics(&collector.lock().unwrap());

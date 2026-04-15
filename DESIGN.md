@@ -185,6 +185,39 @@ Like `@include`, but only imports definitions (`@let`, `@define`, `@fn`) without
 @include header.hl   -- inlines everything including DOM nodes
 ```
 
+### `@data`
+
+Loads a JSON file and makes its values available as template variables. Useful for data-driven static sites.
+
+```
+@data site.json              -- top-level object keys become variables
+@data $posts data/posts.json -- load with a prefix
+```
+
+For a JSON file like:
+```json
+{
+  "title": "My Site",
+  "tags": ["rust", "html", "css"],
+  "links": [
+    {"label": "Home", "url": "/"},
+    {"label": "About", "url": "/about"}
+  ]
+}
+```
+
+Without prefix (`@data site.json`):
+- `$title` → `"My Site"`
+- `$tags` → iterable with `@each`
+- `$links` → destructurable: `@each $label, $url in $links`
+
+With prefix (`@data $site site.json`):
+- `$site.title` → `"My Site"`
+- `$site.tags` → iterable
+- `$site.links` → destructurable
+
+Arrays of objects are automatically formatted for `@each` destructuring. Indexed access is also available: `$links.0.label`, `$links.1.url`, etc. The count is available as `$links._count`.
+
 ### `@meta`
 
 Adds a `<meta>` tag to the document `<head>`. Requires `@page`.
@@ -696,6 +729,39 @@ This generates a `@media print` rule.
 | `id NAME`              | HTML id attribute                |
 | `class NAME`           | HTML class attribute             |
 
+### Modern CSS
+
+| Attribute              | Effect                           |
+|------------------------|----------------------------------|
+| `color-scheme VALUE`   | Color scheme (`light`, `dark`, `light dark`) |
+| `appearance VALUE`     | Form element appearance (`none`) |
+
+### Popover API
+
+Use HTML Popover API attributes for declarative popovers without JavaScript.
+
+```
+@button [popovertarget info-panel] Show Info
+@el [popover, id info-panel, padding 20, background white, rounded 8]
+  @text This is a popover
+```
+
+| Attribute                     | Effect                          |
+|-------------------------------|---------------------------------|
+| `popover`                     | Make element a popover          |
+| `popovertarget ID`            | Open popover with given ID     |
+| `popovertargetaction VALUE`   | Action (toggle/show/hide)      |
+
+### Input hints
+
+| Attribute              | Effect                           |
+|------------------------|----------------------------------|
+| `inputmode VALUE`      | Virtual keyboard type (numeric/email/search/tel/url) |
+| `enterkeyhint VALUE`   | Enter key label (enter/done/go/next/previous/search/send) |
+| `fetchpriority VALUE`  | Resource priority (high/low/auto) |
+| `translate VALUE`      | Whether to translate (yes/no)    |
+| `spellcheck VALUE`     | Spell check (true/false)         |
+
 ## Asset inlining
 
 SVG images can be inlined directly into the HTML output using the `[inline]` attribute:
@@ -722,7 +788,10 @@ htmlang check page.hl        # check for errors without writing output
 htmlang check src/           # check all .hl files in a directory
 htmlang convert page.html    # convert HTML to .hl format (stdout)
 htmlang build src/ -o dist/  # parallel compile + copy static assets
+htmlang --compat page.hl     # compile with vendor prefixes
 htmlang --format json page.hl  # output diagnostics as JSON
+htmlang lint --format json src/  # lint with JSON output
+htmlang dead-code --format json src/  # dead code report as JSON
 htmlang lint page.hl         # stricter lint checks (accessibility, nesting)
 htmlang lint src/            # lint all .hl files in a directory
 htmlang stats page.hl        # show file statistics (elements, CSS, colors)

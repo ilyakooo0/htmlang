@@ -14,6 +14,19 @@ fn compile(input: &str) -> String {
     htmlang::codegen::generate(&result.document)
 }
 
+fn compile_with_base(input: &str, base: &Path) -> String {
+    let result = htmlang::parser::parse_with_base(input, Some(base));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != htmlang::parser::Severity::Error),
+        "unexpected parse errors: {:?}",
+        result.diagnostics
+    );
+    htmlang::codegen::generate(&result.document)
+}
+
 fn parse_diagnostics(input: &str) -> Vec<htmlang::parser::Diagnostic> {
     htmlang::parser::parse(input).diagnostics
 }
@@ -25,7 +38,7 @@ fn snapshot_test(name: &str) {
 
     let input = fs::read_to_string(&hl_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {}", hl_path.display(), e));
-    let actual = compile(&input);
+    let actual = compile_with_base(&input, &dir);
 
     if std::env::var("UPDATE_SNAPSHOTS").is_ok() {
         fs::write(&html_path, &actual).unwrap();
@@ -3223,4 +3236,66 @@ fn no_warning_input_in_label() {
         d.message.contains("should have an") && d.message.contains("@label")
     );
     assert!(!has_label_warning, "should not warn when input is inside @label");
+}
+
+// --- New feature tests ---
+
+#[test]
+fn snapshot_popover_api() {
+    snapshot_test("popover_api");
+}
+
+#[test]
+fn snapshot_new_html_attrs() {
+    snapshot_test("new_html_attrs");
+}
+
+#[test]
+fn snapshot_color_scheme() {
+    snapshot_test("color_scheme");
+}
+
+#[test]
+fn snapshot_data_directive() {
+    snapshot_test("data_directive");
+}
+
+#[test]
+fn test_popover_in_output() {
+    let html = compile("@button [popovertarget my-pop] Open\n@el [popover, id my-pop, padding 10]\n  Hello");
+    assert!(html.contains("popovertarget=\"my-pop\""), "should have popovertarget attr");
+    assert!(html.contains(" popover"), "should have popover boolean attr");
+}
+
+#[test]
+fn test_color_scheme_css() {
+    let html = compile("@el [color-scheme light dark]\n  Test");
+    assert!(html.contains("color-scheme:light dark"), "should generate color-scheme CSS");
+}
+
+#[test]
+fn test_appearance_css() {
+    let html = compile("@input [appearance none, padding 10]");
+    assert!(html.contains("appearance:none"), "should generate appearance CSS");
+}
+
+#[test]
+fn test_inputmode_attr() {
+    let html = compile("@input [type search, inputmode search]");
+    assert!(html.contains("inputmode=\"search\""), "should pass through inputmode");
+}
+
+#[test]
+fn test_fetchpriority_attr() {
+    let html = compile("@image [fetchpriority high, width 100] hero.jpg");
+    assert!(html.contains("fetchpriority=\"high\""), "should pass through fetchpriority");
+}
+
+#[test]
+fn test_compat_vendor_prefixes() {
+    let result = htmlang::parser::parse("@el [backdrop-filter blur(10px), user-select none]\n  Test");
+    let html = htmlang::codegen::generate_compat(&result.document);
+    assert!(html.contains("-webkit-backdrop-filter"), "should add webkit prefix for backdrop-filter");
+    assert!(html.contains("-webkit-user-select"), "should add webkit prefix for user-select");
+    assert!(html.contains("-moz-user-select"), "should add moz prefix for user-select");
 }

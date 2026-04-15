@@ -1,0 +1,9 @@
+@page Compat Test
+
+@el [backdrop-filter blur(10px), padding 20]
+  @text Frosted glass
+
+@el [user-select none, padding 10]
+  @text Cannot select this
+
+@input [appearance none, border 1 #ccc, rounded 4, padding 8]

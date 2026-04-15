@@ -368,6 +368,25 @@ pub fn generate_minified(doc: &Document) -> String {
     minify_html(&html)
 }
 
+/// Generate with vendor prefixes for broader browser compatibility.
+pub fn generate_compat(doc: &Document) -> String {
+    let html = generate_with_options(doc, false);
+    add_vendor_prefixes(&html)
+}
+
+/// Generate dev mode with vendor prefixes.
+pub fn generate_dev_compat(doc: &Document) -> String {
+    let html = generate_with_options(doc, true);
+    add_vendor_prefixes(&html)
+}
+
+/// Generate minified with vendor prefixes.
+pub fn generate_minified_compat(doc: &Document) -> String {
+    let html = generate_with_options(doc, false);
+    let html = minify_html(&html);
+    add_vendor_prefixes(&html)
+}
+
 fn minify_html(html: &str) -> String {
     let mut result = String::with_capacity(html.len());
     let mut in_pre = false;
@@ -446,6 +465,109 @@ fn minify_html(html: &str) -> String {
     }
 
     result
+}
+
+/// Add vendor prefixes to CSS within <style> tags for broader browser compatibility.
+fn add_vendor_prefixes(html: &str) -> String {
+    // Find CSS within <style>...</style> and add vendor prefixes
+    let mut result = String::with_capacity(html.len() + 512);
+    let mut rest = html;
+    while let Some(start) = rest.find("<style>") {
+        let after_tag = start + 7;
+        result.push_str(&rest[..after_tag]);
+        rest = &rest[after_tag..];
+        if let Some(end) = rest.find("</style>") {
+            let css = &rest[..end];
+            result.push_str(&prefix_css(css));
+            result.push_str("</style>");
+            rest = &rest[end + 8..];
+        } else {
+            break;
+        }
+    }
+    result.push_str(rest);
+    result
+}
+
+fn prefix_css(css: &str) -> String {
+    let mut out = String::with_capacity(css.len() + 256);
+    let mut i = 0;
+    let bytes = css.as_bytes();
+    while i < bytes.len() {
+        // Find property declarations
+        if let Some(pos) = css[i..].find('{') {
+            let brace = i + pos;
+            out.push_str(&css[i..=brace]);
+            i = brace + 1;
+            // Process declarations within this block
+            if let Some(close) = css[i..].find('}') {
+                let block = &css[i..i + close];
+                out.push_str(&prefix_declarations(block));
+                out.push('}');
+                i = i + close + 1;
+            }
+        } else {
+            out.push_str(&css[i..]);
+            break;
+        }
+    }
+    out
+}
+
+fn prefix_declarations(block: &str) -> String {
+    let mut out = String::with_capacity(block.len() + 128);
+    for decl in block.split(';') {
+        let decl = decl.trim();
+        if decl.is_empty() {
+            continue;
+        }
+        if let Some((prop, val)) = decl.split_once(':') {
+            let prop = prop.trim();
+            let val = val.trim();
+            match prop {
+                "backdrop-filter" => {
+                    out.push_str(&format!("-webkit-backdrop-filter:{};", val));
+                    out.push_str(&format!("backdrop-filter:{};", val));
+                }
+                "user-select" => {
+                    out.push_str(&format!("-webkit-user-select:{};", val));
+                    out.push_str(&format!("-moz-user-select:{};", val));
+                    out.push_str(&format!("user-select:{};", val));
+                }
+                "appearance" => {
+                    out.push_str(&format!("-webkit-appearance:{};", val));
+                    out.push_str(&format!("-moz-appearance:{};", val));
+                    out.push_str(&format!("appearance:{};", val));
+                }
+                "background-clip" if val.contains("text") => {
+                    out.push_str(&format!("-webkit-background-clip:{};", val));
+                    out.push_str(&format!("background-clip:{};", val));
+                }
+                "hyphens" => {
+                    out.push_str(&format!("-webkit-hyphens:{};", val));
+                    out.push_str(&format!("-ms-hyphens:{};", val));
+                    out.push_str(&format!("hyphens:{};", val));
+                }
+                "text-size-adjust" => {
+                    out.push_str(&format!("-webkit-text-size-adjust:{};", val));
+                    out.push_str(&format!("-ms-text-size-adjust:{};", val));
+                    out.push_str(&format!("text-size-adjust:{};", val));
+                }
+                "mask-image" | "mask-size" | "mask-repeat" | "mask-position" => {
+                    out.push_str(&format!("-webkit-{}:{};", prop, val));
+                    out.push_str(&format!("{}:{};", prop, val));
+                }
+                _ => {
+                    out.push_str(decl);
+                    out.push(';');
+                }
+            }
+        } else {
+            out.push_str(decl);
+            out.push(';');
+        }
+    }
+    out
 }
 
 fn generate_with_options(doc: &Document, dev: bool) -> String {
@@ -831,6 +953,14 @@ const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
     "low", "high", "optimum",
     // Table
     "colspan", "rowspan", "scope",
+    // Popover API
+    "popover", "popovertarget", "popovertargetaction",
+    // Modern form/input hints
+    "inputmode", "enterkeyhint",
+    // Performance hints
+    "fetchpriority", "blocking",
+    // Global attrs
+    "translate", "spellcheck",
 ];
 
 /// Boolean HTML attributes (rendered without a value, e.g., `<input disabled>`).
@@ -839,6 +969,8 @@ const BOOLEAN_HTML_ATTRS: &[&str] = &[
     "controls", "autoplay", "loop", "muted",
     "open", "novalidate", "autofocus",
     "defer", "async", "nomodule",
+    // Popover
+    "popover",
 ];
 
 fn emit_html_passthrough_attrs(out: &mut String, attrs: &[Attribute]) {
@@ -2179,6 +2311,18 @@ fn attrs_to_css(
             "caret-color" => {
                 if let Some(v) = val {
                     push_css(&mut css, "caret-color", v);
+                }
+            }
+
+            // Color scheme & appearance
+            "color-scheme" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "color-scheme", v);
+                }
+            }
+            "appearance" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "appearance", v);
                 }
             }
 

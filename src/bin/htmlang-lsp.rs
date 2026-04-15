@@ -722,6 +722,7 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@json-ld", "Add JSON-LD structured data to head", "@json-ld"),
         ("@mixin", "Define a composable style group (use with ...$name)", "@mixin "),
         ("@assert", "Compile-time assertion for variable values", "@assert "),
+        ("@data", "Load JSON data file into template variables", "@data "),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -1119,6 +1120,18 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         // Modern form theming
         ("accent-color", "Accent color for form controls", true),
         ("caret-color", "Text cursor color", true),
+        ("color-scheme", "Color scheme preference (light/dark/light dark)", true),
+        ("appearance", "Form element appearance (none to reset)", true),
+        // Popover API
+        ("popover", "Make element a popover (HTML Popover API)", false),
+        ("popovertarget", "ID of popover to toggle", true),
+        ("popovertargetaction", "Popover action (toggle/show/hide)", true),
+        // Input hints
+        ("inputmode", "Virtual keyboard type (numeric/email/search/tel/url)", true),
+        ("enterkeyhint", "Enter key label (done/go/next/search/send)", true),
+        ("fetchpriority", "Resource fetch priority (high/low/auto)", true),
+        ("translate", "Whether element should be translated (yes/no)", true),
+        ("spellcheck", "Spell check mode (true/false)", true),
         // List styling
         ("list-style", "List style type (disc/circle/square/none)", true),
         // Table styling
@@ -1920,6 +1933,16 @@ fn hover_builtin(word: &str) -> Option<String> {
         "rowspan" => "**rowspan** `<value>` \u{2014} Number of rows a cell spans.",
         "scope" => "**scope** `<value>` \u{2014} Header scope (`col`, `row`, `colgroup`, `rowgroup`).",
         "inline" => "**inline** \u{2014} Inline SVG image content into the HTML output.",
+        "color-scheme" => "**color-scheme** `<value>` \u{2014} Color scheme preference (`light`, `dark`, `light dark`).",
+        "appearance" => "**appearance** `<value>` \u{2014} Form element appearance (`none` to remove native styling).",
+        "popover" => "**popover** \u{2014} Make element a popover (HTML Popover API). Shown/hidden declaratively.",
+        "popovertarget" => "**popovertarget** `<id>` \u{2014} ID of the popover element to toggle.",
+        "popovertargetaction" => "**popovertargetaction** `<value>` \u{2014} Popover action (`toggle`, `show`, `hide`).",
+        "inputmode" => "**inputmode** `<value>` \u{2014} Virtual keyboard type (`numeric`, `email`, `search`, `tel`, `url`).",
+        "enterkeyhint" => "**enterkeyhint** `<value>` \u{2014} Enter key label (`done`, `go`, `next`, `search`, `send`).",
+        "fetchpriority" => "**fetchpriority** `<value>` \u{2014} Resource fetch priority (`high`, `low`, `auto`).",
+        "translate" => "**translate** `<value>` \u{2014} Whether element should be translated (`yes`, `no`).",
+        "spellcheck" => "**spellcheck** `<value>` \u{2014} Spell check mode (`true`, `false`).",
         "hidden" => "**hidden** \u{2014} Hide element (`display: none`).",
         "overflow-x" => "**overflow-x** `<value>` \u{2014} Horizontal overflow (`hidden`, `scroll`, `auto`, `visible`).",
         "overflow-y" => "**overflow-y** `<value>` \u{2014} Vertical overflow (`hidden`, `scroll`, `auto`, `visible`).",
@@ -3164,7 +3187,7 @@ fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
                     | "@unless" | "@og" | "@breakpoint"
                     | "@canonical" | "@base" | "@font-face" | "@json-ld"
                     | "@mixin" | "@assert" | "@theme" | "@deprecated" | "@extends"
-                    | "@use" => 0, // keyword
+                    | "@use" | "@data" => 0, // keyword
                     _ => {
                         // Check if it's a user function call (starts with @ but not a builtin element)
                         if is_builtin_element(word) { 0 } else { 2 } // function

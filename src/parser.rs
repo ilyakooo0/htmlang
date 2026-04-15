@@ -631,6 +631,85 @@ impl Parser {
             return Ok(None); // No nodes emitted
         }
 
+        // --- @data (load JSON file into variables) ---
+
+        if let Some(rest) = content.strip_prefix("@data ") {
+            let rest = rest.trim();
+            // @data $prefix file.json  OR  @data file.json (no prefix, top-level keys become vars)
+            let (prefix, filename) = if rest.starts_with('$') {
+                if let Some((p, f)) = rest.split_once(' ') {
+                    (p.strip_prefix('$').unwrap_or(p).to_string(), f.trim().to_string())
+                } else {
+                    return Err(ParseError {
+                        line: line_num,
+                        message: "@data requires: @data $prefix file.json or @data file.json".to_string(),
+                    });
+                }
+            } else {
+                (String::new(), rest.to_string())
+            };
+
+            let filename = substitute_vars(&filename, &ctx.variables);
+            let resolved = match &ctx.base_path {
+                Some(base) => base.join(&filename),
+                None => PathBuf::from(&filename),
+            };
+
+            let json_text = match std::fs::read_to_string(&resolved) {
+                Ok(text) => text,
+                Err(e) => {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!("cannot load data '{}': {}", filename, e),
+                        severity: Severity::Error,
+                        source_line: Some(content.clone()),
+                    });
+                    return Ok(None);
+                }
+            };
+
+            match parse_json(&json_text) {
+                Some(json) => {
+                    if prefix.is_empty() {
+                        // No prefix: top-level object keys become variables directly
+                        if let JsonValue::Object(pairs) = &json {
+                            for (key, val) in pairs {
+                                let mut sub = HashMap::new();
+                                flatten_json(key, val, &mut sub);
+                                for (k, v) in sub {
+                                    ctx.variables.insert(k, v);
+                                }
+                            }
+                        } else {
+                            ctx.diagnostics.push(Diagnostic {
+                                line: line_num,
+                                message: "@data without prefix requires a JSON object at top level".to_string(),
+                                severity: Severity::Error,
+                                source_line: Some(content.clone()),
+                            });
+                        }
+                    } else {
+                        let mut sub = HashMap::new();
+                        flatten_json(&prefix, &json, &mut sub);
+                        for (k, v) in sub {
+                            ctx.variables.insert(k, v);
+                        }
+                    }
+                }
+                None => {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!("invalid JSON in '{}'", filename),
+                        severity: Severity::Error,
+                        source_line: Some(content.clone()),
+                    });
+                }
+            }
+
+            ctx.included_files.push(resolved);
+            return Ok(None);
+        }
+
         // --- @use (selective import) ---
 
         if let Some(rest) = content.strip_prefix("@use ") {
@@ -2134,6 +2213,8 @@ const KNOWN_ATTRS: &[&str] = &[
     "inset",
     // Modern form theming
     "accent-color", "caret-color",
+    // Color scheme & appearance
+    "color-scheme", "appearance",
     // List styling
     "list-style",
     // Table styling
@@ -2161,6 +2242,14 @@ const KNOWN_ATTRS: &[&str] = &[
     // Iframe/output attrs
     "sandbox", "allow", "allowfullscreen", "referrerpolicy",
     "formaction", "formmethod", "formtarget", "target",
+    // Popover API
+    "popover", "popovertarget", "popovertargetaction",
+    // Modern form/input hints
+    "inputmode", "enterkeyhint",
+    // Performance hints
+    "fetchpriority", "blocking",
+    // Global attrs
+    "translate", "spellcheck",
     // Script attributes
     "defer", "async", "crossorigin", "integrity", "nomodule",
     // Pseudo-element content
@@ -3498,5 +3587,245 @@ fn check_unused(ctx: &mut ParseContext) {
                 source_line: None,
             });
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Minimal JSON parser for @data directive
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+enum JsonValue {
+    Null,
+    Bool(bool),
+    Number(String),
+    Str(String),
+    Array(Vec<JsonValue>),
+    Object(Vec<(String, JsonValue)>),
+}
+
+fn parse_json(input: &str) -> Option<JsonValue> {
+    let trimmed = input.trim();
+    let chars: Vec<char> = trimmed.chars().collect();
+    let (val, _) = parse_json_value(&chars, 0)?;
+    Some(val)
+}
+
+fn parse_json_value(chars: &[char], mut pos: usize) -> Option<(JsonValue, usize)> {
+    pos = skip_ws(chars, pos);
+    if pos >= chars.len() {
+        return None;
+    }
+    match chars[pos] {
+        '"' => {
+            let (s, p) = parse_json_string(chars, pos)?;
+            Some((JsonValue::Str(s), p))
+        }
+        '{' => parse_json_object(chars, pos),
+        '[' => parse_json_array(chars, pos),
+        't' => {
+            if chars.get(pos..pos + 4)?.iter().collect::<String>() == "true" {
+                Some((JsonValue::Bool(true), pos + 4))
+            } else {
+                None
+            }
+        }
+        'f' => {
+            if chars.get(pos..pos + 5)?.iter().collect::<String>() == "false" {
+                Some((JsonValue::Bool(false), pos + 5))
+            } else {
+                None
+            }
+        }
+        'n' => {
+            if chars.get(pos..pos + 4)?.iter().collect::<String>() == "null" {
+                Some((JsonValue::Null, pos + 4))
+            } else {
+                None
+            }
+        }
+        c if c == '-' || c.is_ascii_digit() => {
+            let start = pos;
+            if chars[pos] == '-' {
+                pos += 1;
+            }
+            while pos < chars.len() && (chars[pos].is_ascii_digit() || chars[pos] == '.' || chars[pos] == 'e' || chars[pos] == 'E' || chars[pos] == '+' || chars[pos] == '-') {
+                if (chars[pos] == '+' || chars[pos] == '-') && pos > start + 1 && chars[pos - 1] != 'e' && chars[pos - 1] != 'E' {
+                    break;
+                }
+                pos += 1;
+            }
+            let num: String = chars[start..pos].iter().collect();
+            Some((JsonValue::Number(num), pos))
+        }
+        _ => None,
+    }
+}
+
+fn parse_json_string(chars: &[char], mut pos: usize) -> Option<(String, usize)> {
+    if chars[pos] != '"' {
+        return None;
+    }
+    pos += 1;
+    let mut s = String::new();
+    while pos < chars.len() && chars[pos] != '"' {
+        if chars[pos] == '\\' && pos + 1 < chars.len() {
+            pos += 1;
+            match chars[pos] {
+                '"' | '\\' | '/' => s.push(chars[pos]),
+                'n' => s.push('\n'),
+                't' => s.push('\t'),
+                'r' => s.push('\r'),
+                _ => {
+                    s.push('\\');
+                    s.push(chars[pos]);
+                }
+            }
+        } else {
+            s.push(chars[pos]);
+        }
+        pos += 1;
+    }
+    if pos < chars.len() {
+        pos += 1; // closing quote
+    }
+    Some((s, pos))
+}
+
+fn parse_json_object(chars: &[char], mut pos: usize) -> Option<(JsonValue, usize)> {
+    pos += 1; // skip '{'
+    pos = skip_ws(chars, pos);
+    let mut pairs = Vec::new();
+    if pos < chars.len() && chars[pos] == '}' {
+        return Some((JsonValue::Object(pairs), pos + 1));
+    }
+    loop {
+        pos = skip_ws(chars, pos);
+        let (key, p) = parse_json_string(chars, pos)?;
+        pos = skip_ws(chars, p);
+        if pos >= chars.len() || chars[pos] != ':' {
+            return None;
+        }
+        pos += 1;
+        let (val, p) = parse_json_value(chars, pos)?;
+        pos = p;
+        pairs.push((key, val));
+        pos = skip_ws(chars, pos);
+        if pos >= chars.len() {
+            break;
+        }
+        if chars[pos] == '}' {
+            pos += 1;
+            break;
+        }
+        if chars[pos] == ',' {
+            pos += 1;
+        }
+    }
+    Some((JsonValue::Object(pairs), pos))
+}
+
+fn parse_json_array(chars: &[char], mut pos: usize) -> Option<(JsonValue, usize)> {
+    pos += 1; // skip '['
+    pos = skip_ws(chars, pos);
+    let mut items = Vec::new();
+    if pos < chars.len() && chars[pos] == ']' {
+        return Some((JsonValue::Array(items), pos + 1));
+    }
+    loop {
+        let (val, p) = parse_json_value(chars, pos)?;
+        pos = p;
+        items.push(val);
+        pos = skip_ws(chars, pos);
+        if pos >= chars.len() {
+            break;
+        }
+        if chars[pos] == ']' {
+            pos += 1;
+            break;
+        }
+        if chars[pos] == ',' {
+            pos += 1;
+        }
+    }
+    Some((JsonValue::Array(items), pos))
+}
+
+fn skip_ws(chars: &[char], mut pos: usize) -> usize {
+    while pos < chars.len() && chars[pos].is_ascii_whitespace() {
+        pos += 1;
+    }
+    pos
+}
+
+/// Flatten a JSON value into variable assignments.
+/// - Top-level object: each key becomes `prefix.key`
+/// - Top-level array: `prefix` becomes comma-separated, `prefix._count` set
+/// - Array of objects: each item becomes space-separated values for @each destructuring
+fn flatten_json(prefix: &str, value: &JsonValue, vars: &mut HashMap<String, String>) {
+    match value {
+        JsonValue::Str(s) => {
+            vars.insert(prefix.to_string(), s.clone());
+        }
+        JsonValue::Number(n) => {
+            vars.insert(prefix.to_string(), n.clone());
+        }
+        JsonValue::Bool(b) => {
+            vars.insert(prefix.to_string(), b.to_string());
+        }
+        JsonValue::Null => {
+            vars.insert(prefix.to_string(), String::new());
+        }
+        JsonValue::Object(pairs) => {
+            for (key, val) in pairs {
+                flatten_json(&format!("{}.{}", prefix, key), val, vars);
+            }
+        }
+        JsonValue::Array(items) => {
+            vars.insert(format!("{}._count", prefix), items.len().to_string());
+            // Check if all items are objects with the same keys
+            let all_objects = items.iter().all(|v| matches!(v, JsonValue::Object(_)));
+            if all_objects && !items.is_empty() {
+                // Collect keys from first object for destructuring
+                if let JsonValue::Object(first_pairs) = &items[0] {
+                    let keys: Vec<String> = first_pairs.iter().map(|(k, _)| k.clone()).collect();
+                    vars.insert(format!("{}._keys", prefix), keys.join(","));
+                }
+                // Each item becomes space-separated values, items comma-separated
+                let csv: Vec<String> = items
+                    .iter()
+                    .map(|item| {
+                        if let JsonValue::Object(pairs) = item {
+                            pairs
+                                .iter()
+                                .map(|(_, v)| json_value_to_string(v))
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        } else {
+                            json_value_to_string(item)
+                        }
+                    })
+                    .collect();
+                vars.insert(prefix.to_string(), csv.join(","));
+            } else {
+                // Primitive array: comma-separated
+                let csv: Vec<String> = items.iter().map(|v| json_value_to_string(v)).collect();
+                vars.insert(prefix.to_string(), csv.join(","));
+            }
+            // Also set indexed access: prefix.0, prefix.1, etc.
+            for (i, item) in items.iter().enumerate() {
+                flatten_json(&format!("{}.{}", prefix, i), item, vars);
+            }
+        }
+    }
+}
+
+fn json_value_to_string(v: &JsonValue) -> String {
+    match v {
+        JsonValue::Str(s) => s.clone(),
+        JsonValue::Number(n) => n.clone(),
+        JsonValue::Bool(b) => b.to_string(),
+        JsonValue::Null => String::new(),
+        JsonValue::Array(_) | JsonValue::Object(_) => String::new(),
     }
 }
