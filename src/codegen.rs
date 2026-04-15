@@ -30,6 +30,8 @@ struct StyleEntry {
     motion_reduce: String,
     landscape: String,
     portrait: String,
+    /// Container query overrides: (breakpoint_prefix, css)
+    container: Vec<(String, String)>,
 }
 
 struct StyleCollector {
@@ -57,6 +59,7 @@ impl StyleCollector {
         motion_reduce: String,
         landscape: String,
         portrait: String,
+        container: Vec<(String, String)>,
     ) -> Option<String> {
         if base.is_empty()
             && pseudo.is_empty()
@@ -67,6 +70,7 @@ impl StyleCollector {
             && motion_reduce.is_empty()
             && landscape.is_empty()
             && portrait.is_empty()
+            && container.is_empty()
         {
             return None;
         }
@@ -80,7 +84,12 @@ impl StyleCollector {
             .map(|(bp, css)| format!("{}={}", bp, css))
             .collect::<Vec<_>>()
             .join("|");
-        let key = format!("{}|{}|{}|{}|{}|{}|{}|{}|{}", base, pseudo_key, resp_key, dark, print, motion_safe, motion_reduce, landscape, portrait);
+        let cq_key: String = container
+            .iter()
+            .map(|(bp, css)| format!("{}={}", bp, css))
+            .collect::<Vec<_>>()
+            .join("|");
+        let key = format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", base, pseudo_key, resp_key, dark, print, motion_safe, motion_reduce, landscape, portrait, cq_key);
         if let Some(&idx) = self.index.get(&key) {
             return Some(self.entries[idx].class_name.clone());
         }
@@ -97,6 +106,7 @@ impl StyleCollector {
             motion_reduce,
             landscape,
             portrait,
+            container,
         });
         self.index.insert(key, idx);
         Some(name)
@@ -258,6 +268,35 @@ impl StyleCollector {
                 css.push_str(&format!("@media (orientation: portrait) {{\n{}}}\n", portrait_css));
             } else {
                 css.push_str(&format!("@media(orientation:portrait){{{}}}", portrait_css));
+            }
+        }
+
+        // Container query rules grouped by breakpoint
+        for &(bp_name, bp_width) in BREAKPOINTS {
+            let mut cq_css = String::new();
+            for e in &self.entries {
+                for (bp, rule_css) in &e.container {
+                    if bp == bp_name && !rule_css.is_empty() {
+                        if dev {
+                            cq_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, rule_css));
+                        } else {
+                            cq_css.push_str(&format!(".{}{{{}}}", e.class_name, rule_css));
+                        }
+                    }
+                }
+            }
+            if !cq_css.is_empty() {
+                if dev {
+                    css.push_str(&format!(
+                        "@container (min-width: {}) {{\n{}}}\n",
+                        bp_width, cq_css
+                    ));
+                } else {
+                    css.push_str(&format!(
+                        "@container(min-width:{}){{{}}}",
+                        bp_width, cq_css
+                    ));
+                }
             }
         }
 
@@ -535,7 +574,7 @@ fn generate_node(
                 | Some(ElementKind::Blockquote)
                 | Some(ElementKind::Dialog) | Some(ElementKind::DefinitionList)
                 | Some(ElementKind::DefinitionDescription) | Some(ElementKind::Fieldset)
-                | Some(ElementKind::Datalist)
+                | Some(ElementKind::Datalist) | Some(ElementKind::Grid) | Some(ElementKind::Stack)
             );
             if needs_wrap {
                 out.push_str(&ctx.indent());
@@ -616,7 +655,7 @@ fn generate_element(
     ctx: &mut GenContext,
 ) {
     // Self-closing elements
-    if matches!(elem.kind, ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule | ElementKind::Source) {
+    if matches!(elem.kind, ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule | ElementKind::Source | ElementKind::Spacer) {
         generate_self_closing(elem, parent_kind, out, styles, ctx);
         return;
     }
@@ -635,7 +674,8 @@ fn generate_element(
     }
 
     let tag = match &elem.kind {
-        ElementKind::Row | ElementKind::Column | ElementKind::El => "div",
+        ElementKind::Row | ElementKind::Column | ElementKind::El
+        | ElementKind::Grid | ElementKind::Stack => "div",
         ElementKind::Text => "span",
         ElementKind::Paragraph => "p",
         ElementKind::Link => "a",
@@ -695,9 +735,11 @@ fn generate_element(
         ElementKind::Iframe => "iframe",
         ElementKind::Output => "output",
         ElementKind::Canvas => "canvas",
+        ElementKind::Badge => "span",
+        ElementKind::Tooltip => "span",
         ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule
         | ElementKind::Children | ElementKind::Slot(_) | ElementKind::Fragment
-        | ElementKind::Source => unreachable!(),
+        | ElementKind::Source | ElementKind::Spacer => unreachable!(),
     };
 
     let kind_label = match elem.kind {
@@ -754,6 +796,10 @@ fn generate_element(
         ElementKind::Iframe => "iframe",
         ElementKind::Output => "output",
         ElementKind::Canvas => "canvas",
+        ElementKind::Grid => "grid",
+        ElementKind::Stack => "stack",
+        ElementKind::Badge => "badge",
+        ElementKind::Tooltip => "tooltip",
         _ => "",
     };
 
@@ -800,6 +846,15 @@ fn generate_element(
         if let Some(src) = &elem.argument {
             out.push_str(" src=\"");
             out.push_str(&html_escape(src));
+            out.push('"');
+        }
+    }
+
+    // Tooltip title
+    if elem.kind == ElementKind::Tooltip {
+        if let Some(text) = &elem.argument {
+            out.push_str(" title=\"");
+            out.push_str(&html_escape(text));
             out.push('"');
         }
     }
@@ -855,6 +910,8 @@ fn generate_element(
             | ElementKind::Abbr
             | ElementKind::Time
             | ElementKind::DefinitionDescription
+            | ElementKind::Badge
+            | ElementKind::Tooltip
     ) {
         if let Some(text) = &elem.argument {
             out.push_str(&html_escape(text));
@@ -894,6 +951,7 @@ fn generate_self_closing(
         ElementKind::Input => ("input", "input"),
         ElementKind::HorizontalRule => ("hr", "hr"),
         ElementKind::Source => ("source", "source"),
+        ElementKind::Spacer => ("div", "spacer"),
         _ => unreachable!(),
     };
 
@@ -905,12 +963,34 @@ fn generate_self_closing(
     out.push('<');
     out.push_str(tag);
 
-    // Image src
+    // Image src (with optional non-SVG base64 inlining)
     if elem.kind == ElementKind::Image {
         let src = elem.argument.as_deref().unwrap_or("");
-        out.push_str(" src=\"");
-        out.push_str(&html_escape(src));
-        out.push('"');
+        let is_inline = elem.attrs.iter().any(|a| a.key == "inline");
+        if is_inline && !src.is_empty() && !src.ends_with(".svg") {
+            let mime = if src.ends_with(".png") { "image/png" }
+                else if src.ends_with(".jpg") || src.ends_with(".jpeg") { "image/jpeg" }
+                else if src.ends_with(".gif") { "image/gif" }
+                else if src.ends_with(".webp") { "image/webp" }
+                else if src.ends_with(".avif") { "image/avif" }
+                else { "application/octet-stream" };
+            if let Ok(data) = std::fs::read(src) {
+                let b64 = base64_encode(&data);
+                out.push_str(" src=\"data:");
+                out.push_str(mime);
+                out.push_str(";base64,");
+                out.push_str(&b64);
+                out.push('"');
+            } else {
+                out.push_str(" src=\"");
+                out.push_str(&html_escape(src));
+                out.push('"');
+            }
+        } else {
+            out.push_str(" src=\"");
+            out.push_str(&html_escape(src));
+            out.push('"');
+        }
     }
 
     emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
@@ -996,6 +1076,28 @@ fn compute_class(
         }
     }
 
+    // Collect nth:EXPR: dynamic pseudo selectors
+    let mut nth_prefixes: Vec<String> = Vec::new();
+    for attr in attrs {
+        if attr.key.starts_with("nth:") {
+            let rest = &attr.key[4..];
+            if let Some(colon_pos) = rest.find(':') {
+                let prefix = format!("nth:{}:", &rest[..colon_pos]);
+                if !nth_prefixes.contains(&prefix) {
+                    nth_prefixes.push(prefix);
+                }
+            }
+        }
+    }
+    for prefix in &nth_prefixes {
+        let expr = &prefix[4..prefix.len() - 1];
+        let selector = format!(":nth-child({})", expr);
+        let css = attrs_to_css(attrs, prefix, kind, parent_kind);
+        if !css.is_empty() {
+            pseudo.push((selector, css));
+        }
+    }
+
     // Collect responsive overrides
     let mut responsive = Vec::new();
     for &(bp_name, _) in BREAKPOINTS {
@@ -1006,6 +1108,16 @@ fn compute_class(
         }
     }
 
+    // Collect container query overrides
+    let mut container = Vec::new();
+    for &(bp_name, _) in BREAKPOINTS {
+        let prefix = format!("cq-{}:", bp_name);
+        let css = attrs_to_css(attrs, &prefix, kind, parent_kind);
+        if !css.is_empty() {
+            container.push((bp_name.to_string(), css));
+        }
+    }
+
     let dark = attrs_to_css(attrs, "dark:", kind, parent_kind);
     let print = attrs_to_css(attrs, "print:", kind, parent_kind);
     let motion_safe = attrs_to_css(attrs, "motion-safe:", kind, parent_kind);
@@ -1013,7 +1125,7 @@ fn compute_class(
     let landscape = attrs_to_css(attrs, "landscape:", kind, parent_kind);
     let portrait = attrs_to_css(attrs, "portrait:", kind, parent_kind);
 
-    styles.get_class(base, pseudo, responsive, dark, print, motion_safe, motion_reduce, landscape, portrait)
+    styles.get_class(base, pseudo, responsive, dark, print, motion_safe, motion_reduce, landscape, portrait, container)
 }
 
 fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option<&str>) {
@@ -1059,14 +1171,18 @@ const PSEUDO_PREFIXES: &[(&str, &str)] = &[
     ("even:", ":nth-child(even)"),
     ("before:", "::before"),
     ("after:", "::after"),
+    ("selection:", "::selection"),
 ];
 const RESPONSIVE_PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:", "2xl:"];
 const MEDIA_PREFIXES: &[&str] = &["dark:", "print:", "motion-safe:", "motion-reduce:", "landscape:", "portrait:"];
+const CONTAINER_QUERY_PREFIXES: &[&str] = &["cq-sm:", "cq-md:", "cq-lg:", "cq-xl:", "cq-2xl:"];
 
 fn is_prefixed_attr(key: &str) -> bool {
     PSEUDO_PREFIXES.iter().any(|&(p, _)| key.starts_with(p))
         || RESPONSIVE_PREFIXES.iter().any(|p| key.starts_with(p))
         || MEDIA_PREFIXES.iter().any(|p| key.starts_with(p))
+        || CONTAINER_QUERY_PREFIXES.iter().any(|p| key.starts_with(p))
+        || key.starts_with("nth:")
 }
 
 fn attrs_to_css(
@@ -1109,6 +1225,11 @@ fn attrs_to_css(
             ElementKind::DefinitionDescription => css.push_str("margin:0;display:flex;flex-direction:column;"),
             ElementKind::Fieldset => css.push_str("display:flex;flex-direction:column;border:1px solid currentColor;padding:0.5em;margin:0;"),
             ElementKind::Kbd => css.push_str("font-family:ui-monospace,monospace;"),
+            ElementKind::Grid => css.push_str("display:grid;"),
+            ElementKind::Stack => css.push_str("position:relative;"),
+            ElementKind::Badge => css.push_str("display:inline-flex;align-items:center;justify-content:center;padding:2px 8px;border-radius:9999px;font-size:0.75rem;font-weight:600;line-height:1;"),
+            ElementKind::Tooltip => css.push_str("position:relative;cursor:help;"),
+            ElementKind::Spacer => css.push_str("flex:1;"),
             _ => {}
         }
     }
@@ -1839,6 +1960,10 @@ fn attrs_to_css(
             "content-visibility" => {
                 if let Some(v) = val { push_css(&mut css, "content-visibility", v); }
             }
+            "direction" => {
+                if let Some(v) = val { push_css(&mut css, "direction", v); }
+            }
+
             "content" => {
                 if let Some(v) = val {
                     // Wrap in quotes if not already quoted and not a CSS keyword

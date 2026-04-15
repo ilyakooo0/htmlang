@@ -1,0 +1,13 @@
+@page Nth Pseudo
+
+-- nth-child styling
+@column [spacing 4]
+  @each $i in 1..5
+    @el [padding 8, nth:3:background #3b82f6, nth:3:color white]
+      @text Item $i
+
+-- nth-child with formula
+@row [spacing 4, wrap]
+  @each $i in 1..8
+    @el [padding 12, background #f0f0f0, nth:2n:background #e0e0e0]
+      @text $i

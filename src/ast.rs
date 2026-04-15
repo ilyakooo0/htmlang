@@ -110,6 +110,12 @@ pub enum ElementKind {
     Iframe,
     Output,
     Canvas,
+    // New convenience elements
+    Grid,
+    Stack,
+    Spacer,
+    Badge,
+    Tooltip,
 }
 
 #[derive(Debug, Clone)]

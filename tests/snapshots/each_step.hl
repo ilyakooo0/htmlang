@@ -1,0 +1,17 @@
+@page Each Step
+
+-- Basic step
+@column [spacing 4]
+  @each $i in 0..20 step 5
+    @text Value: $i
+
+-- Step with large range
+@row [spacing 8]
+  @each $n in 0..100 step 25
+    @el [width 50, height 50, background #3b82f6, rounded 4]
+      @text [color white, size 12] $n
+
+-- Reverse range with step
+@column [spacing 4]
+  @each $i in 10..1 step 2
+    @text Countdown: $i

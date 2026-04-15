@@ -1,0 +1,35 @@
+@page New Elements 4
+
+-- Grid element
+@grid [grid-cols 3, gap 16]
+  @el [background #f0f0f0, padding 16]
+    @text First
+  @el [background #e0e0e0, padding 16]
+    @text Second
+  @el [background #d0d0d0, padding 16]
+    @text Third
+
+-- Stack element (position: relative container)
+@stack [width 200, height 200]
+  @el [position absolute, inset 0, background #3b82f6]
+  @el [position absolute, bottom 10, right 10]
+    @text [color white] Overlay
+
+-- Spacer element
+@row [height 100]
+  @text Left
+  @spacer
+  @text Right
+
+-- Badge element
+@row [spacing 8]
+  @badge [background #ef4444, color white] 3
+  @badge [background #22c55e, color white] New
+  @badge [background #3b82f6, color white] Pro
+
+-- Tooltip element
+@row [spacing 16]
+  @tooltip Hover me for info
+    @text [underline] Helpful text
+  @tooltip This is a tooltip message
+    @text [bold] Important

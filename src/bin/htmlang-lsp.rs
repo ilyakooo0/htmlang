@@ -67,7 +67,15 @@ impl LanguageServer for Backend {
                     work_done_progress_options: Default::default(),
                 })),
                 document_symbol_provider: Some(OneOf::Left(true)),
-                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        code_action_kinds: Some(vec![
+                            CodeActionKind::QUICKFIX,
+                            CodeActionKind::REFACTOR_EXTRACT,
+                        ]),
+                        ..Default::default()
+                    },
+                )),
                 color_provider: Some(ColorProviderCapability::Simple(true)),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 semantic_tokens_provider: Some(
@@ -483,6 +491,11 @@ fn completions(text: &str, position: Position) -> Vec<CompletionItem> {
             if matches!(prefix, "hover" | "active" | "focus" | "focus-visible" | "focus-within" | "disabled" | "checked" | "placeholder" | "first" | "last" | "odd" | "even" | "before" | "after" | "dark" | "print" | "sm" | "md" | "lg" | "xl" | "2xl" | "motion-safe" | "motion-reduce" | "landscape" | "portrait") {
                 return state_attr_completions(prefix, edit_range);
             }
+        }
+
+        // Color value completions after color-related attributes
+        if let Some(colors) = color_value_completions(before, edit_range) {
+            return colors;
         }
 
         return attr_completions(edit_range);
@@ -1098,6 +1111,94 @@ fn state_attr_completions(prefix: &str, range: Range) -> Vec<CompletionItem> {
         item(&full, CompletionItemKind::PROPERTY, detail, &insert, range)
     })
     .collect()
+}
+
+fn color_value_completions(before: &str, range: Range) -> Option<Vec<CompletionItem>> {
+    // Find the preceding attribute name before the cursor value position.
+    // Inside brackets, attributes are comma-separated. Look for the last attribute token
+    // before the current value position. Pattern: "attr value" or "attr " at end.
+    let bracket_content = before.rsplit('[').next()?;
+    // Split by commas to get the current segment
+    let segment = bracket_content.rsplit(',').next()?.trim();
+
+    // Check if the first word in this segment is a color-related attribute
+    let attr = segment.split_whitespace().next()?;
+
+    // Strip state prefix (e.g., "hover:background" -> "background")
+    let base_attr = if let Some(pos) = attr.rfind(':') {
+        &attr[pos + 1..]
+    } else {
+        attr
+    };
+
+    if !matches!(
+        base_attr,
+        "background" | "color" | "border" | "border-top" | "border-bottom"
+        | "border-left" | "border-right" | "accent-color" | "caret-color"
+        | "text-decoration-color" | "outline"
+    ) {
+        return None;
+    }
+
+    // Only show colors if we're in the value position (at least one space after the attr name)
+    let after_attr = &segment[attr.len()..];
+    if !after_attr.starts_with(' ') {
+        return None;
+    }
+
+    let colors: &[(&str, &str, &str)] = &[
+        ("white",     "#ffffff", "White"),
+        ("black",     "#000000", "Black"),
+        ("red",       "#ef4444", "Red"),
+        ("orange",    "#f97316", "Orange"),
+        ("yellow",    "#eab308", "Yellow"),
+        ("green",     "#22c55e", "Green"),
+        ("blue",      "#3b82f6", "Blue"),
+        ("indigo",    "#6366f1", "Indigo"),
+        ("purple",    "#a855f7", "Purple"),
+        ("pink",      "#ec4899", "Pink"),
+        ("gray",      "#6b7280", "Gray"),
+        ("slate",     "#64748b", "Slate"),
+        ("zinc",      "#71717a", "Zinc"),
+        ("neutral",   "#737373", "Neutral"),
+        ("stone",     "#78716c", "Stone"),
+        ("amber",     "#f59e0b", "Amber"),
+        ("lime",      "#84cc16", "Lime"),
+        ("emerald",   "#10b981", "Emerald"),
+        ("teal",      "#14b8a6", "Teal"),
+        ("cyan",      "#06b6d4", "Cyan"),
+        ("sky",       "#0ea5e9", "Sky"),
+        ("violet",    "#8b5cf6", "Violet"),
+        ("fuchsia",   "#d946ef", "Fuchsia"),
+        ("rose",      "#f43f5e", "Rose"),
+        ("transparent", "transparent", "Transparent"),
+        ("currentColor", "currentColor", "Inherit from parent text color"),
+    ];
+
+    let items: Vec<CompletionItem> = colors.iter().map(|(label, value, detail)| {
+        let doc = if value.starts_with('#') {
+            format!("{} (`{}`)", detail, value)
+        } else {
+            detail.to_string()
+        };
+        CompletionItem {
+            label: label.to_string(),
+            kind: Some(CompletionItemKind::COLOR),
+            detail: Some(doc),
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range,
+                new_text: value.to_string(),
+            })),
+            documentation: if value.starts_with('#') {
+                Some(Documentation::String(value.to_string()))
+            } else {
+                None
+            },
+            ..Default::default()
+        }
+    }).collect();
+
+    Some(items)
 }
 
 fn variable_completions(text: &str, range: Range) -> Vec<CompletionItem> {
@@ -2018,7 +2119,7 @@ fn document_symbols(text: &str) -> Vec<SymbolInformation> {
 
 fn code_actions(
     text: &str,
-    _range: &Range,
+    selection: &Range,
     diagnostics: &[Diagnostic],
     uri: &Url,
 ) -> Vec<CodeActionOrCommand> {
@@ -2087,6 +2188,9 @@ fn code_actions(
             if let Some(source_line) = lines.get(line) {
                 let trimmed = source_line.trim_start();
                 if trimmed.starts_with("@let ") {
+                    let var_name = trimmed.strip_prefix("@let ")
+                        .and_then(|r| r.trim().split_whitespace().next())
+                        .unwrap_or("?");
                     let edit = TextEdit {
                         range: Range::new(
                             Position::new(diag.range.start.line, 0),
@@ -2097,7 +2201,7 @@ fn code_actions(
                     let mut changes = HashMap::new();
                     changes.insert(uri.clone(), vec![edit]);
                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: "Remove unused variable".into(),
+                        title: format!("Remove unused variable '${}'", var_name),
                         kind: Some(CodeActionKind::QUICKFIX),
                         diagnostics: Some(vec![diag.clone()]),
                         edit: Some(WorkspaceEdit {
@@ -2117,6 +2221,12 @@ fn code_actions(
             if let Some(source_line) = lines.get(line) {
                 let trimmed = source_line.trim_start();
                 if trimmed.starts_with("@define ") {
+                    let def_name = trimmed.strip_prefix("@define ")
+                        .and_then(|r| {
+                            let r = r.trim();
+                            r.find('[').map(|b| r[..b].trim()).or_else(|| r.split_whitespace().next())
+                        })
+                        .unwrap_or("?");
                     let edit = TextEdit {
                         range: Range::new(
                             Position::new(diag.range.start.line, 0),
@@ -2127,7 +2237,57 @@ fn code_actions(
                     let mut changes = HashMap::new();
                     changes.insert(uri.clone(), vec![edit]);
                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: "Remove unused define".into(),
+                        title: format!("Remove unused define '${}'", def_name),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+
+        // Quick-fix: remove unused @fn function (remove definition and its body)
+        if msg.contains("unused function") {
+            let line = diag.range.start.line as usize;
+            let lines: Vec<&str> = text.lines().collect();
+            if let Some(source_line) = lines.get(line) {
+                let trimmed = source_line.trim_start();
+                if trimmed.starts_with("@fn ") {
+                    let fn_name = trimmed.strip_prefix("@fn ")
+                        .and_then(|r| r.split_whitespace().next())
+                        .unwrap_or("?");
+                    // Find the end of the function body (indented lines below)
+                    let start_indent = source_line.len() - trimmed.len();
+                    let mut end_line = line;
+                    let mut j = line + 1;
+                    while j < lines.len() {
+                        let l = lines[j];
+                        if l.trim().is_empty() {
+                            j += 1;
+                            continue;
+                        }
+                        let indent = l.len() - l.trim_start().len();
+                        if indent <= start_indent {
+                            break;
+                        }
+                        end_line = j;
+                        j += 1;
+                    }
+                    let edit = TextEdit {
+                        range: Range::new(
+                            Position::new(diag.range.start.line, 0),
+                            Position::new(end_line as u32 + 1, 0),
+                        ),
+                        new_text: String::new(),
+                    };
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: format!("Remove unused function '@{}'", fn_name),
                         kind: Some(CodeActionKind::QUICKFIX),
                         diagnostics: Some(vec![diag.clone()]),
                         edit: Some(WorkspaceEdit {
@@ -2191,6 +2351,135 @@ fn code_actions(
                         }));
                     }
                 }
+            }
+        }
+
+        // Quick-fix: auto-import suggestion for unknown element @name
+        if msg.contains("unknown element @") {
+            if let Some(fn_name) = extract_between(msg, "unknown element @", ",")
+                .or_else(|| extract_between(msg, "unknown element @", ""))
+            {
+                let fn_name = fn_name.trim();
+                if !fn_name.is_empty() {
+                    if let Ok(file_path) = uri.to_file_path() {
+                        if let Some(dir) = file_path.parent() {
+                            if let Ok(entries) = std::fs::read_dir(dir) {
+                                for entry in entries.flatten() {
+                                    let path = entry.path();
+                                    if path.extension().and_then(|e| e.to_str()) != Some("hl") {
+                                        continue;
+                                    }
+                                    // Skip the current file
+                                    if path == file_path {
+                                        continue;
+                                    }
+                                    if let Ok(content) = std::fs::read_to_string(&path) {
+                                        let defines_fn = content.lines().any(|l| {
+                                            let t = l.trim();
+                                            if let Some(rest) = t.strip_prefix("@fn ") {
+                                                rest.split_whitespace().next() == Some(fn_name)
+                                            } else {
+                                                false
+                                            }
+                                        });
+                                        if defines_fn {
+                                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                                // Check if already imported
+                                                let already_imported = text.lines().any(|l| {
+                                                    let t = l.trim();
+                                                    t == format!("@import {}", name)
+                                                        || t == format!("@include {}", name)
+                                                });
+                                                if !already_imported {
+                                                    let import_line = format!("@import {}\n", name);
+                                                    let edit = TextEdit {
+                                                        range: Range::new(
+                                                            Position::new(0, 0),
+                                                            Position::new(0, 0),
+                                                        ),
+                                                        new_text: import_line,
+                                                    };
+                                                    let mut changes = HashMap::new();
+                                                    changes.insert(uri.clone(), vec![edit]);
+                                                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                                                        title: format!("Add '@import {}' for @{}", name, fn_name),
+                                                        kind: Some(CodeActionKind::QUICKFIX),
+                                                        diagnostics: Some(vec![diag.clone()]),
+                                                        edit: Some(WorkspaceEdit {
+                                                            changes: Some(changes),
+                                                            ..Default::default()
+                                                        }),
+                                                        ..Default::default()
+                                                    }));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Refactoring: extract selection to @fn
+    if selection.start.line != selection.end.line {
+        let lines: Vec<&str> = text.lines().collect();
+        let start_line = selection.start.line as usize;
+        let end_line = (selection.end.line as usize).min(lines.len().saturating_sub(1));
+        if start_line < lines.len() && end_line < lines.len() {
+            // Collect selected lines
+            let selected: Vec<&str> = lines[start_line..=end_line].to_vec();
+            if !selected.is_empty() {
+                // Determine the minimum indentation of selected lines (ignoring blank lines)
+                let min_indent = selected.iter()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|l| l.len() - l.trim_start().len())
+                    .min()
+                    .unwrap_or(0);
+
+                // Build the function body with two-space indentation relative to @fn
+                let fn_body: String = selected.iter()
+                    .map(|l| {
+                        if l.trim().is_empty() {
+                            String::from("\n")
+                        } else {
+                            let stripped = if l.len() > min_indent { &l[min_indent..] } else { l.trim_start() };
+                            format!("  {}\n", stripped)
+                        }
+                    })
+                    .collect();
+
+                let fn_def = format!("@fn extracted\n{}", fn_body);
+                let indent = " ".repeat(min_indent);
+                let fn_call = format!("{}@extracted", indent);
+
+                // Build edits: replace selected lines with @extracted call, and insert @fn definition at top
+                let replace_edit = TextEdit {
+                    range: Range::new(
+                        Position::new(selection.start.line, 0),
+                        Position::new(selection.end.line + 1, 0),
+                    ),
+                    new_text: format!("{}\n", fn_call),
+                };
+                let insert_edit = TextEdit {
+                    range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+                    new_text: format!("{}\n", fn_def),
+                };
+                let mut changes = HashMap::new();
+                changes.insert(uri.clone(), vec![insert_edit, replace_edit]);
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: "Extract to @fn".into(),
+                    kind: Some(CodeActionKind::REFACTOR_EXTRACT),
+                    diagnostics: None,
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }));
             }
         }
     }

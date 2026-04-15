@@ -2135,3 +2135,238 @@ fn element_output() {
     let output = compile("@output [for a b]\n  42");
     assert!(output.contains("<output"), "should generate output tag: {}", output);
 }
+
+// =========================================================================
+// Batch 4: New elements, @each step, pseudo selectors, container queries
+// =========================================================================
+
+#[test]
+fn snapshot_new_elements_4() {
+    snapshot_test("new_elements_4");
+}
+
+#[test]
+fn snapshot_each_step() {
+    snapshot_test("each_step");
+}
+
+#[test]
+fn snapshot_selection_pseudo() {
+    snapshot_test("selection_pseudo");
+}
+
+#[test]
+fn snapshot_nth_pseudo() {
+    snapshot_test("nth_pseudo");
+}
+
+#[test]
+fn snapshot_direction_attr() {
+    snapshot_test("direction_attr");
+}
+
+// --- Grid element ---
+
+#[test]
+fn element_grid() {
+    let output = compile("@page T\n@grid [grid-cols 3, gap 16]\n  @el\n    @text A");
+    assert!(output.contains("display:grid"), "grid should have display:grid: {}", output);
+    assert!(output.contains("grid-template-columns:repeat(3,1fr)"), "should have 3 cols: {}", output);
+}
+
+// --- Stack element ---
+
+#[test]
+fn element_stack() {
+    let output = compile("@page T\n@stack [width 200, height 200]\n  @el\n    @text Layer");
+    assert!(output.contains("position:relative"), "stack should have position:relative: {}", output);
+}
+
+// --- Spacer element ---
+
+#[test]
+fn element_spacer() {
+    let output = compile("@page T\n@row\n  @text Left\n  @spacer\n  @text Right");
+    assert!(output.contains("flex:1"), "spacer should have flex:1: {}", output);
+}
+
+// --- Badge element ---
+
+#[test]
+fn element_badge() {
+    let output = compile("@page T\n@badge [background red, color white] 3");
+    assert!(output.contains("<span"), "badge renders as span: {}", output);
+    assert!(output.contains("border-radius:9999px"), "badge should be pill-shaped: {}", output);
+    assert!(output.contains("3"), "badge content: {}", output);
+}
+
+// --- Tooltip element ---
+
+#[test]
+fn element_tooltip() {
+    let output = compile("@page T\n@tooltip Hover for info\n  @text Help");
+    assert!(output.contains("title=\"Hover for info\""), "tooltip should have title attr: {}", output);
+    assert!(output.contains("cursor:help"), "tooltip should have cursor:help: {}", output);
+}
+
+// --- @each step ---
+
+#[test]
+fn each_step_basic() {
+    let output = compile("@each $i in 0..20 step 5\n  @text $i");
+    assert!(output.contains(">0<"), "should include 0: {}", output);
+    assert!(output.contains(">5<"), "should include 5: {}", output);
+    assert!(output.contains(">10<"), "should include 10: {}", output);
+    assert!(output.contains(">15<"), "should include 15: {}", output);
+    assert!(output.contains(">20<"), "should include 20: {}", output);
+    assert!(!output.contains(">3<"), "should not include 3: {}", output);
+}
+
+#[test]
+fn each_step_reverse() {
+    let output = compile("@each $i in 10..1 step 3\n  @text $i");
+    assert!(output.contains(">10<"), "should include 10: {}", output);
+    assert!(output.contains(">7<"), "should include 7: {}", output);
+    assert!(output.contains(">4<"), "should include 4: {}", output);
+    assert!(output.contains(">1<"), "should include 1: {}", output);
+}
+
+// --- selection: pseudo ---
+
+#[test]
+fn selection_pseudo_generates_css() {
+    let output = compile("@page T\n@text [selection:background blue, selection:color white] Select me");
+    assert!(output.contains("::selection"), "should generate ::selection: {}", output);
+    assert!(output.contains("background:blue"), "should have bg: {}", output);
+}
+
+// --- nth: pseudo ---
+
+#[test]
+fn nth_pseudo_generates_css() {
+    let output = compile("@page T\n@el [nth:3:background red]\n  @text test");
+    assert!(output.contains(":nth-child(3)"), "should generate :nth-child(3): {}", output);
+    assert!(output.contains("background:red"), "should have bg: {}", output);
+}
+
+#[test]
+fn nth_pseudo_formula() {
+    let output = compile("@page T\n@el [nth:2n:background #eee]\n  @text test");
+    assert!(output.contains(":nth-child(2n)"), "should generate :nth-child(2n): {}", output);
+}
+
+// --- container query prefix ---
+
+#[test]
+fn container_query_generates_css() {
+    let output = compile("@page T\n@el [container]\n  @el [cq-sm:padding 20]\n    @text test");
+    assert!(output.contains("@container(min-width:640px)"), "should generate container query: {}", output);
+    assert!(output.contains("padding:20px"), "should have padding: {}", output);
+}
+
+// --- direction attribute ---
+
+#[test]
+fn direction_rtl() {
+    let output = compile("@page T\n@el [direction rtl]\n  @text RTL text");
+    assert!(output.contains("direction:rtl"), "should generate direction:rtl: {}", output);
+}
+
+// --- contrast checker ---
+
+#[test]
+fn warning_low_contrast() {
+    let diags = parse_diagnostics("@el [background #ffffff, color #cccccc]\n  @text test");
+    assert!(
+        diags.iter().any(|d| d.message.contains("low contrast ratio")),
+        "should warn about low contrast, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_good_contrast() {
+    let diags = parse_diagnostics("@el [background #ffffff, color #000000]\n  @text test");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("low contrast ratio")),
+        "should not warn about good contrast, got: {:?}",
+        diags
+    );
+}
+
+// --- no warnings for new features ---
+
+#[test]
+fn no_warning_selection_prefix() {
+    let diags = parse_diagnostics("@el [selection:background blue]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "selection: prefix should be recognized, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_nth_prefix() {
+    let diags = parse_diagnostics("@el [nth:3:background red]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "nth: prefix should be recognized, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_cq_prefix() {
+    let diags = parse_diagnostics("@el [cq-sm:padding 20]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "cq- prefix should be recognized, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_direction_attr() {
+    let diags = parse_diagnostics("@el [direction rtl]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "direction should be recognized, got: {:?}",
+        diags
+    );
+}
+
+#[test]
+fn no_warning_new_elements() {
+    // Grid, stack, spacer, badge, tooltip should all parse without errors
+    let diags = parse_diagnostics("@grid\n  @text A");
+    assert!(
+        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        "grid should parse, got: {:?}",
+        diags
+    );
+    let diags = parse_diagnostics("@stack\n  @text A");
+    assert!(
+        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        "stack should parse, got: {:?}",
+        diags
+    );
+    let diags = parse_diagnostics("@row\n  @spacer");
+    assert!(
+        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        "spacer should parse, got: {:?}",
+        diags
+    );
+    let diags = parse_diagnostics("@badge [background red] 5");
+    assert!(
+        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        "badge should parse, got: {:?}",
+        diags
+    );
+    let diags = parse_diagnostics("@tooltip Help text\n  @text Hover");
+    assert!(
+        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        "tooltip should parse, got: {:?}",
+        diags
+    );
+}

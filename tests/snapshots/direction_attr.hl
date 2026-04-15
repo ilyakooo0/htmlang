@@ -1,0 +1,9 @@
+@page Direction
+
+-- RTL text direction
+@el [direction rtl, padding 20]
+  @text This text should be right-to-left
+
+-- LTR explicit
+@el [direction ltr, padding 20]
+  @text This text is explicitly left-to-right

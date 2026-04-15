@@ -703,13 +703,24 @@ impl Parser {
 
             let list_str = substitute_vars(&list_str, &ctx.variables);
             track_var_refs(&list_str, &mut ctx.used_variables);
-            // Support range syntax: @each $i in 1..5
-            let items: Vec<String> = if let Some((start_s, end_s)) = list_str.split_once("..") {
-                if let (Ok(start), Ok(end)) = (start_s.trim().parse::<i64>(), end_s.trim().parse::<i64>()) {
+            // Support range syntax: @each $i in 1..5  or  @each $i in 0..100 step 10
+            let items: Vec<String> = if let Some((start_s, rest)) = list_str.split_once("..") {
+                let (end_s, step) = if let Some((e, s)) = rest.split_once(" step ") {
+                    (e.trim(), s.trim().parse::<i64>().unwrap_or(1).max(1))
+                } else {
+                    (rest.trim(), 1i64)
+                };
+                if let (Ok(start), Ok(end)) = (start_s.trim().parse::<i64>(), end_s.parse::<i64>()) {
                     if start <= end {
-                        (start..=end).map(|n| n.to_string()).collect()
+                        let mut items = Vec::new();
+                        let mut n = start;
+                        while n <= end { items.push(n.to_string()); n += step; }
+                        items
                     } else {
-                        (end..=start).rev().map(|n| n.to_string()).collect()
+                        let mut items = Vec::new();
+                        let mut n = start;
+                        while n >= end { items.push(n.to_string()); n -= step; }
+                        items
                     }
                 } else {
                     list_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
@@ -1257,6 +1268,7 @@ const KNOWN_ELEMENTS: &[&str] = &[
     "btn", "ul", "dialog", "dl", "dt", "dd", "fieldset", "legend",
     "picture", "source", "time", "mark", "kbd", "abbr", "datalist",
     "iframe", "output", "canvas",
+    "grid", "stack", "spacer", "badge", "tooltip",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
@@ -1330,6 +1342,11 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "output" => Ok(ElementKind::Output),
         "canvas" => Ok(ElementKind::Canvas),
         "ul" => Ok(ElementKind::List),
+        "grid" => Ok(ElementKind::Grid),
+        "stack" => Ok(ElementKind::Stack),
+        "spacer" => Ok(ElementKind::Spacer),
+        "badge" => Ok(ElementKind::Badge),
+        "tooltip" => Ok(ElementKind::Tooltip),
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
                 .iter()
@@ -1473,7 +1490,7 @@ const KNOWN_ATTRS: &[&str] = &[
     "clip-path", "mix-blend-mode", "background-blend-mode", "writing-mode",
     "column-count", "column-gap", "text-indent", "hyphens",
     "flex-grow", "flex-shrink", "flex-basis", "isolation",
-    "place-content", "background-image", "datetime",
+    "place-content", "background-image", "datetime", "direction",
     // New CSS properties (batch 2)
     "font-weight", "font-style", "text-wrap", "will-change", "touch-action",
     "vertical-align", "contain", "content-visibility",
@@ -1973,6 +1990,18 @@ fn strip_all_prefixes(key: &str) -> &str {
         .or_else(|| key.strip_prefix("last:"))
         .or_else(|| key.strip_prefix("odd:"))
         .or_else(|| key.strip_prefix("even:"))
+        .or_else(|| key.strip_prefix("selection:"))
+        .or_else(|| key.strip_prefix("before:"))
+        .or_else(|| key.strip_prefix("after:"))
+        .or_else(|| {
+            // Handle nth:EXPR: prefix (e.g., nth:3:background -> background)
+            if key.starts_with("nth:") {
+                let rest = &key[4..];
+                rest.find(':').map(|pos| &rest[pos + 1..])
+            } else {
+                None
+            }
+        })
         .unwrap_or(key);
     // Strip responsive prefixes
     let key = key.strip_prefix("sm:")
@@ -1989,6 +2018,13 @@ fn strip_all_prefixes(key: &str) -> &str {
         .or_else(|| key.strip_prefix("motion-reduce:"))
         .or_else(|| key.strip_prefix("landscape:"))
         .or_else(|| key.strip_prefix("portrait:"))
+        .unwrap_or(key);
+    // Strip container query prefixes (cq-sm:, cq-md:, etc.)
+    let key = key.strip_prefix("cq-sm:")
+        .or_else(|| key.strip_prefix("cq-md:"))
+        .or_else(|| key.strip_prefix("cq-lg:"))
+        .or_else(|| key.strip_prefix("cq-xl:"))
+        .or_else(|| key.strip_prefix("cq-2xl:"))
         .unwrap_or(key);
     key
 }
@@ -2063,6 +2099,11 @@ fn element_kind_name(kind: &ElementKind) -> &'static str {
         ElementKind::Iframe => "@iframe",
         ElementKind::Output => "@output",
         ElementKind::Canvas => "@canvas",
+        ElementKind::Grid => "@grid",
+        ElementKind::Stack => "@stack",
+        ElementKind::Spacer => "@spacer",
+        ElementKind::Badge => "@badge",
+        ElementKind::Tooltip => "@tooltip",
     }
 }
 
@@ -2077,6 +2118,7 @@ fn is_container(kind: &ElementKind) -> bool {
         | ElementKind::Dialog | ElementKind::DefinitionList | ElementKind::DefinitionTerm
         | ElementKind::DefinitionDescription | ElementKind::Fieldset | ElementKind::Datalist
         | ElementKind::Iframe | ElementKind::Canvas
+        | ElementKind::Grid | ElementKind::Stack
     )
 }
 
@@ -2231,9 +2273,69 @@ fn validate_tree(
                 }
             }
 
+            // Contrast ratio check for hex color pairs
+            {
+                let bg_color = elem.attrs.iter()
+                    .find(|a| strip_all_prefixes(&a.key) == "background")
+                    .and_then(|a| a.value.as_deref());
+                let fg_color = elem.attrs.iter()
+                    .find(|a| strip_all_prefixes(&a.key) == "color")
+                    .and_then(|a| a.value.as_deref());
+                if let (Some(bg), Some(fg)) = (bg_color, fg_color) {
+                    if let (Some(bg_rgb), Some(fg_rgb)) = (parse_hex_rgb(bg), parse_hex_rgb(fg)) {
+                        let ratio = contrast_ratio(bg_rgb, fg_rgb);
+                        if ratio < 4.5 {
+                            diagnostics.push(Diagnostic {
+                                line: elem.line_num,
+                                message: format!(
+                                    "low contrast ratio {:.1}:1 between '{}' and '{}' (WCAG AA requires 4.5:1)",
+                                    ratio, fg, bg
+                                ),
+                                severity: Severity::Warning,
+                                source_line: None,
+                            });
+                        }
+                    }
+                }
+            }
+
             validate_tree(&elem.children, Some(&elem.kind), diagnostics);
         }
     }
+}
+
+fn parse_hex_rgb(s: &str) -> Option<(u8, u8, u8)> {
+    let s = s.strip_prefix('#')?;
+    match s.len() {
+        3 => {
+            let r = u8::from_str_radix(&s[0..1], 16).ok()?;
+            let g = u8::from_str_radix(&s[1..2], 16).ok()?;
+            let b = u8::from_str_radix(&s[2..3], 16).ok()?;
+            Some((r * 17, g * 17, b * 17))
+        }
+        6 => {
+            let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+            Some((r, g, b))
+        }
+        _ => None,
+    }
+}
+
+fn relative_luminance(r: u8, g: u8, b: u8) -> f64 {
+    fn linearize(c: u8) -> f64 {
+        let s = c as f64 / 255.0;
+        if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+    }
+    0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
+}
+
+fn contrast_ratio(c1: (u8, u8, u8), c2: (u8, u8, u8)) -> f64 {
+    let l1 = relative_luminance(c1.0, c1.1, c1.2);
+    let l2 = relative_luminance(c2.0, c2.1, c2.2);
+    let (lighter, darker) = if l1 > l2 { (l1, l2) } else { (l2, l1) };
+    (lighter + 0.05) / (darker + 0.05)
 }
 
 // ---------------------------------------------------------------------------

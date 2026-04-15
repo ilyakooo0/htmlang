@@ -209,6 +209,9 @@ Commands:
   sitemap <dir>         Generate sitemap.xml from .hl files
   lint <file.hl | dir>  Stricter lint checks (accessibility, nesting, etc.)
   stats <file.hl | dir> Show file statistics (elements, CSS rules, colors)
+  preview <file.hl>     Compile and open in browser (one-shot, no server)
+  diff <a.hl> <b.hl>    Show differences between two .hl files
+  export <dir> [-o f]   Compile and bundle into an archive
 
 Options:
   -w, --watch       Watch for changes and recompile
@@ -303,6 +306,25 @@ fn collect_hl_recursive_inner(dir: &Path, files: &mut Vec<PathBuf>) {
             }
         }
     }
+}
+
+fn collect_all_files_recursive(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    fn walk(dir: &Path, files: &mut Vec<PathBuf>) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, files);
+                } else if path.is_file() {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    walk(dir, &mut files);
+    files.sort();
+    files
 }
 
 fn generate_sitemap(dir: &str, base_url: &str) {
@@ -589,12 +611,28 @@ fn main() {
             })
         }).collect();
 
-        // Compile files in parallel
+        // Compile files in parallel (with incremental skip for unchanged files)
         let any_errors = std::sync::atomic::AtomicBool::new(false);
+        let skipped = std::sync::atomic::AtomicUsize::new(0);
         std::thread::scope(|s| {
             for (file, effective_out) in hl_files.iter().zip(effective_outs.iter()) {
                 let any_errors = &any_errors;
+                let skipped = &skipped;
                 s.spawn(move || {
+                    // Incremental: skip if output is newer than source
+                    if let Some(out_path) = effective_out {
+                        let out_p = Path::new(out_path.as_str());
+                        if out_p.exists() {
+                            if let (Ok(src_meta), Ok(out_meta)) = (file.metadata(), out_p.metadata()) {
+                                if let (Ok(src_mod), Ok(out_mod)) = (src_meta.modified(), out_meta.modified()) {
+                                    if out_mod > src_mod {
+                                        skipped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     let path_str = file.to_string_lossy().to_string();
                     let (has_errors, _) = compile(&path_str, false, false, false, effective_out.as_deref(), false, None);
                     if has_errors {
@@ -603,6 +641,10 @@ fn main() {
                 });
             }
         });
+        let skipped_count = skipped.load(std::sync::atomic::Ordering::Relaxed);
+        if skipped_count > 0 {
+            eprintln!("skipped {} unchanged files", skipped_count);
+        }
         if any_errors.load(std::sync::atomic::Ordering::Relaxed) { process::exit(1); }
 
         // Copy non-.hl static assets to output directory
@@ -749,6 +791,152 @@ fn main() {
             Err(e) => {
                 eprintln!("error: {}: {}", file_name, e);
                 process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // Handle "preview" subcommand
+    if args.len() >= 2 && args[1] == "preview" {
+        if args.len() < 3 {
+            eprintln!("usage: htmlang preview <file.hl>");
+            process::exit(1);
+        }
+        let file = &args[2];
+        let tmp_dir = env::temp_dir().join("htmlang-preview");
+        let _ = fs::create_dir_all(&tmp_dir);
+        let out_path = tmp_dir.join("preview.html");
+        let (has_errors, _) = compile(file, true, false, false, Some(&out_path.to_string_lossy()), false, None);
+        if has_errors {
+            process::exit(1);
+        }
+        let url = format!("file://{}", out_path.display());
+        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        let _ = std::process::Command::new(cmd).arg(&url).spawn();
+        eprintln!("opened {}", out_path.display());
+        return;
+    }
+
+    // Handle "diff" subcommand
+    if args.len() >= 2 && args[1] == "diff" {
+        if args.len() < 4 {
+            eprintln!("usage: htmlang diff <file1.hl> <file2.hl>");
+            process::exit(1);
+        }
+        let file1 = &args[2];
+        let file2 = &args[3];
+        let compile_to_string = |path: &str| -> Result<String, String> {
+            let input = fs::read_to_string(path).map_err(|e| format!("error: {}: {}", path, e))?;
+            let base = Path::new(path).parent();
+            let result = htmlang::parser::parse_with_base(&input, base);
+            if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+                return Err(format!("error: {} has parse errors", path));
+            }
+            Ok(htmlang::codegen::generate_dev(&result.document))
+        };
+        let html1 = match compile_to_string(file1) {
+            Ok(h) => h,
+            Err(e) => { eprintln!("{}", e); process::exit(1); }
+        };
+        let html2 = match compile_to_string(file2) {
+            Ok(h) => h,
+            Err(e) => { eprintln!("{}", e); process::exit(1); }
+        };
+        let lines1: Vec<&str> = html1.lines().collect();
+        let lines2: Vec<&str> = html2.lines().collect();
+        let mut has_diff = false;
+        let max_len = lines1.len().max(lines2.len());
+        for i in 0..max_len {
+            let l1 = lines1.get(i).unwrap_or(&"");
+            let l2 = lines2.get(i).unwrap_or(&"");
+            if l1 != l2 {
+                has_diff = true;
+                if !l1.is_empty() {
+                    println!("- {}", l1);
+                }
+                if !l2.is_empty() {
+                    println!("+ {}", l2);
+                }
+            }
+        }
+        if !has_diff {
+            eprintln!("no differences");
+        }
+        return;
+    }
+
+    // Handle "export" subcommand
+    if args.len() >= 2 && args[1] == "export" {
+        let mut src_dir = None;
+        let mut out_file = None;
+        let mut ei = 2;
+        while ei < args.len() {
+            match args[ei].as_str() {
+                "-o" | "--output" => {
+                    ei += 1;
+                    out_file = args.get(ei).map(|s| s.as_str());
+                }
+                _ if src_dir.is_none() => src_dir = Some(args[ei].as_str()),
+                _ => {
+                    eprintln!("unknown argument: {}", args[ei]);
+                    process::exit(1);
+                }
+            }
+            ei += 1;
+        }
+        let src = src_dir.unwrap_or(".");
+        let dir = Path::new(src);
+        if !dir.is_dir() {
+            eprintln!("error: '{}' is not a directory", src);
+            process::exit(1);
+        }
+        let hl_files = collect_hl_files_recursive(dir);
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", src);
+            process::exit(1);
+        }
+        let zip_path = out_file.unwrap_or("site.zip");
+        // Build to temp directory, then create zip
+        let tmp_dir = env::temp_dir().join("htmlang-export");
+        let _ = fs::remove_dir_all(&tmp_dir);
+        let _ = fs::create_dir_all(&tmp_dir);
+        let mut any_errors = false;
+        for file in &hl_files {
+            let rel = file.strip_prefix(dir).unwrap_or(file);
+            let out_path = tmp_dir.join(rel).with_extension("html");
+            if let Some(parent) = out_path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let path_str = file.to_string_lossy().to_string();
+            let (has_errors, _) = compile(&path_str, false, false, false, Some(&out_path.to_string_lossy()), false, None);
+            if has_errors { any_errors = true; }
+        }
+        // Copy non-.hl assets
+        copy_non_hl_files(dir, &tmp_dir);
+        if any_errors {
+            eprintln!("export completed with errors");
+        }
+        // Create a simple tar-like zip (concatenated files with headers)
+        // Since we can't use external crates, we'll create a self-contained directory listing
+        let export_files = collect_all_files_recursive(&tmp_dir);
+        let zip_file = std::fs::File::create(zip_path);
+        match zip_file {
+            Ok(mut f) => {
+                use std::io::Write;
+                // Write a simple archive format: filename\0length\0content
+                for file in &export_files {
+                    let rel = file.strip_prefix(&tmp_dir).unwrap_or(file);
+                    if let Ok(data) = fs::read(file) {
+                        let _ = write!(f, "FILE:{}:{}:", rel.display(), data.len());
+                        let _ = f.write_all(&data);
+                    }
+                }
+                eprintln!("exported {} files to {}", export_files.len(), zip_path);
+            }
+            Err(e) => {
+                eprintln!("error: {}: {}", zip_path, e);
+                // Fallback: just report the built files in tmp_dir
+                eprintln!("files available in {}", tmp_dir.display());
             }
         }
         return;
