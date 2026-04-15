@@ -798,6 +798,41 @@ fn snippet_completions(range: Range) -> Vec<CompletionItem> {
             "Text with ellipsis overflow",
             "@text [max-width ${1:200}, truncate] ${2:Long text that will be truncated...}",
         ),
+        (
+            "@fn definition",
+            "Define a reusable function/component",
+            "@fn ${1:name} \\$${2:param}\n  @el [${3:padding 16}]\n    @children",
+        ),
+        (
+            "@each loop",
+            "Iterate over a list of items",
+            "@each \\$${1:item} in ${2:items}\n  @text \\$${1:item}",
+        ),
+        (
+            "@if conditional",
+            "Conditional rendering block",
+            "@if ${1:condition}\n  ${2:content}\n@else\n  ${3:fallback}",
+        ),
+        (
+            "@match pattern",
+            "Pattern matching block",
+            "@match \\$${1:value}\n  @case ${2:option1}\n    ${3:content}\n  @default\n    ${4:fallback}",
+        ),
+        (
+            "@for range loop",
+            "Loop over a numeric range",
+            "@for \\$${1:i} in ${2:0}..${3:10}\n  @text \\$${1:i}",
+        ),
+        (
+            "@data JSON load",
+            "Load variables from a JSON file",
+            "@data ${1:data.json}",
+        ),
+        (
+            "@component scoped",
+            "Define a scoped component with styles",
+            "@component ${1:name} \\$${2:param}\n  @style\n    .inner { ${3:padding: 16px;} }\n  @el [class inner]\n    @children",
+        ),
     ];
 
     snippets
@@ -2848,6 +2883,7 @@ fn code_actions(
                                                         || t == format!("@include {}", rel)
                                                 });
                                                 if !already_imported {
+                                                    // Offer @import (all definitions)
                                                     let import_line = format!("@import {}\n", rel);
                                                     let edit = TextEdit {
                                                         range: Range::new(
@@ -2864,6 +2900,28 @@ fn code_actions(
                                                         diagnostics: Some(vec![diag.clone()]),
                                                         edit: Some(WorkspaceEdit {
                                                             changes: Some(changes),
+                                                            ..Default::default()
+                                                        }),
+                                                        ..Default::default()
+                                                    }));
+
+                                                    // Also offer @use (selective import)
+                                                    let use_line = format!("@use \"{}\" {}\n", rel, fn_name);
+                                                    let use_edit = TextEdit {
+                                                        range: Range::new(
+                                                            Position::new(0, 0),
+                                                            Position::new(0, 0),
+                                                        ),
+                                                        new_text: use_line,
+                                                    };
+                                                    let mut use_changes = HashMap::new();
+                                                    use_changes.insert(uri.clone(), vec![use_edit]);
+                                                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                                                        title: format!("Add '@use \"{}\" {}' (selective)", rel, fn_name),
+                                                        kind: Some(CodeActionKind::QUICKFIX),
+                                                        diagnostics: Some(vec![diag.clone()]),
+                                                        edit: Some(WorkspaceEdit {
+                                                            changes: Some(use_changes),
                                                             ..Default::default()
                                                         }),
                                                         ..Default::default()

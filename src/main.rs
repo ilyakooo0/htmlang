@@ -14,10 +14,10 @@ struct DiagnosticJson {
 }
 
 fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>) -> (bool, Vec<PathBuf>) {
-    compile_inner(input_path, dev, error_overlay, check_only, output_path, format_json, json_collector, false, false)
+    compile_inner(input_path, dev, error_overlay, check_only, output_path, format_json, json_collector, false, false, false)
 }
 
-fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>, minify: bool, compat: bool) -> (bool, Vec<PathBuf>) {
+fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>, minify: bool, compat: bool, strict: bool) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
@@ -72,7 +72,8 @@ fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: b
     let has_errors = result
         .diagnostics
         .iter()
-        .any(|d| d.severity == htmlang::parser::Severity::Error);
+        .any(|d| d.severity == htmlang::parser::Severity::Error
+            || (strict && d.severity == htmlang::parser::Severity::Warning));
 
     let out_path = match output_path {
         Some(p) => PathBuf::from(p),
@@ -141,6 +142,107 @@ fn kebab_to_title(s: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn format_bytes(bytes: usize) -> String {
+    if bytes >= 1_048_576 {
+        format!("{:.1}MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1}KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{}B", bytes)
+    }
+}
+
+fn bundle_assets(html: &str, base_dir: &Path) -> String {
+    use std::io::Read;
+    let mut result = html.to_string();
+
+    // Inline images referenced as src="..." in <img> tags
+    let img_re_patterns = ["src=\"", "url("];
+    for pattern in &img_re_patterns {
+        let mut output = String::new();
+        let mut remaining = result.as_str();
+        while let Some(pos) = remaining.find(pattern) {
+            output.push_str(&remaining[..pos + pattern.len()]);
+            remaining = &remaining[pos + pattern.len()..];
+
+            // Find the closing delimiter
+            let close_char = if *pattern == "src=\"" { '"' } else { ')' };
+            if let Some(end) = remaining.find(close_char) {
+                let path_str = remaining[..end].trim_matches(|c| c == '\'' || c == '"');
+
+                // Skip data URIs, remote URLs, and anchors
+                if !path_str.starts_with("data:")
+                    && !path_str.starts_with("http://")
+                    && !path_str.starts_with("https://")
+                    && !path_str.starts_with('#')
+                    && !path_str.is_empty()
+                {
+                    let asset_path = base_dir.join(path_str);
+                    if asset_path.exists() {
+                        if let Ok(mut file) = std::fs::File::open(&asset_path) {
+                            let mut buf = Vec::new();
+                            if file.read_to_end(&mut buf).is_ok() {
+                                let mime = match asset_path.extension().and_then(|e| e.to_str()) {
+                                    Some("png") => "image/png",
+                                    Some("jpg") | Some("jpeg") => "image/jpeg",
+                                    Some("gif") => "image/gif",
+                                    Some("svg") => "image/svg+xml",
+                                    Some("webp") => "image/webp",
+                                    Some("ico") => "image/x-icon",
+                                    Some("woff2") => "font/woff2",
+                                    Some("woff") => "font/woff",
+                                    Some("ttf") => "font/ttf",
+                                    Some("otf") => "font/otf",
+                                    Some("avif") => "image/avif",
+                                    _ => "application/octet-stream",
+                                };
+                                use std::fmt::Write as FmtWrite;
+                                let mut b64 = String::new();
+                                // Simple base64 encoding
+                                let encoded = base64_encode(&buf);
+                                let _ = write!(b64, "data:{};base64,{}", mime, encoded);
+                                output.push_str(&b64);
+                                remaining = &remaining[end..];
+                                continue;
+                            }
+                        }
+                    }
+                }
+                // If we couldn't inline, keep original path
+                output.push_str(&remaining[..end]);
+                remaining = &remaining[end..];
+            }
+        }
+        output.push_str(remaining);
+        result = output;
+    }
+    result
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((n >> 18) & 63) as usize] as char);
+        result.push(CHARS[((n >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((n >> 6) & 63) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(n & 63) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
 }
 
 fn copy_non_hl_files(src_dir: &Path, out_dir: &Path) {
@@ -239,6 +341,8 @@ Commands:
   outline <file.hl>     Show document structure tree
   doctor                Check toolchain health
   migrate [dir|file]    Auto-upgrade deprecated syntax
+  bundle <file|dir> [-o <out>]  Compile and inline all assets as data URIs
+  size <file|dir>       Report output sizes (raw, minified, ~gzip)
   benchmark <file|dir>  Measure compile time and output size
 
 Options:
@@ -250,6 +354,7 @@ Options:
   -d, --dev         Development mode
   -c, --check       Check for errors without writing output
   --compat          Add vendor prefixes for broader browser support
+  --strict          Treat warnings as errors (useful for CI)
   --format json     Output diagnostics as JSON to stdout
   -h, --help        Show this help
   -V, --version     Show version
@@ -681,6 +786,7 @@ fn main() {
     let mut check = false;
     let mut format_json = false;
     let mut compat = false;
+    let mut strict = false;
     let mut open_browser = false;
     let mut port: u16 = 3000;
     let mut output_path: Option<String> = None;
@@ -789,7 +895,7 @@ fn main() {
                     }
                     let path_str = file.to_string_lossy().to_string();
                     let (has_errors, _) = if build_minify || build_compat {
-                        compile_inner(&path_str, false, false, false, effective_out.as_deref(), false, None, build_minify, build_compat)
+                        compile_inner(&path_str, false, false, false, effective_out.as_deref(), false, None, build_minify, build_compat, false)
                     } else {
                         compile(&path_str, false, false, false, effective_out.as_deref(), false, None)
                     };
@@ -2171,6 +2277,138 @@ compile();
         return;
     }
 
+    // Handle "bundle" subcommand — inline images/fonts as data URIs
+    if args.len() >= 2 && args[1] == "bundle" {
+        if args.len() < 3 {
+            eprintln!("usage: htmlang bundle <file.hl | dir> [-o <out>]");
+            process::exit(1);
+        }
+        let mut bundle_target = None;
+        let mut bundle_out = None;
+        let mut bi = 2;
+        while bi < args.len() {
+            match args[bi].as_str() {
+                "-o" | "--output" => {
+                    bi += 1;
+                    bundle_out = args.get(bi).map(|s| s.as_str());
+                }
+                _ if bundle_target.is_none() => bundle_target = Some(args[bi].as_str()),
+                _ => {
+                    eprintln!("unknown argument: {}", args[bi]);
+                    process::exit(1);
+                }
+            }
+            bi += 1;
+        }
+        let target = bundle_target.unwrap_or(".");
+        let path = Path::new(target);
+        let hl_files = if path.is_dir() {
+            collect_hl_files_recursive(path)
+        } else {
+            vec![PathBuf::from(target)]
+        };
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", target);
+            process::exit(1);
+        }
+        for file in &hl_files {
+            let input = match fs::read_to_string(file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("error: {}: {}", file.display(), e);
+                    continue;
+                }
+            };
+            let base = file.parent();
+            let result = htmlang::parser::parse_with_base(&input, base);
+            if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+                for d in &result.diagnostics {
+                    if d.severity == htmlang::parser::Severity::Error {
+                        eprintln!("error: line {}: {}", d.line, d.message);
+                    }
+                }
+                continue;
+            }
+            let html = htmlang::codegen::generate(&result.document);
+            // Inline external assets: images and fonts referenced in the HTML
+            let bundled = bundle_assets(&html, base.unwrap_or(Path::new(".")));
+            let out_path = match bundle_out {
+                Some(o) => {
+                    let p = Path::new(o);
+                    if p.is_dir() || hl_files.len() > 1 {
+                        let _ = fs::create_dir_all(p);
+                        let rel = file.strip_prefix(path).unwrap_or(file);
+                        p.join(rel).with_extension("html")
+                    } else {
+                        PathBuf::from(o)
+                    }
+                }
+                None => file.with_extension("html"),
+            };
+            match fs::write(&out_path, &bundled) {
+                Ok(()) => eprintln!("bundled {}", out_path.display()),
+                Err(e) => eprintln!("error: {}: {}", out_path.display(), e),
+            }
+        }
+        return;
+    }
+
+    // Handle "size" subcommand — report output sizes with gzip estimates
+    if args.len() >= 2 && args[1] == "size" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let path = Path::new(target);
+        let hl_files = if path.is_dir() {
+            collect_hl_files_recursive(path)
+        } else {
+            vec![PathBuf::from(target)]
+        };
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", target);
+            process::exit(1);
+        }
+        let mut total_source = 0usize;
+        let mut total_output = 0usize;
+        let mut total_minified = 0usize;
+        for file in &hl_files {
+            let input = match fs::read_to_string(file) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            total_source += input.len();
+            let base = file.parent();
+            let result = htmlang::parser::parse_with_base(&input, base);
+            if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+                continue;
+            }
+            let html = htmlang::codegen::generate(&result.document);
+            let minified = htmlang::codegen::generate_minified(&result.document);
+            let html_len = html.len();
+            let min_len = minified.len();
+            // Estimate gzip size as ~30% of minified (rough heuristic for HTML)
+            let gzip_est = min_len * 30 / 100;
+            total_output += html_len;
+            total_minified += min_len;
+            eprintln!(
+                "  {}:  {} → {} (minified: {}, ~gzip: {})",
+                file.display(),
+                format_bytes(input.len()),
+                format_bytes(html_len),
+                format_bytes(min_len),
+                format_bytes(gzip_est),
+            );
+        }
+        eprintln!("---");
+        let total_gzip = total_minified * 30 / 100;
+        eprintln!(
+            "  total:  {} source → {} output (minified: {}, ~gzip: {})",
+            format_bytes(total_source),
+            format_bytes(total_output),
+            format_bytes(total_minified),
+            format_bytes(total_gzip),
+        );
+        return;
+    }
+
     // Handle "benchmark" subcommand — measure compile time and output size
     if args.len() >= 2 && args[1] == "benchmark" {
         if args.len() < 3 {
@@ -2427,6 +2665,7 @@ compile();
             "--dev" | "-d" => dev = true,
             "--check" | "-c" => check = true,
             "--compat" => compat = true,
+            "--strict" => strict = true,
             "--open" => open_browser = true,
             "--format" => {
                 i += 1;
@@ -2517,7 +2756,7 @@ compile();
                 }
                 out_p.to_string_lossy().to_string()
             });
-            let (has_errors, included) = compile_inner(&path_str, dev, serve, check, effective_out.as_deref(), format_json, json_collector.as_ref(), false, compat);
+            let (has_errors, included) = compile_inner(&path_str, dev, serve, check, effective_out.as_deref(), format_json, json_collector.as_ref(), false, compat, strict);
             if has_errors {
                 any_errors = true;
             }
@@ -2560,7 +2799,7 @@ compile();
 
     // --- Single file mode ---
     let json_collector_single = if format_json { Some(Mutex::new(Vec::new())) } else { None };
-    let (has_errors, included_files) = compile_inner(&input_path, dev, serve, check, output_path.as_deref(), format_json, json_collector_single.as_ref(), false, compat);
+    let (has_errors, included_files) = compile_inner(&input_path, dev, serve, check, output_path.as_deref(), format_json, json_collector_single.as_ref(), false, compat, strict);
     if format_json {
         if let Some(ref collector) = json_collector_single {
             print_json_diagnostics(&collector.lock().unwrap());

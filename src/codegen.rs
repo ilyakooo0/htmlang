@@ -15,6 +15,25 @@ const BREAKPOINTS: &[(&str, &str)] = &[
     ("2xl", "1536px"),
 ];
 
+/// Generate short CSS class names: a, b, ..., z, a0, a1, ..., z9, aa, ab, ...
+fn short_class_name(idx: usize) -> String {
+    if idx < 26 {
+        return String::from((b'a' + idx as u8) as char);
+    }
+    let mut n = idx - 26;
+    let mut name = String::new();
+    // First char is always a letter
+    name.push((b'a' + (n % 26) as u8) as char);
+    n /= 26;
+    loop {
+        name.push((b'a' + (n % 36).min(25) as u8) as char);
+        if n < 36 { break; }
+        n /= 36;
+    }
+    // Reverse so it reads naturally
+    name.chars().rev().collect()
+}
+
 struct StyleEntry {
     class_name: String,
     base: String,
@@ -93,8 +112,8 @@ impl StyleCollector {
         if let Some(&idx) = self.index.get(&key) {
             return Some(self.entries[idx].class_name.clone());
         }
-        let name = format!("_{}", self.entries.len());
         let idx = self.entries.len();
+        let name = short_class_name(idx);
         self.entries.push(StyleEntry {
             class_name: name.clone(),
             base,

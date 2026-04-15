@@ -577,7 +577,20 @@ impl Parser {
         // --- @import (definitions only, no DOM nodes) ---
 
         if let Some(rest) = content.strip_prefix("@import ") {
-            let filename = substitute_vars(rest.trim(), &ctx.variables);
+            let rest = rest.trim();
+            // Support @import "file.hl" as prefix — namespace imported definitions
+            let (filename, alias) = if let Some((file_part, alias_part)) = rest.rsplit_once(" as ") {
+                (file_part.trim().to_string(), Some(alias_part.trim().to_string()))
+            } else {
+                (rest.to_string(), None)
+            };
+            // Strip quotes from filename
+            let filename = if filename.starts_with('"') && filename.ends_with('"') && filename.len() >= 2 {
+                filename[1..filename.len()-1].to_string()
+            } else {
+                filename
+            };
+            let filename = substitute_vars(&filename, &ctx.variables);
             let resolved = match &ctx.base_path {
                 Some(base) => base.join(&filename),
                 None => PathBuf::from(&filename),
@@ -618,13 +631,67 @@ impl Parser {
             let saved_base = ctx.base_path.clone();
             ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
 
-            // Parse the file but discard DOM nodes — only keep definitions
-            let imported_lines = preprocess(&imported_text);
-            let mut imported_parser = Parser {
-                lines: imported_lines,
-                pos: 0,
-            };
-            let _discarded_nodes = imported_parser.parse_children(0, ctx);
+            if let Some(ref prefix) = alias {
+                // Parse into a temporary context, then copy definitions with prefix
+                let saved_fns = ctx.functions.clone();
+                let saved_defines = ctx.defines.clone();
+                let saved_mixins = ctx.mixins.clone();
+                let saved_vars = ctx.variables.clone();
+
+                let imported_lines = preprocess(&imported_text);
+                let mut imported_parser = Parser {
+                    lines: imported_lines,
+                    pos: 0,
+                };
+                let _discarded_nodes = imported_parser.parse_children(0, ctx);
+
+                // Find newly added definitions and re-register with prefix
+                let new_fns: Vec<(String, FnDef)> = ctx.functions.iter()
+                    .filter(|(k, _)| !saved_fns.contains_key(*k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                let new_defines: Vec<(String, Vec<Attribute>)> = ctx.defines.iter()
+                    .filter(|(k, _)| !saved_defines.contains_key(*k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                let new_mixins: Vec<(String, Vec<Attribute>)> = ctx.mixins.iter()
+                    .filter(|(k, _)| !saved_mixins.contains_key(*k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                let new_vars: Vec<(String, String)> = ctx.variables.iter()
+                    .filter(|(k, _)| !saved_vars.contains_key(*k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+
+                // Restore originals, then add prefixed versions
+                ctx.functions = saved_fns;
+                ctx.defines = saved_defines;
+                ctx.mixins = saved_mixins;
+                ctx.variables = saved_vars;
+
+                for (name, def) in new_fns {
+                    ctx.functions.insert(format!("{}.{}", prefix, name), def);
+                }
+                for (name, attrs) in new_defines {
+                    ctx.defines.insert(format!("{}.{}", prefix, name), attrs);
+                }
+                for (name, attrs) in new_mixins {
+                    ctx.mixins.insert(format!("{}.{}", prefix, name), attrs);
+                }
+                for (name, val) in new_vars {
+                    if !name.starts_with("__") {
+                        ctx.variables.insert(format!("{}.{}", prefix, name), val);
+                    }
+                }
+            } else {
+                // Parse the file but discard DOM nodes — only keep definitions
+                let imported_lines = preprocess(&imported_text);
+                let mut imported_parser = Parser {
+                    lines: imported_lines,
+                    pos: 0,
+                };
+                let _discarded_nodes = imported_parser.parse_children(0, ctx);
+            }
 
             ctx.base_path = saved_base;
             ctx.include_stack.pop();
@@ -1044,6 +1111,8 @@ impl Parser {
                 || (var_names.len() == 2 && items.first().map_or(false, |it| it.contains(' ')));
 
             for (i, item) in items.iter().enumerate() {
+                // Always expose $_index for the current iteration
+                ctx.variables.insert("_index".to_string(), i.to_string());
                 if has_extra_vars {
                     // Destructuring: split item by spaces and assign to each variable
                     let parts: Vec<&str> = item.splitn(var_names.len(), ' ').collect();
@@ -1355,6 +1424,46 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@debug ") {
             let msg = substitute_vars(rest.trim(), &ctx.variables);
             eprintln!("debug: line {}: {}", line_num, msg);
+            return Ok(None);
+        }
+
+        // --- @log (compile-time variable inspection) ---
+
+        if let Some(rest) = content.strip_prefix("@log ") {
+            let rest = rest.trim();
+            // @log $var — shows variable name, value, and type info
+            let var_names: Vec<&str> = rest.split_whitespace().collect();
+            for var_name in &var_names {
+                let name = var_name.strip_prefix('$').unwrap_or(var_name);
+                ctx.used_variables.insert(name.to_string());
+                if let Some(val) = ctx.variables.get(name) {
+                    let kind = if val.parse::<f64>().is_ok() {
+                        "number"
+                    } else if val.starts_with('#') && is_valid_hex_color(val) {
+                        "color"
+                    } else if val.contains('/') || val.ends_with(".hl") || val.ends_with(".html") {
+                        "path"
+                    } else {
+                        "string"
+                    };
+                    eprintln!("log: line {}: ${} = \"{}\" ({})", line_num, name, val, kind);
+                } else if ctx.functions.contains_key(name) {
+                    let def = &ctx.functions[name];
+                    let params: Vec<String> = def.params.iter().map(|p| format!("${}", p)).collect();
+                    eprintln!("log: line {}: @{} ({}) — {} line(s)", line_num, name, params.join(", "), def.body_lines.len());
+                } else if ctx.defines.contains_key(name) {
+                    let attrs = &ctx.defines[name];
+                    let attr_strs: Vec<String> = attrs.iter().map(|a| {
+                        match &a.value {
+                            Some(v) => format!("{} {}", a.key, v),
+                            None => a.key.clone(),
+                        }
+                    }).collect();
+                    eprintln!("log: line {}: ${} = [{}]", line_num, name, attr_strs.join(", "));
+                } else {
+                    eprintln!("log: line {}: ${} is undefined", line_num, name);
+                }
+            }
             return Ok(None);
         }
 
@@ -1871,7 +1980,12 @@ fn replace_children_and_slots(
     for node in nodes {
         match node {
             Node::Element(elem) if elem.kind == ElementKind::Children => {
-                result.extend(caller_children.iter().cloned());
+                if caller_children.is_empty() && !elem.children.is_empty() {
+                    // Use @children's own children as default/fallback content
+                    result.extend(elem.children);
+                } else {
+                    result.extend(caller_children.iter().cloned());
+                }
             }
             Node::Element(elem) if matches!(&elem.kind, ElementKind::Slot(name) if !name.is_empty()) => {
                 if let ElementKind::Slot(ref name) = elem.kind {
@@ -2006,6 +2120,7 @@ const KNOWN_DIRECTIVES: &[&str] = &[
     "canonical", "base", "font-face", "json-ld",
     "mixin", "assert",
     "for", "component", "switch",
+    "log",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -2431,7 +2546,7 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
             continue;
         }
 
-        // ...$mixin spread — expand mixin attributes
+        // ...$name spread — expand mixin or define attributes
         if part.starts_with("...$") {
             let name = &part[4..];
             if let Some(mixin_attrs) = ctx.mixins.get(name) {
@@ -2439,7 +2554,11 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
                 attrs.extend(mixin_attrs.clone());
                 continue;
             }
-            // Fall through to try as define
+            if let Some(define_attrs) = ctx.defines.get(name) {
+                ctx.used_defines.insert(name.to_string());
+                attrs.extend(define_attrs.clone());
+                continue;
+            }
         }
 
         // $define reference — expand

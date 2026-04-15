@@ -3299,3 +3299,154 @@ fn test_compat_vendor_prefixes() {
     assert!(html.contains("-webkit-user-select"), "should add webkit prefix for user-select");
     assert!(html.contains("-moz-user-select"), "should add moz prefix for user-select");
 }
+
+// ---------------------------------------------------------------------------
+// Error snapshot tests — verify expected error messages on invalid input
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_error_unknown_element() {
+    let diags = parse_diagnostics("@bogus\n  Hello");
+    assert!(
+        diags.iter().any(|d| d.message.contains("unknown element")),
+        "should report unknown element error"
+    );
+}
+
+#[test]
+fn test_error_unclosed_brackets() {
+    let diags = parse_diagnostics("@el [padding 10\n  Hello");
+    assert!(
+        diags.iter().any(|d| d.message.contains("unclosed '['") || d.message.contains("unclosed")),
+        "should report unclosed bracket error"
+    );
+}
+
+#[test]
+fn test_error_each_missing_in() {
+    let diags = parse_diagnostics("@each $item\n  @text $item");
+    assert!(
+        diags.iter().any(|d| d.message.contains("@each requires")),
+        "should report @each syntax error"
+    );
+}
+
+#[test]
+fn test_error_for_missing_range() {
+    let diags = parse_diagnostics("@for $i\n  @text $i");
+    assert!(
+        diags.iter().any(|d| d.message.contains("@for requires")),
+        "should report @for syntax error"
+    );
+}
+
+#[test]
+fn test_error_circular_include() {
+    // A file including itself would be circular, but we test via in-memory parse
+    // by testing that the parser detects self-referential definitions
+    let diags = parse_diagnostics("@fn recursive $x\n  @recursive [$x]\n\n@recursive [hello]");
+    assert!(
+        diags.iter().any(|d| d.message.contains("recursive")),
+        "should report recursive function call"
+    );
+}
+
+#[test]
+fn test_error_assert_failure() {
+    let diags = parse_diagnostics("@let x 5\n@assert $x == 10");
+    assert!(
+        diags.iter().any(|d| d.message.contains("assertion failed") && d.severity == htmlang::parser::Severity::Error),
+        "should report assertion failure as error"
+    );
+}
+
+#[test]
+fn test_error_duplicate_attribute() {
+    let diags = parse_diagnostics("@el [padding 10, padding 20]\n  Hello");
+    assert!(
+        diags.iter().any(|d| d.message.contains("duplicate attribute")),
+        "should warn on duplicate attribute"
+    );
+}
+
+#[test]
+fn test_warning_unused_variable() {
+    let diags = parse_diagnostics("@let unused_var hello\n@text Hello");
+    assert!(
+        diags.iter().any(|d| d.message.contains("unused variable") && d.severity == htmlang::parser::Severity::Warning),
+        "should warn about unused variable"
+    );
+}
+
+#[test]
+fn test_warning_unused_function() {
+    let diags = parse_diagnostics("@fn unused_fn\n  @text Hello\n\n@text World");
+    assert!(
+        diags.iter().any(|d| d.message.contains("unused function") && d.severity == htmlang::parser::Severity::Warning),
+        "should warn about unused function"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// New feature tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_each_index_variable() {
+    let html = compile("@each $item in A, B, C\n  @text $_index");
+    assert!(html.contains(">0<"), "first item should have $_index = 0");
+    assert!(html.contains(">1<"), "second item should have $_index = 1");
+    assert!(html.contains(">2<"), "third item should have $_index = 2");
+}
+
+#[test]
+fn test_children_fallback_content() {
+    let html = compile("@fn wrapper\n  @el [padding 10]\n    @children\n      @text Default content\n\n@wrapper");
+    assert!(html.contains("Default content"), "should use @children fallback when no children provided");
+}
+
+#[test]
+fn test_spread_define() {
+    let html = compile("@define btn [padding 12, bold]\n@el [...$btn]\n  Click");
+    assert!(html.contains("padding:12px"), "spread define should apply padding");
+    assert!(html.contains("font-weight:bold") || html.contains("font-weight:700"), "spread define should apply bold");
+}
+
+#[test]
+fn test_log_directive() {
+    // @log should not produce errors and should be consumed without output nodes
+    let result = htmlang::parser::parse("@let x hello\n@log $x\n@text $x");
+    assert!(
+        result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error),
+        "@log should not produce errors"
+    );
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(!html.contains("@log"), "@log should not appear in output");
+}
+
+#[test]
+fn test_short_class_names() {
+    let html = compile("@el [padding 10]\n  @el [padding 20]\n    Hello");
+    // Class names should be short single letters, not _0, _1
+    assert!(!html.contains("class=\"_0\""), "should use short class names, not _0");
+    assert!(html.contains("class=\"a\"") || html.contains("class=\"b\""), "should use short alphabetic class names");
+}
+
+// ---------------------------------------------------------------------------
+// Round-trip test: compile -> convert -> compile -> diff
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_round_trip() {
+    let input = "@page Round Trip Test\n\n@column [padding 20, spacing 10]\n  @text [bold, size 24] Hello\n  @paragraph [color #666]\n    This is a test.";
+    let html1 = compile(input);
+    // Convert back to .hl
+    let hl = htmlang::convert::convert(&html1);
+    // Compile the converted .hl
+    let result2 = htmlang::parser::parse(&hl);
+    // May have warnings (e.g. unknown attrs from raw HTML) but should not have errors that prevent output
+    let html2 = htmlang::codegen::generate(&result2.document);
+    // Both HTML outputs should contain the same text content
+    assert!(html2.contains("Hello"), "round-trip should preserve text content 'Hello'");
+    assert!(html2.contains("This is a test"), "round-trip should preserve text content 'This is a test'");
+}
