@@ -692,6 +692,9 @@ fn generate_element(
         ElementKind::Kbd => "kbd",
         ElementKind::Abbr => "abbr",
         ElementKind::Datalist => "datalist",
+        ElementKind::Iframe => "iframe",
+        ElementKind::Output => "output",
+        ElementKind::Canvas => "canvas",
         ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule
         | ElementKind::Children | ElementKind::Slot(_) | ElementKind::Fragment
         | ElementKind::Source => unreachable!(),
@@ -748,6 +751,9 @@ fn generate_element(
         ElementKind::Kbd => "kbd",
         ElementKind::Abbr => "abbr",
         ElementKind::Datalist => "datalist",
+        ElementKind::Iframe => "iframe",
+        ElementKind::Output => "output",
+        ElementKind::Canvas => "canvas",
         _ => "",
     };
 
@@ -789,6 +795,15 @@ fn generate_element(
         }
     }
 
+    // Iframe src
+    if elem.kind == ElementKind::Iframe {
+        if let Some(src) = &elem.argument {
+            out.push_str(" src=\"");
+            out.push_str(&html_escape(src));
+            out.push('"');
+        }
+    }
+
     // Time datetime
     if elem.kind == ElementKind::Time {
         if let Some(dt) = elem.attrs.iter().find(|a| a.key == "datetime") {
@@ -809,6 +824,11 @@ fn generate_element(
     }
 
     emit_html_passthrough_attrs(out, &elem.attrs);
+
+    // Source map attributes in dev mode
+    if ctx.dev && elem.line_num > 0 {
+        out.push_str(&format!(" data-hl-line=\"{}\" data-hl-el=\"{}\"", elem.line_num, kind_label));
+    }
 
     out.push('>');
     out.push_str(ctx.nl());
@@ -902,6 +922,11 @@ fn generate_self_closing(
     }
 
     emit_html_passthrough_attrs(out, &elem.attrs);
+
+    // Source map attributes in dev mode (self-closing)
+    if ctx.dev && elem.line_num > 0 {
+        out.push_str(&format!(" data-hl-line=\"{}\" data-hl-el=\"{}\"", elem.line_num, kind_label));
+    }
 
     // Image optimization: auto-add loading="lazy" and decoding="async"
     if elem.kind == ElementKind::Image {
@@ -1032,6 +1057,8 @@ const PSEUDO_PREFIXES: &[(&str, &str)] = &[
     ("last:", ":last-child"),
     ("odd:", ":nth-child(odd)"),
     ("even:", ":nth-child(even)"),
+    ("before:", "::before"),
+    ("after:", "::after"),
 ];
 const RESPONSIVE_PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:", "2xl:"];
 const MEDIA_PREFIXES: &[&str] = &["dark:", "print:", "motion-safe:", "motion-reduce:", "landscape:", "portrait:"];
@@ -1776,6 +1803,52 @@ fn attrs_to_css(
             "background-image" => {
                 if let Some(v) = val { push_css(&mut css, "background-image", v); }
             }
+            "font-weight" => {
+                if let Some(v) = val { push_css(&mut css, "font-weight", v); }
+            }
+            "font-style" => {
+                if let Some(v) = val { push_css(&mut css, "font-style", v); }
+            }
+            "text-wrap" => {
+                if let Some(v) = val { push_css(&mut css, "text-wrap", v); }
+            }
+            "will-change" => {
+                if let Some(v) = val { push_css(&mut css, "will-change", v); }
+            }
+            "touch-action" => {
+                if let Some(v) = val { push_css(&mut css, "touch-action", v); }
+            }
+            "vertical-align" => {
+                if let Some(v) = val { push_css(&mut css, "vertical-align", v); }
+            }
+            "contain" => {
+                if let Some(v) = val { push_css(&mut css, "contain", v); }
+            }
+            "scroll-margin" => {
+                if let Some(v) = val { push_css(&mut css, "scroll-margin", &css_px(v)); }
+            }
+            "scroll-margin-top" | "scroll-margin-bottom" | "scroll-margin-left" | "scroll-margin-right" => {
+                if let Some(v) = val { push_css(&mut css, effective_key, &css_px(v)); }
+            }
+            "scroll-padding" => {
+                if let Some(v) = val { push_css(&mut css, "scroll-padding", &css_px(v)); }
+            }
+            "scroll-padding-top" | "scroll-padding-bottom" | "scroll-padding-left" | "scroll-padding-right" => {
+                if let Some(v) = val { push_css(&mut css, effective_key, &css_px(v)); }
+            }
+            "content-visibility" => {
+                if let Some(v) = val { push_css(&mut css, "content-visibility", v); }
+            }
+            "content" => {
+                if let Some(v) = val {
+                    // Wrap in quotes if not already quoted and not a CSS keyword
+                    if v.starts_with('"') || v.starts_with('\'') || v == "none" || v == "normal" || v.starts_with("attr(") || v.starts_with("counter(") {
+                        push_css(&mut css, "content", v);
+                    } else {
+                        push_css(&mut css, "content", &format!("\"{}\"", v));
+                    }
+                }
+            }
 
             // Identity and HTML passthrough — not CSS
             "id" | "class" => {}
@@ -1787,7 +1860,9 @@ fn attrs_to_css(
             | "loading" | "decoding" | "ordered" | "src"
             | "open" | "novalidate" | "low" | "high" | "optimum"
             | "colspan" | "rowspan" | "scope" | "inline"
-            | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list" => {}
+            | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list"
+            | "sandbox" | "allow" | "allowfullscreen" | "referrerpolicy"
+            | "formaction" | "formmethod" | "formtarget" | "target" => {}
 
             _ => {}
         }

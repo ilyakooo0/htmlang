@@ -2031,3 +2031,107 @@ fn convert_script_to_raw() {
     let hl = htmlang::convert::convert("<script>alert('hi')</script>");
     assert!(hl.contains("@raw"), "script becomes @raw: {}", hl);
 }
+
+// ---------------------------------------------------------------------------
+// New improvement tests (batch 3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_new_elements_3() {
+    snapshot_test("new_elements_3");
+}
+
+#[test]
+fn snapshot_new_css_properties_3() {
+    snapshot_test("new_css_properties_3");
+}
+
+#[test]
+fn snapshot_pseudo_elements() {
+    snapshot_test("pseudo_elements");
+}
+
+#[test]
+fn snapshot_each_else() {
+    snapshot_test("each_else");
+}
+
+#[test]
+fn each_else_empty_list() {
+    // Variable that resolves to empty string: @each produces no items → @else fires
+    let output = compile("@let empty \"\"\n@each $item in $empty\n  @text $item\n@else\n  @text fallback");
+    assert!(output.contains("fallback"), "should render @else block when list is empty: {}", output);
+}
+
+#[test]
+fn each_else_non_empty_list() {
+    let output = compile("@each $x in a,b\n  @text $x\n@else\n  @text empty");
+    assert!(output.contains("a"), "should render loop items: {}", output);
+    assert!(output.contains("b"), "should render loop items: {}", output);
+    assert!(!output.contains("empty"), "should not render @else block when list is non-empty: {}", output);
+}
+
+#[test]
+fn pseudo_element_before_content() {
+    let output = compile("@el [before:content arrow, before:color red]\n  Hello");
+    assert!(output.contains("::before"), "should generate ::before CSS: {}", output);
+    assert!(output.contains("content:\"arrow\""), "should generate content property: {}", output);
+    assert!(output.contains("color:red"), "should generate color in ::before: {}", output);
+}
+
+#[test]
+fn pseudo_element_after_content() {
+    let output = compile("@el [after:content ✓]\n  Done");
+    assert!(output.contains("::after"), "should generate ::after CSS: {}", output);
+    assert!(output.contains("content:\"✓\""), "should generate content: {}", output);
+}
+
+#[test]
+fn css_font_weight_numeric() {
+    let output = compile("@text [font-weight 300] Light text");
+    assert!(output.contains("font-weight:300"), "should generate font-weight CSS: {}", output);
+}
+
+#[test]
+fn css_text_wrap_balance() {
+    let output = compile("@text [text-wrap balance] Balanced");
+    assert!(output.contains("text-wrap:balance"), "should generate text-wrap CSS: {}", output);
+}
+
+#[test]
+fn css_touch_action() {
+    let output = compile("@el [touch-action none]\n  No touch");
+    assert!(output.contains("touch-action:none"), "should generate touch-action CSS: {}", output);
+}
+
+#[test]
+fn css_content_visibility() {
+    let output = compile("@el [content-visibility auto]\n  Lazy");
+    assert!(output.contains("content-visibility:auto"), "should generate content-visibility CSS: {}", output);
+}
+
+#[test]
+fn css_scroll_margin() {
+    let output = compile("@el [scroll-margin-top 80]\n  Offset");
+    assert!(output.contains("scroll-margin-top:80px"), "should generate scroll-margin-top CSS: {}", output);
+}
+
+#[test]
+fn element_iframe() {
+    let output = compile("@iframe [width fill, height 400] https://example.com");
+    assert!(output.contains("<iframe"), "should generate iframe tag: {}", output);
+    assert!(output.contains("src=\"https://example.com\""), "should have src: {}", output);
+}
+
+#[test]
+fn element_canvas() {
+    let output = compile("@canvas [width 400, height 300, id myCanvas]");
+    assert!(output.contains("<canvas"), "should generate canvas tag: {}", output);
+    assert!(output.contains("id=\"myCanvas\""), "should have id: {}", output);
+}
+
+#[test]
+fn element_output() {
+    let output = compile("@output [for a b]\n  42");
+    assert!(output.contains("<output"), "should generate output tag: {}", output);
+}

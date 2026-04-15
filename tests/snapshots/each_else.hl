@@ -1,0 +1,17 @@
+@page Each Else
+
+-- Empty list triggers @else (variable resolves to empty string)
+@let empty ""
+@column [spacing 10]
+  @each $item in $empty
+    @text $item
+  @else
+    @text [color #888] No items found.
+
+-- Non-empty list renders loop, not @else
+@let fruits apple, banana
+@column [spacing 10]
+  @each $fruit in $fruits
+    @text $fruit
+  @else
+    @text No fruits.

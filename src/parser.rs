@@ -725,8 +725,44 @@ impl Parser {
                 self.pos += 1;
             }
 
-            if body_lines.is_empty() || items.is_empty() {
+            // Check for @else block (empty-state fallback)
+            let mut else_lines = Vec::new();
+            if self.pos < self.lines.len() && self.lines[self.pos].indent == current_indent {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    if s.trim() == "@else" {
+                        self.pos += 1; // consume @else
+                        while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                            else_lines.push(self.lines[self.pos].clone());
+                            self.pos += 1;
+                        }
+                    }
+                }
+            }
+
+            if body_lines.is_empty() {
                 return Ok(None);
+            }
+
+            // If list is empty, render @else body
+            if items.is_empty() {
+                if else_lines.is_empty() {
+                    return Ok(None);
+                }
+                let min_indent = else_lines.iter().map(|l| l.indent).min().unwrap_or(0);
+                let adjusted: Vec<Line> = else_lines
+                    .iter()
+                    .map(|l| Line {
+                        indent: l.indent - min_indent,
+                        content: l.content.clone(),
+                        line_num: l.line_num,
+                    })
+                    .collect();
+                let mut body_parser = Parser {
+                    lines: adjusted,
+                    pos: 0,
+                };
+                let nodes = body_parser.parse_children(0, ctx);
+                return Ok(Some(nodes));
             }
 
             let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
@@ -1220,6 +1256,7 @@ const KNOWN_ELEMENTS: &[&str] = &[
     "fragment",
     "btn", "ul", "dialog", "dl", "dt", "dd", "fieldset", "legend",
     "picture", "source", "time", "mark", "kbd", "abbr", "datalist",
+    "iframe", "output", "canvas",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
@@ -1289,6 +1326,9 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
         "kbd" => Ok(ElementKind::Kbd),
         "abbr" => Ok(ElementKind::Abbr),
         "datalist" => Ok(ElementKind::Datalist),
+        "iframe" => Ok(ElementKind::Iframe),
+        "output" => Ok(ElementKind::Output),
+        "canvas" => Ok(ElementKind::Canvas),
         "ul" => Ok(ElementKind::List),
         _ => {
             let all_known: Vec<&str> = KNOWN_ELEMENTS
@@ -1434,6 +1474,16 @@ const KNOWN_ATTRS: &[&str] = &[
     "column-count", "column-gap", "text-indent", "hyphens",
     "flex-grow", "flex-shrink", "flex-basis", "isolation",
     "place-content", "background-image", "datetime",
+    // New CSS properties (batch 2)
+    "font-weight", "font-style", "text-wrap", "will-change", "touch-action",
+    "vertical-align", "contain", "content-visibility",
+    "scroll-margin", "scroll-margin-top", "scroll-margin-bottom", "scroll-margin-left", "scroll-margin-right",
+    "scroll-padding", "scroll-padding-top", "scroll-padding-bottom", "scroll-padding-left", "scroll-padding-right",
+    // Iframe/output attrs
+    "sandbox", "allow", "allowfullscreen", "referrerpolicy",
+    "formaction", "formmethod", "formtarget", "target",
+    // Pseudo-element content
+    "content",
 ];
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
@@ -2010,6 +2060,9 @@ fn element_kind_name(kind: &ElementKind) -> &'static str {
         ElementKind::Kbd => "@kbd",
         ElementKind::Abbr => "@abbr",
         ElementKind::Datalist => "@datalist",
+        ElementKind::Iframe => "@iframe",
+        ElementKind::Output => "@output",
+        ElementKind::Canvas => "@canvas",
     }
 }
 
@@ -2023,6 +2076,7 @@ fn is_container(kind: &ElementKind) -> bool {
         | ElementKind::Blockquote
         | ElementKind::Dialog | ElementKind::DefinitionList | ElementKind::DefinitionTerm
         | ElementKind::DefinitionDescription | ElementKind::Fieldset | ElementKind::Datalist
+        | ElementKind::Iframe | ElementKind::Canvas
     )
 }
 

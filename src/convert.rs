@@ -501,13 +501,13 @@ fn css_to_hl_attrs(styles: &[(String, String)]) -> (Vec<(String, Option<String>)
                 attrs.push(("bold".into(), None));
             }
             "font-weight" => {
-                leftover.push((key.clone(), val.clone()));
+                attrs.push(("font-weight".into(), Some(val.clone())));
             }
             "font-style" if val == "italic" => {
                 attrs.push(("italic".into(), None));
             }
             "font-style" => {
-                leftover.push((key.clone(), val.clone()));
+                attrs.push(("font-style".into(), Some(val.clone())));
             }
             "text-decoration" if val.contains("underline") => {
                 attrs.push(("underline".into(), None));
@@ -583,6 +583,15 @@ fn css_to_hl_attrs(styles: &[(String, String)]) -> (Vec<(String, Option<String>)
 
             "flex" if val == "1" => attrs.push(("width".into(), Some("fill".into()))),
             "flex-shrink" if val == "0" => attrs.push(("width".into(), Some("shrink".into()))),
+
+            "text-wrap" => attrs.push(("text-wrap".into(), Some(val.clone()))),
+            "will-change" => attrs.push(("will-change".into(), Some(val.clone()))),
+            "touch-action" => attrs.push(("touch-action".into(), Some(val.clone()))),
+            "vertical-align" => attrs.push(("vertical-align".into(), Some(val.clone()))),
+            "contain" => attrs.push(("contain".into(), Some(val.clone()))),
+            "content-visibility" => attrs.push(("content-visibility".into(), Some(val.clone()))),
+            "scroll-margin" => attrs.push(("scroll-margin".into(), Some(strip_px(val).into()))),
+            "scroll-padding" => attrs.push(("scroll-padding".into(), Some(strip_px(val).into()))),
 
             _ => {
                 leftover.push((key.clone(), val.clone()));
@@ -878,8 +887,11 @@ fn emit_element(
             out.push('\n');
             return;
         }
+        "iframe" => "@iframe",
+        "output" => "@output",
+        "canvas" => "@canvas",
         // Unknown / raw elements
-        "script" | "style" | "svg" | "canvas" | "iframe" | "object" | "embed" => {
+        "script" | "style" | "svg" | "object" | "embed" => {
             emit_raw_element(tag, attrs, children, depth, out);
             return;
         }

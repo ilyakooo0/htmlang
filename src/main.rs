@@ -207,6 +207,8 @@ Commands:
   convert <file.html>   Convert an HTML file to .hl format (stdout)
   fmt <file.hl>         Format a .hl file (normalizes indentation)
   sitemap <dir>         Generate sitemap.xml from .hl files
+  lint <file.hl | dir>  Stricter lint checks (accessibility, nesting, etc.)
+  stats <file.hl | dir> Show file statistics (elements, CSS rules, colors)
 
 Options:
   -w, --watch       Watch for changes and recompile
@@ -237,7 +239,9 @@ Examples:
   htmlang --format json page.hl  Get diagnostics as JSON
   htmlang fmt page.hl       Format a file
   htmlang build src/ -o dist/  Compile all .hl files to dist/
-  htmlang sitemap src/      Generate sitemap.xml",
+  htmlang sitemap src/      Generate sitemap.xml
+  htmlang lint src/         Lint all files in directory
+  htmlang stats page.hl     Show file statistics",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -326,6 +330,164 @@ fn generate_sitemap(dir: &str, base_url: &str) {
         Err(e) => {
             eprintln!("error: {}: {}", out_path.display(), e);
             process::exit(1);
+        }
+    }
+}
+
+fn lint_file(path: &str) -> Vec<String> {
+    let input = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => return vec![format!("error: {}: {}", path, e)],
+    };
+    let base = Path::new(path).parent();
+    let result = htmlang::parser::parse_with_base(&input, base);
+    let mut warnings = Vec::new();
+
+    // Report parser diagnostics
+    for d in &result.diagnostics {
+        let prefix = match d.severity {
+            htmlang::parser::Severity::Error => "error",
+            htmlang::parser::Severity::Warning => "warning",
+        };
+        warnings.push(format!("{}:{}:{}: {}", path, d.line, prefix, d.message));
+    }
+
+    // Additional lint checks on the AST
+    lint_nodes(&result.document.nodes, path, 0, &mut warnings);
+    warnings
+}
+
+fn lint_nodes(nodes: &[htmlang::ast::Node], path: &str, depth: usize, warnings: &mut Vec<String>) {
+    for node in nodes {
+        if let htmlang::ast::Node::Element(elem) = node {
+            // Deeply nested elements (>10 levels)
+            if depth > 10 {
+                warnings.push(format!("{}:{}:lint: deeply nested element ({} levels) — consider simplifying", path, elem.line_num, depth));
+            }
+
+            // @image without alt
+            if elem.kind == htmlang::ast::ElementKind::Image {
+                if !elem.attrs.iter().any(|a| a.key == "alt") {
+                    warnings.push(format!("{}:{}:lint: @image missing 'alt' attribute (accessibility)", path, elem.line_num));
+                }
+            }
+
+            // @link without content or aria-label
+            if elem.kind == htmlang::ast::ElementKind::Link {
+                let has_aria = elem.attrs.iter().any(|a| a.key == "aria-label");
+                let has_children = !elem.children.is_empty();
+                let has_arg_text = elem.argument.as_ref().map_or(false, |_| false);
+                if !has_aria && !has_children && !has_arg_text {
+                    warnings.push(format!("{}:{}:lint: @link has no visible text or aria-label (accessibility)", path, elem.line_num));
+                }
+            }
+
+            // @input without type
+            if elem.kind == htmlang::ast::ElementKind::Input {
+                if !elem.attrs.iter().any(|a| a.key == "type") {
+                    warnings.push(format!("{}:{}:lint: @input missing 'type' attribute", path, elem.line_num));
+                }
+            }
+
+            // Empty containers (no children, no text)
+            if matches!(elem.kind,
+                htmlang::ast::ElementKind::Row | htmlang::ast::ElementKind::Column | htmlang::ast::ElementKind::El
+            ) && elem.children.is_empty() {
+                warnings.push(format!("{}:{}:lint: empty container (@{}) has no children", path, elem.line_num,
+                    match elem.kind {
+                        htmlang::ast::ElementKind::Row => "row",
+                        htmlang::ast::ElementKind::Column => "column",
+                        _ => "el",
+                    }
+                ));
+            }
+
+            // @button without type
+            if elem.kind == htmlang::ast::ElementKind::Button {
+                if !elem.attrs.iter().any(|a| a.key == "type") {
+                    warnings.push(format!("{}:{}:lint: @button missing 'type' attribute (defaults to submit)", path, elem.line_num));
+                }
+            }
+
+            lint_nodes(&elem.children, path, depth + 1, warnings);
+        }
+    }
+}
+
+fn stats_file(path: &str) {
+    let input = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: {}: {}", path, e);
+            process::exit(1);
+        }
+    };
+    let base = Path::new(path).parent();
+    let result = htmlang::parser::parse_with_base(&input, base);
+    let html = htmlang::codegen::generate(&result.document);
+
+    let mut element_count = 0;
+    let mut colors = std::collections::HashSet::new();
+    let mut fonts = std::collections::HashSet::new();
+    count_elements(&result.document.nodes, &mut element_count, &mut colors, &mut fonts);
+
+    // Count CSS rules (approximate from generated style block)
+    let css_rules = html.matches('{').count().saturating_sub(1); // subtract the html/head/body structure
+
+    let source_bytes = input.len();
+    let output_bytes = html.len();
+
+    eprintln!("--- {} ---", path);
+    eprintln!("  source size:    {} bytes ({} lines)", source_bytes, input.lines().count());
+    eprintln!("  output size:    {} bytes", output_bytes);
+    eprintln!("  elements:       {}", element_count);
+    eprintln!("  CSS rules:      ~{}", css_rules);
+    eprintln!("  unique colors:  {}", colors.len());
+    if !colors.is_empty() {
+        let mut sorted: Vec<_> = colors.iter().collect();
+        sorted.sort();
+        eprintln!("    {}", sorted.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+    }
+    eprintln!("  unique fonts:   {}", fonts.len());
+    if !fonts.is_empty() {
+        let mut sorted: Vec<_> = fonts.iter().collect();
+        sorted.sort();
+        eprintln!("    {}", sorted.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+    }
+    if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+        eprintln!("  errors:         {}", result.diagnostics.iter().filter(|d| d.severity == htmlang::parser::Severity::Error).count());
+    }
+    let warn_count = result.diagnostics.iter().filter(|d| d.severity == htmlang::parser::Severity::Warning).count();
+    if warn_count > 0 {
+        eprintln!("  warnings:       {}", warn_count);
+    }
+}
+
+fn count_elements(
+    nodes: &[htmlang::ast::Node],
+    count: &mut usize,
+    colors: &mut std::collections::HashSet<String>,
+    fonts: &mut std::collections::HashSet<String>,
+) {
+    for node in nodes {
+        if let htmlang::ast::Node::Element(elem) = node {
+            *count += 1;
+            for attr in &elem.attrs {
+                let key = attr.key.as_str();
+                // Strip pseudo/media prefixes for color/font detection
+                let base_key = key.split(':').last().unwrap_or(key);
+                if matches!(base_key, "color" | "background") {
+                    if let Some(ref v) = attr.value {
+                        colors.insert(v.clone());
+                    }
+                }
+                if base_key == "font" {
+                    if let Some(ref v) = attr.value {
+                        fonts.insert(v.clone());
+                    }
+                }
+            }
+            count_elements(&elem.children, count, colors, fonts);
         }
     }
 }
@@ -458,6 +620,54 @@ fn main() {
             .map(|s| s.as_str())
             .unwrap_or("https://example.com");
         generate_sitemap(dir, base_url);
+        return;
+    }
+
+    // Handle "lint" subcommand
+    if args.len() >= 2 && args[1] == "lint" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let path = Path::new(target);
+        let mut all_warnings = Vec::new();
+        if path.is_dir() {
+            let hl_files = collect_hl_files_recursive(path);
+            if hl_files.is_empty() {
+                eprintln!("no .hl files found in {}", target);
+                process::exit(1);
+            }
+            for file in &hl_files {
+                let path_str = file.to_string_lossy().to_string();
+                all_warnings.extend(lint_file(&path_str));
+            }
+        } else {
+            all_warnings.extend(lint_file(target));
+        }
+        if all_warnings.is_empty() {
+            eprintln!("no issues found");
+        } else {
+            for w in &all_warnings {
+                eprintln!("{}", w);
+            }
+            process::exit(1);
+        }
+        return;
+    }
+
+    // Handle "stats" subcommand
+    if args.len() >= 2 && args[1] == "stats" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let path = Path::new(target);
+        if path.is_dir() {
+            let hl_files = collect_hl_files_recursive(path);
+            if hl_files.is_empty() {
+                eprintln!("no .hl files found in {}", target);
+                process::exit(1);
+            }
+            for file in &hl_files {
+                stats_file(&file.to_string_lossy());
+            }
+        } else {
+            stats_file(target);
+        }
         return;
     }
 

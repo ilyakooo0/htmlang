@@ -107,6 +107,9 @@ pub enum ElementKind {
     Kbd,
     Abbr,
     Datalist,
+    Iframe,
+    Output,
+    Canvas,
 }
 
 #[derive(Debug, Clone)]

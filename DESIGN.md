@@ -50,6 +50,9 @@ A minimalist layout language inspired by elm-ui that compiles to static HTML.
 | `@figcaption`| figcaption       | Caption for `@figure`          |
 | `@progress`  | progress         | Progress bar                   |
 | `@meter`     | meter            | Meter/gauge element            |
+| `@iframe`    | iframe           | Embedded external page         |
+| `@output`    | output           | Form calculation result        |
+| `@canvas`    | canvas           | Drawing surface for scripts    |
 
 Bare lines (not starting with `@` or `[`) are text nodes.
 
@@ -422,6 +425,57 @@ When `@each` has more than one variable and items contain spaces, values are des
 
 `var()` and `calc()` expressions are also passed through as-is.
 
+## `@each` with `@else`
+
+When the list is empty, the `@else` block is rendered as a fallback:
+
+```
+@each $item in $items
+  @text $item
+@else
+  @text [color #888] No items found.
+```
+
+## `@iframe`
+
+Embedded external page. Argument is the `src` URL.
+
+```
+@iframe [width fill, height 400, sandbox] https://example.com
+```
+
+Attributes: `sandbox`, `allow`, `allowfullscreen`, `referrerpolicy`.
+
+## `@canvas`
+
+Drawing surface for JavaScript. Use with `@raw` for scripts.
+
+```
+@canvas [width 400, height 300, id chart]
+```
+
+## `@output`
+
+Form output element for displaying calculation results.
+
+```
+@output [for a b] Result
+```
+
+## Pseudo-elements
+
+Prefix any style attribute with `before:` or `after:` to apply it to the `::before` or `::after` pseudo-element. Use with `content` to set the generated content.
+
+```
+@el [before:content "→ ", before:color red, before:font-weight bold]
+  Item with arrow prefix
+
+@el [after:content " ✓", after:color green]
+  Completed item
+```
+
+Content values are automatically quoted unless they are CSS keywords (`none`, `normal`) or CSS functions (`attr()`, `counter()`).
+
 ## Conditional attribute values
 
 Use `if(condition, true_value, false_value)` inside attribute values for conditional styling:
@@ -549,6 +603,17 @@ Supports equality (`==`), inequality (`!=`), and truthy checks.
 | `background-repeat VALUE`| Background repeat             |
 | `word-break VALUE`     | Word break (break-all/keep-all) |
 | `overflow-wrap VALUE`  | Overflow wrap (break-word)      |
+| `font-weight VALUE`   | Font weight (100-900/bold/lighter)|
+| `font-style VALUE`    | Font style (normal/italic/oblique)|
+| `text-wrap VALUE`      | Text wrapping (balance/pretty)  |
+| `will-change VALUE`    | Performance hint (transform)    |
+| `touch-action VALUE`   | Touch behavior (none/pan-x)     |
+| `vertical-align VALUE` | Vertical alignment (middle/top) |
+| `contain VALUE`        | CSS containment (layout/paint)  |
+| `content-visibility VALUE` | Lazy rendering (auto)       |
+| `scroll-margin N`      | Scroll margin (for anchors)     |
+| `scroll-padding N`     | Scroll padding (scroll-snap)    |
+| `content VALUE`        | Pseudo-element content (with before:/after:)|
 
 ### Pseudo-states
 
@@ -628,6 +693,9 @@ htmlang check src/           # check all .hl files in a directory
 htmlang convert page.html    # convert HTML to .hl format (stdout)
 htmlang build src/ -o dist/  # parallel compile + copy static assets
 htmlang --format json page.hl  # output diagnostics as JSON
+htmlang lint page.hl         # stricter lint checks (accessibility, nesting)
+htmlang lint src/            # lint all .hl files in a directory
+htmlang stats page.hl        # show file statistics (elements, CSS, colors)
 ```
 
 Watch mode recompiles automatically when the source file or any `@include`d/`@import`ed files change.
@@ -647,6 +715,16 @@ Each `.hl` file compiles to a single self-contained `.html` file:
 A VS Code extension is available in `editors/vscode/` with:
 
 - Syntax highlighting via TextMate grammar
-- LSP integration via `htmlang-lsp` for diagnostics, completions, and hover documentation
-
-The language server reports parse errors and warnings for unknown attributes as you type.
+- LSP integration via `htmlang-lsp` for:
+  - Real-time diagnostics and error checking
+  - Completions for elements, attributes, variables, and functions
+  - Hover documentation for all elements and attributes
+  - Go to definition for variables, defines, and functions
+  - Find all references for variables and functions
+  - Rename refactoring for variables and functions
+  - Signature help for `@fn` parameters
+  - Document formatting (format on save)
+  - Code actions (quick-fixes for typos, unused variables, missing attributes)
+  - Color picker for hex colors
+  - Code folding and document symbols
+  - Semantic tokens for syntax highlighting

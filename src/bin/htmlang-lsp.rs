@@ -93,6 +93,13 @@ impl LanguageServer for Backend {
                 linked_editing_range_provider: Some(
                     LinkedEditingRangeServerCapabilities::Simple(true),
                 ),
+                document_formatting_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["[".into(), ",".into()]),
+                    retrigger_characters: Some(vec![",".into()]),
+                    work_done_progress_options: Default::default(),
+                }),
                 ..Default::default()
             },
             ..Default::default()
@@ -385,6 +392,60 @@ impl LanguageServer for Backend {
         drop(docs);
         Ok(linked_editing_ranges(&text, pos))
     }
+
+    async fn formatting(
+        &self,
+        params: DocumentFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let uri = &params.text_document.uri;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+        let formatted = htmlang::fmt::format(&text);
+        if formatted == text {
+            return Ok(None);
+        }
+        let last_line = text.lines().count().saturating_sub(1) as u32;
+        let last_col = text.lines().last().map_or(0, |l| l.len()) as u32;
+        Ok(Some(vec![TextEdit {
+            range: Range::new(Position::new(0, 0), Position::new(last_line, last_col)),
+            new_text: formatted,
+        }]))
+    }
+
+    async fn references(
+        &self,
+        params: ReferenceParams,
+    ) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri.clone();
+        let pos = params.text_document_position.position;
+        let docs = self.documents.read().await;
+        let text = match docs.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+        let refs = find_references(&text, pos, &uri);
+        Ok(if refs.is_empty() { None } else { Some(refs) })
+    }
+
+    async fn signature_help(
+        &self,
+        params: SignatureHelpParams,
+    ) -> Result<Option<SignatureHelp>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+        Ok(get_signature_help(&text, pos))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +480,7 @@ fn completions(text: &str, position: Position) -> Vec<CompletionItem> {
         // State prefix (hover:, active:, focus:) or media prefix (dark:, print:)
         if let Some(colon) = current_word.find(':') {
             let prefix = &current_word[..colon];
-            if matches!(prefix, "hover" | "active" | "focus" | "focus-visible" | "focus-within" | "disabled" | "checked" | "placeholder" | "first" | "last" | "odd" | "even" | "dark" | "print" | "sm" | "md" | "lg" | "xl" | "2xl" | "motion-safe" | "motion-reduce" | "landscape" | "portrait") {
+            if matches!(prefix, "hover" | "active" | "focus" | "focus-visible" | "focus-within" | "disabled" | "checked" | "placeholder" | "first" | "last" | "odd" | "even" | "before" | "after" | "dark" | "print" | "sm" | "md" | "lg" | "xl" | "2xl" | "motion-safe" | "motion-reduce" | "landscape" | "portrait") {
                 return state_attr_completions(prefix, edit_range);
             }
         }
@@ -576,6 +637,10 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         ("@abbr", "Abbreviation (abbr)"),
         // Datalist
         ("@datalist", "Predefined options for @input (datalist)"),
+        // New elements
+        ("@iframe", "Embedded external page (iframe)"),
+        ("@output", "Form calculation result (output)"),
+        ("@canvas", "Drawing surface for scripts (canvas)"),
     ]
     .iter()
     .map(|(name, detail)| item(name, CompletionItemKind::KEYWORD, detail, name, range))
@@ -638,6 +703,16 @@ fn snippet_completions(range: Range) -> Vec<CompletionItem> {
             "hero section",
             "Hero section with title and subtitle",
             "@column [padding 80, center-x, center-y, min-height 60vh]\n  @text [bold, size 48] ${1:Title}\n  @paragraph [size 18, color #666] ${2:Subtitle}",
+        ),
+        (
+            "each with else",
+            "Loop with empty-state fallback",
+            "@each \\$${1:item} in ${2:list}\n  @text \\$${1:item}\n@else\n  @text [color #888] No items found.",
+        ),
+        (
+            "button with hover",
+            "Interactive button with hover effect",
+            "@el [padding 12 24, background ${1:#3b82f6}, hover:background ${2:#2563eb}, rounded 8, cursor pointer, transition all 0.15s ease] > @link ${3:url}\n  @text [color white, bold] ${4:Click me}",
         ),
     ];
 
@@ -942,6 +1017,26 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("place-content", "Shorthand for align-content + justify-content", true),
         // Background image
         ("background-image", "Background image (url or gradient)", true),
+        // New CSS properties
+        ("font-weight", "Font weight (100-900, bold, lighter, bolder)", true),
+        ("font-style", "Font style (normal/italic/oblique)", true),
+        ("text-wrap", "Text wrapping (balance/pretty/nowrap)", true),
+        ("will-change", "Performance hint for animations (transform, opacity)", true),
+        ("touch-action", "Touch behavior (none/pan-x/pan-y/manipulation)", true),
+        ("vertical-align", "Vertical alignment (middle/top/bottom/baseline)", true),
+        ("contain", "CSS containment (layout/paint/content/strict)", true),
+        ("content-visibility", "Content visibility (auto/visible/hidden)", true),
+        ("scroll-margin", "Scroll margin (for scroll-snap and anchor offsets)", true),
+        ("scroll-margin-top", "Scroll margin top", true),
+        ("scroll-padding", "Scroll padding (for scroll-snap containers)", true),
+        ("scroll-padding-top", "Scroll padding top", true),
+        // Pseudo-element content
+        ("content", "Content for ::before/::after (use with before:/after: prefix)", true),
+        // Iframe/form/link attributes
+        ("sandbox", "Iframe sandbox restrictions", true),
+        ("allow", "Iframe permissions policy", true),
+        ("allowfullscreen", "Allow iframe fullscreen", false),
+        ("target", "Link/form target (_blank/_self/_parent/_top)", true),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -1208,6 +1303,10 @@ fn hover_builtin(word: &str) -> Option<String> {
         (Some("odd"), rest)
     } else if let Some(rest) = word.strip_prefix("even:") {
         (Some("even"), rest)
+    } else if let Some(rest) = word.strip_prefix("before:") {
+        (Some("before"), rest)
+    } else if let Some(rest) = word.strip_prefix("after:") {
+        (Some("after"), rest)
     } else if let Some(rest) = word.strip_prefix("sm:") {
         (Some("sm"), rest)
     } else if let Some(rest) = word.strip_prefix("md:") {
@@ -1482,6 +1581,22 @@ fn hover_builtin(word: &str) -> Option<String> {
         "isolation" => "**isolation** `<value>` \u{2014} Creates a new stacking context (`isolate`, `auto`).",
         "place-content" => "**place-content** `<value>` \u{2014} Shorthand for `align-content` and `justify-content`.",
         "background-image" => "**background-image** `<value>` \u{2014} Background image (`url()` or gradient function).",
+        // New CSS properties (batch 2)
+        "font-weight" => "**font-weight** `<value>` \u{2014} Font weight (`100`\u{2013}`900`, `bold`, `lighter`, `bolder`). More precise than `bold`.",
+        "font-style" => "**font-style** `<value>` \u{2014} Font style (`normal`, `italic`, `oblique`). More precise than `italic`.",
+        "text-wrap" => "**text-wrap** `<value>` \u{2014} Text wrapping behavior (`balance`, `pretty`, `nowrap`, `wrap`). `balance` is great for headings.",
+        "will-change" => "**will-change** `<value>` \u{2014} Performance hint for upcoming changes (`transform`, `opacity`, `scroll-position`).",
+        "touch-action" => "**touch-action** `<value>` \u{2014} Touch behavior for mobile (`none`, `pan-x`, `pan-y`, `manipulation`, `auto`).",
+        "vertical-align" => "**vertical-align** `<value>` \u{2014} Vertical alignment for inline elements (`middle`, `top`, `bottom`, `baseline`, `text-top`).",
+        "contain" => "**contain** `<value>` \u{2014} CSS containment for performance (`layout`, `paint`, `content`, `strict`, `size`).",
+        "content-visibility" => "**content-visibility** `<value>` \u{2014} Content rendering optimization (`auto`, `visible`, `hidden`). `auto` enables lazy rendering.",
+        "scroll-margin" => "**scroll-margin** `<value>` \u{2014} Scroll margin (for scroll-snap and anchor link offsets). Supports CSS units.",
+        "scroll-padding" => "**scroll-padding** `<value>` \u{2014} Scroll padding for scroll-snap containers. Supports CSS units.",
+        "content" => "**content** `<value>` \u{2014} CSS content property. Use with `before:` or `after:` prefix.\n\nExample: `before:content \u{2192}, before:color red`",
+        // New elements
+        "@iframe" => "**@iframe** \u{2014} Embedded page\n\nRenders as `<iframe>`.\n\nUsage: `@iframe [width fill, height 400] https://example.com`\n\nAttributes: `sandbox`, `allow`, `allowfullscreen`",
+        "@output" => "**@output** \u{2014} Form output\n\nRenders as `<output>`. Displays calculation results in forms.\n\nUsage: `@output [for a b] Result`",
+        "@canvas" => "**@canvas** \u{2014} Drawing surface\n\nRenders as `<canvas>`. Use with `@raw` JavaScript for drawing.\n\nUsage: `@canvas [width 400, height 300, id myCanvas]`",
         _ => return None,
     };
 
@@ -1964,6 +2079,120 @@ fn code_actions(
                 }
             }
         }
+
+        // Quick-fix: remove unused @let variable
+        if msg.contains("unused variable") {
+            let line = diag.range.start.line as usize;
+            let lines: Vec<&str> = text.lines().collect();
+            if let Some(source_line) = lines.get(line) {
+                let trimmed = source_line.trim_start();
+                if trimmed.starts_with("@let ") {
+                    let edit = TextEdit {
+                        range: Range::new(
+                            Position::new(diag.range.start.line, 0),
+                            Position::new(diag.range.start.line + 1, 0),
+                        ),
+                        new_text: String::new(),
+                    };
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Remove unused variable".into(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+
+        // Quick-fix: remove unused @define
+        if msg.contains("unused define") {
+            let line = diag.range.start.line as usize;
+            let lines: Vec<&str> = text.lines().collect();
+            if let Some(source_line) = lines.get(line) {
+                let trimmed = source_line.trim_start();
+                if trimmed.starts_with("@define ") {
+                    let edit = TextEdit {
+                        range: Range::new(
+                            Position::new(diag.range.start.line, 0),
+                            Position::new(diag.range.start.line + 1, 0),
+                        ),
+                        new_text: String::new(),
+                    };
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Remove unused define".into(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+
+        // Quick-fix: add alt attribute to @image
+        if msg.contains("@image should have") && msg.contains("alt") {
+            let line = diag.range.start.line as usize;
+            let lines: Vec<&str> = text.lines().collect();
+            if let Some(source_line) = lines.get(line) {
+                if let Some(bracket_pos) = source_line.find('[') {
+                    let insert_pos = bracket_pos + 1;
+                    let edit = TextEdit {
+                        range: Range::new(
+                            Position::new(diag.range.start.line, insert_pos as u32),
+                            Position::new(diag.range.start.line, insert_pos as u32),
+                        ),
+                        new_text: "alt , ".into(),
+                    };
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Add alt attribute".into(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }));
+                } else if source_line.contains("@image") {
+                    // No brackets yet, add them
+                    if let Some(img_pos) = source_line.find("@image") {
+                        let after_image = img_pos + "@image".len();
+                        let edit = TextEdit {
+                            range: Range::new(
+                                Position::new(diag.range.start.line, after_image as u32),
+                                Position::new(diag.range.start.line, after_image as u32),
+                            ),
+                            new_text: " [alt ]".into(),
+                        };
+                        let mut changes = HashMap::new();
+                        changes.insert(uri.clone(), vec![edit]);
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: "Add alt attribute".into(),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            diagnostics: Some(vec![diag.clone()]),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(changes),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }));
+                    }
+                }
+            }
+        }
     }
 
     actions
@@ -2356,6 +2585,160 @@ fn linked_editing_ranges(text: &str, position: Position) -> Option<LinkedEditing
         ranges,
         word_pattern: None,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Find references
+// ---------------------------------------------------------------------------
+
+fn find_references(text: &str, position: Position, uri: &Url) -> Vec<Location> {
+    let lines: Vec<&str> = text.lines().collect();
+    let line = match lines.get(position.line as usize) {
+        Some(l) => *l,
+        None => return vec![],
+    };
+    let col = (position.character as usize).min(line.len());
+    let bytes = line.as_bytes();
+
+    // Find the word at cursor
+    let mut start = col;
+    while start > 0 && is_word_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    let mut end = col;
+    while end < bytes.len() && is_word_byte(bytes[end]) {
+        end += 1;
+    }
+    if start == end {
+        return vec![];
+    }
+    let word = &line[start..end];
+
+    // Determine the search pattern
+    let search = if word.starts_with('$') || word.starts_with('@') {
+        word.to_string()
+    } else if start > 0 && bytes[start - 1] == b'$' {
+        format!("${}", word)
+    } else if start > 0 && bytes[start - 1] == b'@' {
+        format!("@{}", word)
+    } else {
+        return vec![];
+    };
+
+    let mut locations = Vec::new();
+    for (line_idx, line_text) in text.lines().enumerate() {
+        let mut offset = 0;
+        while let Some(pos) = line_text[offset..].find(&search) {
+            let abs_pos = offset + pos;
+            let after = abs_pos + search.len();
+            // Ensure word boundary
+            let before_ok = abs_pos == 0 || {
+                let c = line_text.as_bytes()[abs_pos - 1];
+                !c.is_ascii_alphanumeric() && c != b'_' && c != b'-'
+            };
+            let after_ok = after >= line_text.len() || {
+                let c = line_text.as_bytes()[after];
+                !c.is_ascii_alphanumeric() && c != b'_' && c != b'-'
+            };
+            if before_ok && after_ok {
+                locations.push(Location {
+                    uri: uri.clone(),
+                    range: Range::new(
+                        Position::new(line_idx as u32, abs_pos as u32),
+                        Position::new(line_idx as u32, after as u32),
+                    ),
+                });
+            }
+            offset = after;
+        }
+    }
+
+    locations
+}
+
+// ---------------------------------------------------------------------------
+// Signature help
+// ---------------------------------------------------------------------------
+
+fn get_signature_help(text: &str, position: Position) -> Option<SignatureHelp> {
+    let lines: Vec<&str> = text.lines().collect();
+    let line = lines.get(position.line as usize)?;
+    let col = (position.character as usize).min(line.len());
+    let before = &line[..col];
+
+    // Check if we're inside a function call: @funcname [...
+    let trimmed = before.trim_start();
+    if !trimmed.starts_with('@') {
+        return None;
+    }
+
+    // Extract the function name
+    let after_at = &trimmed[1..];
+    let name_end = after_at.find(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+        .unwrap_or(after_at.len());
+    let fn_name = &after_at[..name_end];
+
+    // Must be inside brackets
+    if !in_brackets(before) {
+        return None;
+    }
+
+    // Find the @fn definition
+    for (line_idx, line_text) in text.lines().enumerate() {
+        let t = line_text.trim_start();
+        if let Some(rest) = t.strip_prefix("@fn ") {
+            let rest = rest.trim();
+            let def_name_end = rest.find(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+                .unwrap_or(rest.len());
+            let def_name = &rest[..def_name_end];
+            if def_name != fn_name {
+                continue;
+            }
+            let params_str = &rest[def_name_end..].trim();
+            let params: Vec<&str> = params_str
+                .split_whitespace()
+                .filter(|p| p.starts_with('$'))
+                .collect();
+
+            if params.is_empty() {
+                return None;
+            }
+
+            let param_labels: Vec<ParameterInformation> = params.iter().map(|p| {
+                let name = p.trim_start_matches('$');
+                let (label, doc) = if let Some((n, default)) = name.split_once('=') {
+                    (n.to_string(), Some(format!("Default: {}", default)))
+                } else {
+                    (name.to_string(), None)
+                };
+                ParameterInformation {
+                    label: ParameterLabel::Simple(label),
+                    documentation: doc.map(|d| Documentation::String(d)),
+                }
+            }).collect();
+
+            let sig_label = format!("@{} {}", fn_name, params.join(" "));
+
+            // Determine active parameter by counting commas before cursor inside brackets
+            let bracket_start = before.rfind('[').unwrap_or(0);
+            let inside = &before[bracket_start..];
+            let active_param = inside.matches(',').count() as u32;
+
+            return Some(SignatureHelp {
+                signatures: vec![SignatureInformation {
+                    label: sig_label,
+                    documentation: Some(Documentation::String(
+                        format!("Defined at line {}", line_idx + 1),
+                    )),
+                    parameters: Some(param_labels),
+                    active_parameter: Some(active_param),
+                }],
+                active_signature: Some(0),
+                active_parameter: Some(active_param),
+            });
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
