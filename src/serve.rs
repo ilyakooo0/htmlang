@@ -137,20 +137,14 @@ async fn handle_dir_request(
             };
             let content_type = content_type_for(&fp);
             let header = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\n\r\n",
+                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
                 content_type, body.len(),
             );
             stream.write_all(header.as_bytes()).await?;
             stream.write_all(&body).await?;
         }
         None => {
-            let body = b"<h1>404 Not Found</h1>";
-            let header = format!(
-                "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n",
-                body.len()
-            );
-            stream.write_all(header.as_bytes()).await?;
-            stream.write_all(body).await?;
+            send_404(&mut stream, clean_path).await?;
         }
     }
 
@@ -289,21 +283,42 @@ async fn handle_file(
             }
         }
         Err(_) => {
-            stream
-                .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
-                .await?;
+            send_404(&mut stream, request_path).await?;
             return Ok(());
         }
     };
 
     let content_type = content_type_for(&file_path);
     let header = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
         body.len(),
     );
     stream.write_all(header.as_bytes()).await?;
     stream.write_all(&body).await?;
 
+    Ok(())
+}
+
+async fn send_404(stream: &mut TcpStream, path: &str) -> std::io::Result<()> {
+    let body = format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>404</title>\
+         <style>*{{margin:0;box-sizing:border-box}}body{{font-family:system-ui,-apple-system,sans-serif;\
+         display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fafafa;color:#333}}\
+         .box{{text-align:center;padding:3rem}}\
+         h1{{font-size:4rem;font-weight:200;color:#999;margin-bottom:0.5rem}}\
+         p{{color:#666;margin-bottom:1.5rem}}\
+         code{{background:#eee;padding:0.2em 0.5em;border-radius:4px;font-size:0.9rem}}\
+         a{{color:#2563eb;text-decoration:none}}a:hover{{text-decoration:underline}}</style></head>\
+         <body><div class=\"box\"><h1>404</h1><p>Not found: <code>{}</code></p>\
+         <a href=\"/\">Back to index</a></div></body></html>",
+        path.replace('<', "&lt;").replace('>', "&gt;")
+    );
+    let header = format!(
+        "HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-cache\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(header.as_bytes()).await?;
+    stream.write_all(body.as_bytes()).await?;
     Ok(())
 }
 
@@ -330,8 +345,8 @@ fn content_type_for(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
         Some("html") => "text/html; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
-        Some("js") => "application/javascript",
-        Some("json") => "application/json",
+        Some("js" | "mjs") => "application/javascript; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
         Some("png") => "image/png",
         Some("jpg" | "jpeg") => "image/jpeg",
         Some("gif") => "image/gif",
@@ -339,12 +354,22 @@ fn content_type_for(path: &Path) -> &'static str {
         Some("ico") => "image/x-icon",
         Some("woff") => "font/woff",
         Some("woff2") => "font/woff2",
+        Some("ttf") => "font/ttf",
+        Some("otf") => "font/otf",
+        Some("eot") => "application/vnd.ms-fontobject",
         Some("webp") => "image/webp",
         Some("avif") => "image/avif",
         Some("mp4") => "video/mp4",
         Some("webm") => "video/webm",
+        Some("ogg") => "audio/ogg",
+        Some("mp3") => "audio/mpeg",
+        Some("wav") => "audio/wav",
         Some("xml") => "application/xml",
-        Some("txt") => "text/plain; charset=utf-8",
+        Some("txt" | "md") => "text/plain; charset=utf-8",
+        Some("pdf") => "application/pdf",
+        Some("zip") => "application/zip",
+        Some("wasm") => "application/wasm",
+        Some("map") => "application/json",
         _ => "application/octet-stream",
     }
 }

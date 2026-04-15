@@ -2399,6 +2399,63 @@ fn attrs_to_css(
                 }
             }
 
+            // Logical property start/end variants
+            "padding-inline-start" | "padding-inline-end" |
+            "padding-block-start" | "padding-block-end" |
+            "margin-inline-start" | "margin-inline-end" |
+            "margin-block-start" | "margin-block-end" => {
+                if let Some(v) = val {
+                    push_css(&mut css, effective_key, &css_px(v));
+                }
+            }
+
+            // Logical inset
+            "inset-inline" | "inset-block" => {
+                if let Some(v) = val {
+                    push_css(&mut css, effective_key, &css_px_multi(v));
+                }
+            }
+            "inset-inline-start" | "inset-inline-end" |
+            "inset-block-start" | "inset-block-end" => {
+                if let Some(v) = val {
+                    push_css(&mut css, effective_key, &css_px(v));
+                }
+            }
+
+            // Logical border
+            "border-inline" | "border-block" |
+            "border-inline-start" | "border-inline-end" |
+            "border-block-start" | "border-block-end" => {
+                if let Some(v) = val {
+                    push_css(&mut css, effective_key, v);
+                }
+            }
+
+            // Logical border-radius
+            "border-start-start-radius" | "border-start-end-radius" |
+            "border-end-start-radius" | "border-end-end-radius" => {
+                if let Some(v) = val {
+                    push_css(&mut css, effective_key, &css_px(v));
+                }
+            }
+
+            // Logical scroll margins & padding
+            "scroll-margin-inline" | "scroll-margin-block" |
+            "scroll-padding-inline" | "scroll-padding-block" => {
+                if let Some(v) = val {
+                    push_css(&mut css, effective_key, &css_px_multi(v));
+                }
+            }
+
+            // Logical sizing
+            "inline-size" | "block-size" |
+            "min-inline-size" | "max-inline-size" |
+            "min-block-size" | "max-block-size" => {
+                if let Some(v) = val {
+                    push_css(&mut css, effective_key, &css_px(v));
+                }
+            }
+
             // Scroll snap
             "scroll-snap-type" => {
                 if let Some(v) = val {

@@ -3,6 +3,10 @@ name = "htmlang"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "htmlang-lsp"
+path = "src/bin/htmlang_lsp/main.rs"
+
 [dependencies]
 notify = "7"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "rt-multi-thread", "sync"] }

@@ -13,16 +13,26 @@ struct DiagnosticJson {
     message: String,
 }
 
-fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>) -> (bool, Vec<PathBuf>) {
-    compile_inner(input_path, dev, error_overlay, check_only, output_path, format_json, json_collector, false, false, false, false)
+#[derive(Default)]
+struct CompileConfig<'a> {
+    dev: bool,
+    error_overlay: bool,
+    check_only: bool,
+    output_path: Option<&'a str>,
+    format_json: bool,
+    json_collector: Option<&'a Mutex<Vec<DiagnosticJson>>>,
+    minify: bool,
+    compat: bool,
+    strict: bool,
+    partial: bool,
 }
 
-fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>, minify: bool, compat: bool, strict: bool, partial: bool) -> (bool, Vec<PathBuf>) {
+fn compile(input_path: &str, cfg: &CompileConfig) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
-            if format_json {
-                if let Some(collector) = json_collector {
+            if cfg.format_json {
+                if let Some(collector) = cfg.json_collector {
                     collector.lock().unwrap().push(DiagnosticJson {
                         file: input_path.to_string(),
                         line: 0,
@@ -40,8 +50,8 @@ fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: b
     let base = Path::new(input_path).parent();
     let result = htmlang::parser::parse_with_base(&input, base);
 
-    if format_json {
-        if let Some(collector) = json_collector {
+    if cfg.format_json {
+        if let Some(collector) = cfg.json_collector {
             let mut collected = collector.lock().unwrap();
             for d in &result.diagnostics {
                 let severity = match d.severity {
@@ -73,28 +83,28 @@ fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: b
         .diagnostics
         .iter()
         .any(|d| d.severity == htmlang::parser::Severity::Error
-            || (strict && d.severity == htmlang::parser::Severity::Warning));
+            || (cfg.strict && d.severity == htmlang::parser::Severity::Warning));
 
-    let out_path = match output_path {
+    let out_path = match cfg.output_path {
         Some(p) => PathBuf::from(p),
         None => Path::new(input_path).with_extension("html"),
     };
 
-    if !check_only {
+    if !cfg.check_only {
         if has_errors {
-            if error_overlay {
+            if cfg.error_overlay {
                 let error_html = generate_error_overlay(&result.diagnostics, input_path);
                 let _ = fs::write(&out_path, &error_html);
             }
         } else {
-            let html = if partial {
-                if dev {
+            let html = if cfg.partial {
+                if cfg.dev {
                     htmlang::codegen::generate_partial_dev(&result.document)
                 } else {
                     htmlang::codegen::generate_partial(&result.document)
                 }
             } else {
-                match (minify, dev, compat) {
+                match (cfg.minify, cfg.dev, cfg.compat) {
                     (true, _, true) => htmlang::codegen::generate_minified_compat(&result.document),
                     (true, _, false) => htmlang::codegen::generate_minified(&result.document),
                     (false, true, true) => htmlang::codegen::generate_dev_compat(&result.document),
@@ -108,7 +118,7 @@ fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: b
                 Err(e) => eprintln!("error: {}: {}", out_path.display(), e),
             }
             // Generate source map alongside HTML
-            if dev {
+            if cfg.dev {
                 let map_path = out_path.with_extension("html.map");
                 let source_map = htmlang::codegen::generate_source_map(
                     &result.document,
@@ -122,26 +132,33 @@ fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: b
     (has_errors, result.included_files)
 }
 
-fn print_json_diagnostics(diagnostics: &[DiagnosticJson]) {
-    let mut json = String::from("{\"diagnostics\":[");
-    for (i, d) in diagnostics.iter().enumerate() {
-        if i > 0 {
-            json.push(',');
-        }
-        let escaped_file = d.file.replace('\\', "\\\\").replace('"', "\\\"");
-        let escaped_msg = d.message.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
-        json.push_str(&format!(
-            "{{\"file\":\"{}\",\"line\":{},\"severity\":\"{}\",\"message\":\"{}\"}}",
-            escaped_file, d.line, d.severity, escaped_msg
-        ));
-    }
-    json.push_str("]}");
-    println!("{}", json);
-}
-
 fn json_escape_string(s: &str) -> String {
     let escaped = s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
     format!("\"{}\"", escaped)
+}
+
+fn json_array(items: impl Iterator<Item = String>) -> String {
+    let inner: Vec<String> = items.collect();
+    format!("[{}]", inner.join(","))
+}
+
+fn json_object(fields: &[(&str, String)]) -> String {
+    let inner: Vec<String> = fields.iter()
+        .map(|(k, v)| format!("{}:{}", json_escape_string(k), v))
+        .collect();
+    format!("{{{}}}", inner.join(","))
+}
+
+fn print_json_diagnostics(diagnostics: &[DiagnosticJson]) {
+    let arr = json_array(diagnostics.iter().map(|d| {
+        json_object(&[
+            ("file", json_escape_string(&d.file)),
+            ("line", d.line.to_string()),
+            ("severity", json_escape_string(&d.severity)),
+            ("message", json_escape_string(&d.message)),
+        ])
+    }));
+    println!("{}", json_object(&[("diagnostics", arr)]));
 }
 
 fn kebab_to_title(s: &str) -> String {
@@ -589,17 +606,59 @@ fn generate_sitemap(dir: &str, base_url: &str) {
         } else {
             format!("{}/{}", base_url.trim_end_matches('/'), url_path)
         };
-        xml.push_str(&format!("  <url><loc>{}</loc></url>\n", url));
+
+        // Get file modification time for <lastmod>
+        let lastmod = file.metadata().ok()
+            .and_then(|m| m.modified().ok())
+            .map(|t| {
+                let secs = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                let days = secs / 86400;
+                // Simple date calculation from epoch days
+                let (y, m, d) = epoch_days_to_date(days);
+                format!("{:04}-{:02}-{:02}", y, m, d)
+            });
+
+        // Heuristic priority: index pages get higher priority
+        let priority = if url_path == "index.html" {
+            "1.0"
+        } else if rel.components().count() <= 2 {
+            "0.8"
+        } else {
+            "0.5"
+        };
+
+        xml.push_str("  <url>\n");
+        xml.push_str(&format!("    <loc>{}</loc>\n", url));
+        if let Some(ref date) = lastmod {
+            xml.push_str(&format!("    <lastmod>{}</lastmod>\n", date));
+        }
+        xml.push_str(&format!("    <priority>{}</priority>\n", priority));
+        xml.push_str("  </url>\n");
     }
     xml.push_str("</urlset>\n");
     let out_path = dir.join("sitemap.xml");
     match fs::write(&out_path, &xml) {
-        Ok(()) => eprintln!("wrote {}", out_path.display()),
+        Ok(()) => eprintln!("wrote {} ({} URLs)", out_path.display(), hl_files.len()),
         Err(e) => {
             eprintln!("error: {}: {}", out_path.display(), e);
             process::exit(1);
         }
     }
+}
+
+fn epoch_days_to_date(days: u64) -> (u64, u64, u64) {
+    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
 }
 
 fn lint_file(path: &str) -> Vec<String> {
@@ -810,10 +869,58 @@ fn extract_shared_css(html_files: &[PathBuf], out_dir: &Path) {
     if shared_rules.is_empty() {
         return;
     }
+    let shared_set: std::collections::HashSet<&String> = shared_rules.iter().copied().collect();
     let shared_css_path = out_dir.join("shared.css");
     let shared_css: String = shared_rules.iter().map(|r| r.as_str()).collect::<Vec<_>>().join("\n");
-    if fs::write(&shared_css_path, &shared_css).is_ok() {
-        eprintln!("extracted {} shared CSS rules to {}", shared_rules.len(), shared_css_path.display());
+    if fs::write(&shared_css_path, &shared_css).is_err() {
+        return;
+    }
+    eprintln!("extracted {} shared CSS rules to {}", shared_rules.len(), shared_css_path.display());
+
+    // Remove shared rules from individual files and inject <link> tag
+    for file in html_files {
+        if let Ok(html) = fs::read_to_string(file) {
+            if let Some(style_start) = html.find("<style>") {
+                if let Some(style_end_rel) = html[style_start..].find("</style>") {
+                    let css = &html[style_start + 7..style_start + style_end_rel];
+                    // Rebuild CSS without shared rules
+                    let mut filtered = String::new();
+                    let mut i = 0;
+                    let bytes = css.as_bytes();
+                    while i < bytes.len() {
+                        if bytes[i] == b'.' || bytes[i] == b'@' {
+                            let start_pos = i;
+                            let mut depth = 0;
+                            let mut found_open = false;
+                            while i < bytes.len() {
+                                if bytes[i] == b'{' { depth += 1; found_open = true; }
+                                else if bytes[i] == b'}' {
+                                    depth -= 1;
+                                    if found_open && depth == 0 { i += 1; break; }
+                                }
+                                i += 1;
+                            }
+                            let rule = &css[start_pos..i];
+                            if !shared_set.contains(&rule.to_string()) {
+                                filtered.push_str(rule);
+                            }
+                        } else {
+                            filtered.push(css.as_bytes()[i] as char);
+                            i += 1;
+                        }
+                    }
+                    let link_tag = "<link rel=\"stylesheet\" href=\"shared.css\">";
+                    let new_html = format!(
+                        "{}{}<style>{}</style>{}",
+                        &html[..style_start],
+                        link_tag,
+                        filtered,
+                        &html[style_start + style_end_rel + 8..],
+                    );
+                    let _ = fs::write(file, new_html);
+                }
+            }
+        }
     }
 }
 
@@ -1011,6 +1118,7 @@ fn main() {
         }).collect();
 
         // Compile files in parallel (with incremental skip for unchanged files)
+        let build_start = std::time::Instant::now();
         let any_errors = std::sync::atomic::AtomicBool::new(false);
         let skipped = std::sync::atomic::AtomicUsize::new(0);
         std::thread::scope(|s| {
@@ -1033,21 +1141,32 @@ fn main() {
                         }
                     }
                     let path_str = file.to_string_lossy().to_string();
-                    let (has_errors, _) = if build_minify || build_compat {
-                        compile_inner(&path_str, false, false, false, effective_out.as_deref(), false, None, build_minify, build_compat, false, false)
-                    } else {
-                        compile(&path_str, false, false, false, effective_out.as_deref(), false, None)
-                    };
+                    let (has_errors, _) = compile(&path_str, &CompileConfig {
+                        output_path: effective_out.as_deref(),
+                        minify: build_minify, compat: build_compat,
+                        ..Default::default()
+                    });
                     if has_errors {
                         any_errors.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 });
             }
         });
+        let build_elapsed = build_start.elapsed();
         let skipped_count = skipped.load(std::sync::atomic::Ordering::Relaxed);
-        if skipped_count > 0 {
-            eprintln!("skipped {} unchanged files", skipped_count);
-        }
+        let compiled_count = hl_files.len() - skipped_count;
+
+        // Report build performance
+        let total_output_size: usize = effective_outs.iter()
+            .filter_map(|p| p.as_ref())
+            .filter_map(|p| fs::metadata(p).ok())
+            .map(|m| m.len() as usize)
+            .sum();
+        eprintln!(
+            "built {} files in {:.2}s ({}){}", compiled_count,
+            build_elapsed.as_secs_f64(), format_bytes(total_output_size),
+            if skipped_count > 0 { format!(", {} skipped", skipped_count) } else { String::new() },
+        );
         if any_errors.load(std::sync::atomic::Ordering::Relaxed) { process::exit(1); }
 
         // Copy non-.hl static assets to output directory
@@ -1115,16 +1234,13 @@ fn main() {
             all_warnings.extend(lint_file(lint_target));
         }
         if lint_json {
-            let mut json = String::from("{\"diagnostics\":[");
-            for (i, w) in all_warnings.iter().enumerate() {
-                if i > 0 { json.push(','); }
-                json.push_str(&format!(
-                    "{{\"severity\":\"warning\",\"message\":{}}}",
-                    json_escape_string(w)
-                ));
-            }
-            json.push_str("]}");
-            println!("{}", json);
+            let arr = json_array(all_warnings.iter().map(|w| {
+                json_object(&[
+                    ("severity", json_escape_string("warning")),
+                    ("message", json_escape_string(w)),
+                ])
+            }));
+            println!("{}", json_object(&[("diagnostics", arr)]));
         } else if all_warnings.is_empty() {
             eprintln!("no issues found");
         } else {
@@ -1188,11 +1304,19 @@ fn main() {
             }
             for file in &hl_files {
                 let path_str = file.to_string_lossy().to_string();
-                let (has_errors, _) = compile(&path_str, false, false, true, None, check_format_json, json_collector.as_ref());
+                let (has_errors, _) = compile(&path_str, &CompileConfig {
+                    check_only: true, format_json: check_format_json,
+                    json_collector: json_collector.as_ref(),
+                    ..Default::default()
+                });
                 if has_errors { any_errors = true; }
             }
         } else {
-            let (has_errors, _) = compile(target, false, false, true, None, check_format_json, json_collector.as_ref());
+            let (has_errors, _) = compile(target, &CompileConfig {
+                check_only: true, format_json: check_format_json,
+                json_collector: json_collector.as_ref(),
+                ..Default::default()
+            });
             if has_errors { any_errors = true; }
         }
         if check_format_json {
@@ -1301,7 +1425,10 @@ fn main() {
         let tmp_dir = env::temp_dir().join("htmlang-preview");
         let _ = fs::create_dir_all(&tmp_dir);
         let out_path = tmp_dir.join("preview.html");
-        let (has_errors, _) = compile(file, true, false, false, Some(&out_path.to_string_lossy()), false, None);
+        let (has_errors, _) = compile(file, &CompileConfig {
+            dev: true, output_path: Some(&out_path.to_string_lossy()),
+            ..Default::default()
+        });
         if has_errors {
             process::exit(1);
         }
@@ -1403,7 +1530,10 @@ fn main() {
                 let _ = fs::create_dir_all(parent);
             }
             let path_str = file.to_string_lossy().to_string();
-            let (has_errors, _) = compile(&path_str, false, false, false, Some(&out_path.to_string_lossy()), false, None);
+            let (has_errors, _) = compile(&path_str, &CompileConfig {
+                output_path: Some(&out_path.to_string_lossy()),
+                ..Default::default()
+            });
             if has_errors { any_errors = true; }
         }
         // Copy non-.hl assets
@@ -1487,7 +1617,11 @@ fn main() {
                     if let Some(parent) = out_p.parent() { let _ = fs::create_dir_all(parent); }
                     out_p.to_string_lossy().to_string()
                 });
-                compile(&path_str, true, true, false, effective_out.as_deref(), false, None);
+                compile(&path_str, &CompileConfig {
+                    dev: true, error_overlay: true,
+                    output_path: effective_out.as_deref(),
+                    ..Default::default()
+                });
             }
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
             let serve_dir = config.output.as_ref().map(|o| PathBuf::from(o)).unwrap_or_else(|| target_path.to_path_buf());
@@ -1500,7 +1634,10 @@ fn main() {
             if serve_open { open_in_browser(effective_port); }
             watch_loop(target_path, &hl_files, &[], true, true, Some(tx));
         } else {
-            let (_, included) = compile(&target, true, true, false, None, false, None);
+            let (_, included) = compile(&target, &CompileConfig {
+                dev: true, error_overlay: true,
+                ..Default::default()
+            });
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
             let out_path = Path::new(&target).with_extension("html");
             let server_tx = tx.clone();
@@ -1551,12 +1688,18 @@ fn main() {
                     if let Some(parent) = out_p.parent() { let _ = fs::create_dir_all(parent); }
                     out_p.to_string_lossy().to_string()
                 });
-                let (_, included) = compile(&path_str, false, false, false, effective_out.as_deref(), false, None);
+                let (_, included) = compile(&path_str, &CompileConfig {
+                    output_path: effective_out.as_deref(),
+                    ..Default::default()
+                });
                 all_included.extend(included);
             }
             watch_loop(target_path, &hl_files, &all_included, false, false, None);
         } else {
-            let (_, included) = compile(&target, false, false, false, effective_output.as_deref(), false, None);
+            let (_, included) = compile(&target, &CompileConfig {
+                output_path: effective_output.as_deref(),
+                ..Default::default()
+            });
             let files = vec![PathBuf::from(&target)];
             watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, false, false, None);
         }
@@ -1881,19 +2024,15 @@ fn main() {
             }
         }
         if dc_json {
-            let mut json = String::from("{\"unused\":[");
-            for (i, (kind, name, file, line)) in unused.iter().enumerate() {
-                if i > 0 { json.push(','); }
-                json.push_str(&format!(
-                    "{{\"kind\":{},\"name\":{},\"file\":{},\"line\":{}}}",
-                    json_escape_string(kind),
-                    json_escape_string(name),
-                    json_escape_string(file),
-                    line
-                ));
-            }
-            json.push_str("]}");
-            println!("{}", json);
+            let arr = json_array(unused.iter().map(|(kind, name, file, line)| {
+                json_object(&[
+                    ("kind", json_escape_string(kind)),
+                    ("name", json_escape_string(name)),
+                    ("file", json_escape_string(file)),
+                    ("line", line.to_string()),
+                ])
+            }));
+            println!("{}", json_object(&[("unused", arr)]));
         } else if unused.is_empty() {
             eprintln!("no unused definitions found");
         } else {
@@ -1959,7 +2098,10 @@ fn main() {
                     }
                     let out_str = out_path.to_string_lossy().to_string();
                     let path_str = file.to_string_lossy().to_string();
-                    let (has_errors, _) = compile(&path_str, false, false, false, Some(&out_str), false, None);
+                    let (has_errors, _) = compile(&path_str, &CompileConfig {
+                        output_path: Some(&out_str),
+                        ..Default::default()
+                    });
                     if has_errors {
                         any_errors.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
@@ -3034,7 +3176,13 @@ compile();
                 }
                 out_p.to_string_lossy().to_string()
             });
-            let (has_errors, included) = compile_inner(&path_str, dev, serve, check, effective_out.as_deref(), format_json, json_collector.as_ref(), false, compat, strict, partial);
+            let (has_errors, included) = compile(&path_str, &CompileConfig {
+                dev, error_overlay: serve, check_only: check,
+                output_path: effective_out.as_deref(), format_json,
+                json_collector: json_collector.as_ref(),
+                compat, strict, partial,
+                ..Default::default()
+            });
             if has_errors {
                 any_errors = true;
             }
@@ -3077,7 +3225,13 @@ compile();
 
     // --- Single file mode ---
     let json_collector_single = if format_json { Some(Mutex::new(Vec::new())) } else { None };
-    let (has_errors, included_files) = compile_inner(&input_path, dev, serve, check, output_path.as_deref(), format_json, json_collector_single.as_ref(), false, compat, strict, partial);
+    let (has_errors, included_files) = compile(&input_path, &CompileConfig {
+        dev, error_overlay: serve, check_only: check,
+        output_path: output_path.as_deref(), format_json,
+        json_collector: json_collector_single.as_ref(),
+        compat, strict, partial,
+        ..Default::default()
+    });
     if format_json {
         if let Some(ref collector) = json_collector_single {
             print_json_diagnostics(&collector.lock().unwrap());
@@ -3490,7 +3644,10 @@ fn watch_loop(
                 let mut recompiled = 0usize;
                 for file in source_files {
                     let path_str = file.to_string_lossy().to_string();
-                    let (_, new_includes) = compile(&path_str, dev, serve, false, None, false, None);
+                    let (_, new_includes) = compile(&path_str, &CompileConfig {
+                        dev, error_overlay: serve,
+                        ..Default::default()
+                    });
                     recompiled += 1;
                     for inc in &new_includes {
                         let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
@@ -3505,7 +3662,10 @@ fn watch_loop(
                     for file in &collect_hl_files(watch_dir) {
                         if !source_files.contains(file) {
                             let path_str = file.to_string_lossy().to_string();
-                            let (_, new_includes) = compile(&path_str, dev, serve, false, None, false, None);
+                            let (_, new_includes) = compile(&path_str, &CompileConfig {
+                                dev, error_overlay: serve,
+                                ..Default::default()
+                            });
                             recompiled += 1;
                             for inc in &new_includes {
                                 let _ = watcher.watch(inc, RecursiveMode::NonRecursive);

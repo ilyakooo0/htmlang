@@ -795,6 +795,70 @@ impl Parser {
                 filename
             };
             let filename = substitute_vars(&filename, &ctx.variables);
+
+            // Glob support: if filename contains *, expand to multiple imports
+            if filename.contains('*') {
+                let base_dir = match &ctx.base_path {
+                    Some(base) => base.clone(),
+                    None => PathBuf::from("."),
+                };
+                let pattern_path = Path::new(&filename);
+                let (glob_dir, glob_pattern) = match pattern_path.parent() {
+                    Some(dir) if !dir.as_os_str().is_empty() => (base_dir.join(dir), pattern_path.file_name().unwrap_or_default().to_string_lossy().to_string()),
+                    _ => (base_dir.clone(), filename.clone()),
+                };
+                let matched_files = match std::fs::read_dir(&glob_dir) {
+                    Ok(entries) => {
+                        let mut files: Vec<PathBuf> = entries
+                            .flatten()
+                            .filter(|e| {
+                                let name = e.file_name().to_string_lossy().to_string();
+                                glob_match(&glob_pattern, &name)
+                            })
+                            .map(|e| e.path())
+                            .collect();
+                        files.sort();
+                        files
+                    }
+                    Err(e) => {
+                        ctx.diagnostics.push(Diagnostic {
+                            line: line_num,
+                            message: format!("cannot read directory for glob '{}': {}", filename, e),
+                            severity: Severity::Error,
+                            source_line: Some(content.clone()),
+                        });
+                        return Ok(None);
+                    }
+                };
+                if matched_files.is_empty() {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!("no files matched glob pattern '{}'", filename),
+                        severity: Severity::Warning,
+                        source_line: Some(content.clone()),
+                    });
+                    return Ok(None);
+                }
+                for file_path in matched_files {
+                    let rel_name = file_path.strip_prefix(&base_dir).unwrap_or(&file_path).to_string_lossy().to_string();
+                    // Synthesize an @import line for each matched file
+                    let import_line = match &alias {
+                        Some(pfx) => {
+                            let stem = file_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                            format!("@import \"{}\" as {}.{}", rel_name, pfx, stem)
+                        }
+                        None => format!("@import \"{}\"", rel_name),
+                    };
+                    let synth_lines = preprocess(&import_line);
+                    let mut synth_parser = Parser {
+                        lines: synth_lines,
+                        pos: 0,
+                    };
+                    let _ = synth_parser.parse_children(0, ctx);
+                }
+                return Ok(None);
+            }
+
             let resolved = match &ctx.base_path {
                 Some(base) => base.join(&filename),
                 None => PathBuf::from(&filename),
@@ -2995,6 +3059,13 @@ const KNOWN_ATTRS: &[&str] = &[
     // CSS: aspect-ratio, outline, logical properties, scroll-snap
     "aspect-ratio", "outline",
     "padding-inline", "padding-block", "margin-inline", "margin-block",
+    "padding-inline-start", "padding-inline-end", "padding-block-start", "padding-block-end",
+    "margin-inline-start", "margin-inline-end", "margin-block-start", "margin-block-end",
+    "inset-inline", "inset-block", "inset-inline-start", "inset-inline-end", "inset-block-start", "inset-block-end",
+    "border-inline", "border-block", "border-inline-start", "border-inline-end", "border-block-start", "border-block-end",
+    "border-start-start-radius", "border-start-end-radius", "border-end-start-radius", "border-end-end-radius",
+    "scroll-margin-inline", "scroll-margin-block", "scroll-padding-inline", "scroll-padding-block",
+    "inline-size", "block-size", "min-inline-size", "max-inline-size", "min-block-size", "max-block-size",
     "scroll-snap-type", "scroll-snap-align",
     // Media attributes
     "controls", "autoplay", "loop", "muted", "poster", "preload",
@@ -5024,6 +5095,36 @@ fn find_closing_single(chars: &[char], start: usize, marker: char) -> Option<usi
         }
     }
     None
+}
+
+/// Simple glob matching supporting `*` as wildcard for any characters and `?` for a single character.
+fn glob_match(pattern: &str, text: &str) -> bool {
+    let mut pi = 0;
+    let mut ti = 0;
+    let pb = pattern.as_bytes();
+    let tb = text.as_bytes();
+    let mut star_pi = usize::MAX;
+    let mut star_ti = 0;
+    while ti < tb.len() {
+        if pi < pb.len() && (pb[pi] == b'?' || pb[pi] == tb[ti]) {
+            pi += 1;
+            ti += 1;
+        } else if pi < pb.len() && pb[pi] == b'*' {
+            star_pi = pi;
+            star_ti = ti;
+            pi += 1;
+        } else if star_pi != usize::MAX {
+            pi = star_pi + 1;
+            star_ti += 1;
+            ti = star_ti;
+        } else {
+            return false;
+        }
+    }
+    while pi < pb.len() && pb[pi] == b'*' {
+        pi += 1;
+    }
+    pi == pb.len()
 }
 
 fn html_escape_md(s: &str) -> String {
