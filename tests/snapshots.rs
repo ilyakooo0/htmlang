@@ -3897,3 +3897,28 @@ fn auto_image_dimensions_respects_explicit() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn snapshot_stress_large() {
+    snapshot_test("stress_large");
+}
+
+#[test]
+fn snapshot_stress_deeply_nested() {
+    snapshot_test("stress_deeply_nested");
+}
+
+#[test]
+fn perf_large_document() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
+    let input = std::fs::read_to_string(dir.join("stress_large.hl")).unwrap();
+    let start = std::time::Instant::now();
+    let result = htmlang::parser::parse(&input);
+    let _ = htmlang::codegen::generate(&result.document);
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed.as_millis() < 5000,
+        "compilation took {}ms, expected < 5000ms",
+        elapsed.as_millis()
+    );
+}

@@ -766,12 +766,19 @@ impl Parser {
             let saved_base = ctx.base_path.clone();
             ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
 
+            let diag_count_before = ctx.diagnostics.len();
             let included_lines = preprocess(&included_text);
             let mut included_parser = Parser {
                 lines: included_lines,
                 pos: 0,
             };
             let nodes = included_parser.parse_children(0, ctx);
+
+            // Annotate new diagnostics with include chain
+            let include_chain = format_include_chain(&ctx.include_stack);
+            for d in &mut ctx.diagnostics[diag_count_before..] {
+                d.message = format!("{}\n  in {}", d.message, include_chain);
+            }
 
             ctx.base_path = saved_base;
             ctx.include_stack.pop();
@@ -900,6 +907,8 @@ impl Parser {
             let saved_base = ctx.base_path.clone();
             ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
 
+            let diag_count_before = ctx.diagnostics.len();
+
             if let Some(ref prefix) = alias {
                 // Parse into a temporary context, then copy definitions with prefix
                 let saved_fns = ctx.functions.clone();
@@ -960,6 +969,12 @@ impl Parser {
                     pos: 0,
                 };
                 let _discarded_nodes = imported_parser.parse_children(0, ctx);
+            }
+
+            // Annotate new diagnostics with import chain
+            let import_chain = format_include_chain(&ctx.include_stack);
+            for d in &mut ctx.diagnostics[diag_count_before..] {
+                d.message = format!("{}\n  in {}", d.message, import_chain);
             }
 
             ctx.base_path = saved_base;
@@ -1220,8 +1235,8 @@ impl Parser {
                 }
             };
 
-            match parse_json(&json_text) {
-                Some(json) => {
+            match parse_json_with_error(&json_text) {
+                Ok(json) => {
                     if prefix.is_empty() {
                         // No prefix: top-level object keys become variables directly
                         if let JsonValue::Object(pairs) = &json {
@@ -1248,10 +1263,10 @@ impl Parser {
                         }
                     }
                 }
-                None => {
+                Err(detail) => {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
-                        message: format!("invalid JSON in '{}'", filename),
+                        message: format!("invalid JSON in '{}': {}", filename, detail),
                         severity: Severity::Error,
                         source_line: Some(content.clone()),
                     });
@@ -2988,6 +3003,15 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
     }
 }
 
+/// Format include/import stack as a readable chain for error messages.
+fn format_include_chain(stack: &[PathBuf]) -> String {
+    stack
+        .iter()
+        .map(|p| p.file_name().unwrap_or_default().to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .join(" → ")
+}
+
 fn levenshtein(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
@@ -4519,6 +4543,49 @@ fn parse_json(input: &str) -> Option<JsonValue> {
     let chars: Vec<char> = trimmed.chars().collect();
     let (val, _) = parse_json_value(&chars, 0)?;
     Some(val)
+}
+
+/// Parse JSON with an error message indicating where parsing failed.
+fn parse_json_with_error(input: &str) -> Result<JsonValue, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("empty input".to_string());
+    }
+    let chars: Vec<char> = trimmed.chars().collect();
+    match parse_json_value(&chars, 0) {
+        Some((val, _)) => Ok(val),
+        None => {
+            // Find approximate error position by parsing as far as possible
+            let mut deepest = 0usize;
+            fn probe(chars: &[char], pos: usize, deepest: &mut usize) {
+                let mut p = pos;
+                while p < chars.len() {
+                    if p > *deepest { *deepest = p; }
+                    match chars[p] {
+                        '{' | '[' => { p += 1; probe(chars, p, deepest); return; }
+                        '"' => {
+                            p += 1;
+                            while p < chars.len() && chars[p] != '"' {
+                                if chars[p] == '\\' { p += 1; }
+                                p += 1;
+                            }
+                            if p < chars.len() { p += 1; }
+                            if p > *deepest { *deepest = p; }
+                            return;
+                        }
+                        _ => { p += 1; }
+                    }
+                }
+            }
+            probe(&chars, 0, &mut deepest);
+            // Convert char position to line:col
+            let prefix: String = chars[..deepest.min(chars.len())].iter().collect();
+            let line = prefix.chars().filter(|&c| c == '\n').count() + 1;
+            let col = prefix.rfind('\n').map_or(prefix.len(), |p| prefix.len() - p - 1) + 1;
+            let context: String = chars[deepest.saturating_sub(20)..deepest.min(chars.len())].iter().collect();
+            Err(format!("at line {}:{} near \"{}\"", line, col, context.trim()))
+        }
+    }
 }
 
 fn parse_json_value(chars: &[char], mut pos: usize) -> Option<(JsonValue, usize)> {

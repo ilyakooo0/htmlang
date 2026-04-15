@@ -381,6 +381,7 @@ Commands:
   bundle <file|dir> [-o <out>]  Compile and inline all assets as data URIs
   size <file|dir>       Report output sizes (raw, minified, ~gzip)
   benchmark <file|dir>  Measure compile time and output size
+  explain <file.hl>     Show what CSS each source line produces
   lsp                  Start the Language Server Protocol server
   completions <shell>  Generate shell completions (bash, zsh, fish)
 
@@ -965,13 +966,19 @@ fn load_config(target: &Path) -> ProjectConfig {
     };
 
     let mut section = "";
-    for line in content.lines() {
+    for (line_num, line) in content.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
             section = &trimmed[1..trimmed.len() - 1];
+            if !matches!(section, "variables" | "breakpoints") {
+                eprintln!(
+                    "warning: {}:{}: unknown section '[{}]' (expected: variables, breakpoints)",
+                    config_path.display(), line_num + 1, section
+                );
+            }
             continue;
         }
         if let Some((key, value)) = trimmed.split_once('=') {
@@ -981,7 +988,12 @@ fn load_config(target: &Path) -> ProjectConfig {
                 "" => match key {
                     "output" => config.output = Some(value.to_string()),
                     "port" => config.port = value.parse().unwrap_or(3000),
-                    _ => {}
+                    _ => {
+                        eprintln!(
+                            "warning: {}:{}: unknown key '{}' (expected: output, port)",
+                            config_path.display(), line_num + 1, key
+                        );
+                    }
                 },
                 "variables" => {
                     config.variables.push((key.to_string(), value.to_string()));
@@ -989,7 +1001,7 @@ fn load_config(target: &Path) -> ProjectConfig {
                 "breakpoints" => {
                     config.breakpoints.push((key.to_string(), value.to_string()));
                 }
-                _ => {}
+                _ => {} // already warned about unknown section
             }
         }
     }
@@ -1632,7 +1644,7 @@ fn main() {
                 rt.block_on(htmlang::serve::run(effective_port, index_path, server_tx));
             });
             if serve_open { open_in_browser(effective_port); }
-            watch_loop(target_path, &hl_files, &[], true, true, Some(tx));
+            watch_loop(target_path, &hl_files, &[], true, true, Some(tx), effective_port);
         } else {
             let (_, included) = compile(&target, &CompileConfig {
                 dev: true, error_overlay: true,
@@ -1647,7 +1659,7 @@ fn main() {
             });
             if serve_open { open_in_browser(effective_port); }
             let files = vec![PathBuf::from(&target)];
-            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, true, true, Some(tx));
+            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, true, true, Some(tx), effective_port);
         }
         return;
     }
@@ -1694,14 +1706,14 @@ fn main() {
                 });
                 all_included.extend(included);
             }
-            watch_loop(target_path, &hl_files, &all_included, false, false, None);
+            watch_loop(target_path, &hl_files, &all_included, false, false, None, 0);
         } else {
             let (_, included) = compile(&target, &CompileConfig {
                 output_path: effective_output.as_deref(),
                 ..Default::default()
             });
             let files = vec![PathBuf::from(&target)];
-            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, false, false, None);
+            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, false, false, None, 0);
         }
         return;
     }
@@ -2828,6 +2840,145 @@ compile();
         return;
     }
 
+    // Handle "explain" subcommand — show CSS mapping for each line
+    if args.len() >= 2 && args[1] == "explain" {
+        if args.len() < 3 {
+            eprintln!("usage: htmlang explain <file.hl>");
+            process::exit(1);
+        }
+        let file = &args[2];
+        let input = match fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: {}: {}", file, e);
+                process::exit(1);
+            }
+        };
+        let base = Path::new(file).parent();
+        let result = htmlang::parser::parse_with_base(&input, base);
+        for d in &result.diagnostics {
+            let prefix = match d.severity {
+                htmlang::parser::Severity::Error => "error",
+                htmlang::parser::Severity::Warning => "warning",
+            };
+            eprintln!("{}: line {}: {}", prefix, d.line, d.message);
+        }
+        if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+            process::exit(1);
+        }
+        let html = htmlang::codegen::generate_dev(&result.document);
+        // Extract CSS class mappings from <style> block
+        let mut class_css: HashMap<String, String> = HashMap::new();
+        if let Some(style_start) = html.find("<style>") {
+            if let Some(style_end) = html[style_start..].find("</style>") {
+                let css_block = &html[style_start + 7..style_start + style_end];
+                // Parse each CSS rule: .className { rules }
+                let mut pos = 0;
+                let css_bytes = css_block.as_bytes();
+                while pos < css_bytes.len() {
+                    if css_bytes[pos] == b'.' {
+                        let rule_start = pos;
+                        // Find class name end
+                        pos += 1;
+                        while pos < css_bytes.len() && css_bytes[pos] != b' ' && css_bytes[pos] != b'{' && css_bytes[pos] != b':' && css_bytes[pos] != b',' {
+                            pos += 1;
+                        }
+                        let class_name = &css_block[rule_start + 1..pos];
+                        // Find rule body
+                        while pos < css_bytes.len() && css_bytes[pos] != b'{' {
+                            pos += 1;
+                        }
+                        if pos < css_bytes.len() {
+                            pos += 1; // skip '{'
+                            let body_start = pos;
+                            let mut depth = 1;
+                            while pos < css_bytes.len() && depth > 0 {
+                                if css_bytes[pos] == b'{' { depth += 1; }
+                                if css_bytes[pos] == b'}' { depth -= 1; }
+                                pos += 1;
+                            }
+                            let body = css_block[body_start..pos.saturating_sub(1)].trim();
+                            if !body.is_empty() {
+                                class_css.entry(class_name.to_string())
+                                    .and_modify(|existing| {
+                                        existing.push_str("; ");
+                                        existing.push_str(body);
+                                    })
+                                    .or_insert_with(|| body.to_string());
+                            }
+                        }
+                    } else {
+                        pos += 1;
+                    }
+                }
+            }
+        }
+        // Extract data-hl-line attributes from dev HTML to map classes to source lines
+        let mut line_classes: HashMap<usize, Vec<String>> = HashMap::new();
+        let html_body = if let Some(body_start) = html.find("<body") {
+            &html[body_start..]
+        } else {
+            &html
+        };
+        // Scan for elements with data-hl-line="N" and class="X"
+        // Dev mode outputs: <div class="a" data-hl-line="2" data-hl-el="el">
+        let mut scan_pos = 0;
+        while scan_pos < html_body.len() {
+            // Find each opening tag
+            if html_body.as_bytes()[scan_pos] == b'<' && scan_pos + 1 < html_body.len() && html_body.as_bytes()[scan_pos + 1].is_ascii_alphabetic() {
+                // Find end of tag
+                let tag_end = html_body[scan_pos..].find('>').map(|p| scan_pos + p).unwrap_or(html_body.len());
+                let tag = &html_body[scan_pos..tag_end];
+                // Extract data-hl-line
+                if let Some(hl_pos) = tag.find("data-hl-line=\"") {
+                    let after = &tag[hl_pos + 14..];
+                    if let Some(end) = after.find('"') {
+                        if let Ok(ln) = after[..end].parse::<usize>() {
+                            // Extract class
+                            if let Some(cls_pos) = tag.find("class=\"") {
+                                let cls_after = &tag[cls_pos + 7..];
+                                if let Some(cls_end) = cls_after.find('"') {
+                                    for cls in cls_after[..cls_end].split_whitespace() {
+                                        line_classes.entry(ln).or_default().push(cls.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                scan_pos = tag_end;
+            } else {
+                scan_pos += 1;
+            }
+        }
+        // Print explanation
+        for (line_num, line) in input.lines().enumerate() {
+            let ln = line_num + 1;
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("--") {
+                continue;
+            }
+            print!("{:>4} | {}", ln, line);
+            if let Some(classes) = line_classes.get(&ln) {
+                let mut css_parts: Vec<String> = Vec::new();
+                for cls in classes {
+                    if let Some(css) = class_css.get(cls) {
+                        css_parts.push(css.clone());
+                    }
+                }
+                if !css_parts.is_empty() {
+                    println!();
+                    println!("       → {}", css_parts.join("; "));
+                } else {
+                    println!();
+                }
+            } else {
+                println!();
+            }
+        }
+        return;
+    }
+
     // Handle "benchmark" subcommand — measure compile time and output size
     if args.len() >= 2 && args[1] == "benchmark" {
         if args.len() < 3 {
@@ -3219,7 +3370,7 @@ compile();
             None
         };
 
-        watch_loop(dir, &hl_files, &all_included, dev, serve, reload_tx);
+        watch_loop(dir, &hl_files, &all_included, dev, serve, reload_tx, port);
         return;
     }
 
@@ -3273,6 +3424,7 @@ compile();
         dev,
         serve,
         reload_tx,
+        port,
     );
 }
 
@@ -3336,7 +3488,7 @@ fn print_bash_completions() {
     local cur prev commands
     cur="${{COMP_WORDS[COMP_CWORD]}}"
     prev="${{COMP_WORDS[COMP_CWORD-1]}}"
-    commands="init new build serve watch check convert fmt sitemap lint stats preview diff export repl feed components deps dead-code deploy playground clean upgrade create-component outline doctor migrate bundle size benchmark test lsp completions"
+    commands="init new build serve watch check convert fmt sitemap lint stats preview diff export repl feed components deps dead-code deploy playground clean upgrade create-component outline doctor migrate bundle size benchmark explain test lsp completions"
 
     if [ "$COMP_CWORD" -eq 1 ]; then
         COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
@@ -3397,6 +3549,7 @@ _htmlang() {{
         'bundle:Inline all assets'
         'size:Report output sizes'
         'benchmark:Measure compile time'
+        'explain:Show CSS mapping per source line'
         'test:Run assertions'
         'lsp:Start LSP server'
         'completions:Generate shell completions'
@@ -3469,6 +3622,7 @@ fn print_fish_completions() {
         ("bundle", "Inline all assets as data URIs"),
         ("size", "Report output sizes"),
         ("benchmark", "Measure compile time"),
+        ("explain", "Show CSS mapping per source line"),
         ("test", "Run assertions"),
         ("lsp", "Start LSP server"),
         ("completions", "Generate shell completions"),
@@ -3526,6 +3680,7 @@ fn watch_loop(
     dev: bool,
     serve: bool,
     reload_tx: Option<tokio::sync::broadcast::Sender<()>>,
+    serve_port: u16,
 ) {
     use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
     use std::sync::mpsc;
@@ -3556,13 +3711,15 @@ fn watch_loop(
     let _ = watcher.watch(watch_dir, RecursiveMode::NonRecursive);
 
     if serve {
-        eprintln!("watching for changes at http://127.0.0.1:3000");
+        eprintln!("watching for changes at http://127.0.0.1:{}", serve_port);
     } else {
         eprintln!("watching for changes...");
     }
 
     // Track content hashes for incremental rebuilds
     let mut content_hashes: HashMap<PathBuf, u64> = HashMap::new();
+    // Dependency map: source file -> list of included/imported files
+    let mut dep_map: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
 
     fn hash_file(path: &Path) -> Option<u64> {
         let content = fs::read(path).ok()?;
@@ -3571,7 +3728,7 @@ fn watch_loop(
         Some(hasher.finish())
     }
 
-    // Seed initial hashes
+    // Seed initial hashes and dependency map
     for file in source_files {
         let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
         if let Some(h) = hash_file(&canonical) {
@@ -3587,11 +3744,12 @@ fn watch_loop(
     loop {
         match rx.recv() {
             Ok(_) => {
-                // Drain additional events (debounce)
+                // Drain additional events (debounce) with short delay for rapid saves
+                std::thread::sleep(std::time::Duration::from_millis(50));
                 while rx.try_recv().is_ok() {}
 
-                // Check if any file content actually changed
-                let mut any_changed = false;
+                // Collect which files actually changed
+                let mut changed_files: Vec<PathBuf> = Vec::new();
                 let check_path = |path: &Path,
                                    hashes: &mut HashMap<PathBuf, u64>|
                  -> bool {
@@ -3607,7 +3765,18 @@ fn watch_loop(
                 for file in source_files {
                     let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
                     if check_path(&canonical, &mut content_hashes) {
-                        any_changed = true;
+                        changed_files.push(canonical);
+                    }
+                }
+
+                // Check included files for changes
+                for (_, deps) in &dep_map {
+                    for dep in deps {
+                        if check_path(dep, &mut content_hashes) {
+                            if !changed_files.contains(dep) {
+                                changed_files.push(dep.clone());
+                            }
+                        }
                     }
                 }
 
@@ -3617,63 +3786,81 @@ fn watch_loop(
                     for file in &current_files {
                         let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
                         if check_path(&canonical, &mut content_hashes) {
-                            any_changed = true;
+                            changed_files.push(canonical.clone());
                             let _ = watcher.watch(&canonical, RecursiveMode::NonRecursive);
                         }
                     }
                 }
 
-                if !any_changed {
+                if changed_files.is_empty() {
                     continue;
                 }
 
                 eprintln!("\nrecompiling...");
 
-                // Dependency-graph incremental: track which source files
-                // depend on which included files, only recompile affected ones
-                let changed_paths: Vec<PathBuf> = source_files.iter()
-                    .filter_map(|f| {
-                        let c = fs::canonicalize(f).unwrap_or_else(|_| f.clone());
-                        if content_hashes.get(&c).is_some() { Some(c) } else { None }
-                    })
-                    .collect();
+                // Determine which source files need recompilation:
+                // 1. Source files that changed directly
+                // 2. Source files whose dependencies changed
+                let mut files_to_compile: Vec<PathBuf> = Vec::new();
+                let all_sources: Vec<PathBuf> = {
+                    let mut s: Vec<PathBuf> = source_files.iter()
+                        .map(|f| fs::canonicalize(f).unwrap_or_else(|_| f.clone()))
+                        .collect();
+                    if watch_dir.is_dir() {
+                        for file in &collect_hl_files(watch_dir) {
+                            let c = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+                            if !s.contains(&c) {
+                                s.push(c);
+                            }
+                        }
+                    }
+                    s
+                };
 
-                // Build dependency map: source -> [deps] from previous compile
-                // (tracked via included_files returned by compile)
-                // For now, recompile source files whose deps changed
+                for source in &all_sources {
+                    // Recompile if the source itself changed
+                    if changed_files.contains(source) {
+                        if !files_to_compile.contains(source) {
+                            files_to_compile.push(source.clone());
+                        }
+                        continue;
+                    }
+                    // Recompile if any of its dependencies changed
+                    if let Some(deps) = dep_map.get(source) {
+                        if deps.iter().any(|d| changed_files.contains(d)) {
+                            if !files_to_compile.contains(source) {
+                                files_to_compile.push(source.clone());
+                            }
+                        }
+                    }
+                }
+
+                // If no specific files identified (e.g., first run), compile all
+                if files_to_compile.is_empty() {
+                    files_to_compile = all_sources;
+                }
+
                 let mut recompiled = 0usize;
-                for file in source_files {
+                for file in &files_to_compile {
                     let path_str = file.to_string_lossy().to_string();
                     let (_, new_includes) = compile(&path_str, &CompileConfig {
                         dev, error_overlay: serve,
                         ..Default::default()
                     });
                     recompiled += 1;
-                    for inc in &new_includes {
+                    // Update dependency map
+                    let canonical_deps: Vec<PathBuf> = new_includes.iter()
+                        .map(|p| fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
+                        .collect();
+                    for inc in &canonical_deps {
                         let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                         if let Some(h) = hash_file(inc) {
                             content_hashes.insert(inc.clone(), h);
                         }
                     }
+                    dep_map.insert(file.clone(), canonical_deps);
                 }
 
-                // Also compile any new .hl files in directory mode
-                if watch_dir.is_dir() {
-                    for file in &collect_hl_files(watch_dir) {
-                        if !source_files.contains(file) {
-                            let path_str = file.to_string_lossy().to_string();
-                            let (_, new_includes) = compile(&path_str, &CompileConfig {
-                                dev, error_overlay: serve,
-                                ..Default::default()
-                            });
-                            recompiled += 1;
-                            for inc in &new_includes {
-                                let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
-                            }
-                        }
-                    }
-                }
-                let _ = changed_paths;
                 eprintln!("recompiled {} file(s)", recompiled);
 
                 if let Some(ref tx) = reload_tx {
