@@ -3614,6 +3614,21 @@ fn snapshot_pagination_each() {
     snapshot_test("pagination_each");
 }
 
+#[test]
+fn snapshot_env_directive() {
+    snapshot_test("env_directive");
+}
+
+#[test]
+fn snapshot_css_property() {
+    snapshot_test("css_property");
+}
+
+#[test]
+fn snapshot_responsive_images() {
+    snapshot_test("responsive_images");
+}
+
 // --- Inline tests for batch 2 ---
 
 #[test]
@@ -3669,4 +3684,216 @@ fn repeat_with_index() {
     assert!(output.contains("0"), "should have index 0");
     assert!(output.contains("1"), "should have index 1");
     assert!(output.contains("2"), "should have index 2");
+}
+
+// ---------------------------------------------------------------------------
+// New feature tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn env_directive_with_default() {
+    let output = compile("@env HTMLANG_TEST_NONEXISTENT fallback_value\n@text $htmlang_test_nonexistent");
+    assert!(output.contains("fallback_value"), "@env should use default when var is not set, got: {}", output);
+}
+
+#[test]
+fn env_directive_from_environment() {
+    // Set an env var and check it's picked up
+    unsafe { std::env::set_var("HTMLANG_TEST_VAR", "hello_world"); }
+    let output = compile("@env HTMLANG_TEST_VAR\n@text $htmlang_test_var");
+    assert!(output.contains("hello_world"), "@env should read env var, got: {}", output);
+    unsafe { std::env::remove_var("HTMLANG_TEST_VAR"); }
+}
+
+#[test]
+fn env_directive_warning_when_missing() {
+    let result = htmlang::parser::parse("@env HTMLANG_DEFINITELY_NOT_SET_12345");
+    let warnings: Vec<_> = result.diagnostics.iter()
+        .filter(|d| d.severity == htmlang::parser::Severity::Warning && d.message.contains("not set"))
+        .collect();
+    assert!(!warnings.is_empty(), "@env should warn when var is not set, got: {:?}", result.diagnostics);
+}
+
+#[test]
+fn fetch_directive_error_on_https() {
+    // @fetch with https should produce an error (no TLS support)
+    let result = htmlang::parser::parse("@fetch $data https://example.com/api");
+    let errors: Vec<_> = result.diagnostics.iter()
+        .filter(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("https"))
+        .collect();
+    assert!(!errors.is_empty(), "@fetch https should error, got: {:?}", result.diagnostics);
+}
+
+#[test]
+fn fetch_directive_error_on_bad_url() {
+    let result = htmlang::parser::parse("@fetch $data http://127.0.0.1:1/nonexistent");
+    let errors: Vec<_> = result.diagnostics.iter()
+        .filter(|d| d.severity == htmlang::parser::Severity::Error)
+        .collect();
+    assert!(!errors.is_empty(), "@fetch should error on unreachable URL, got: {:?}", result.diagnostics);
+}
+
+#[test]
+fn svg_directive_inline() {
+    // Create a temporary SVG file
+    let dir = std::env::temp_dir().join("htmlang_test_svg");
+    let _ = std::fs::create_dir_all(&dir);
+    let svg_path = dir.join("test.svg");
+    std::fs::write(&svg_path, r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>"#).unwrap();
+
+    let input = format!("@svg {}", svg_path.display());
+    let result = htmlang::parser::parse(&input);
+    assert!(result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error),
+        "should parse without errors: {:?}", result.diagnostics);
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("<svg"), "should inline SVG content, got: {}", html);
+    assert!(html.contains("<circle"), "should contain SVG elements, got: {}", html);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn svg_directive_with_attrs() {
+    let dir = std::env::temp_dir().join("htmlang_test_svg_attrs");
+    let _ = std::fs::create_dir_all(&dir);
+    let svg_path = dir.join("icon.svg");
+    std::fs::write(&svg_path, r#"<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect/></svg>"#).unwrap();
+
+    let input = format!("@svg [width 24, color red] {}", svg_path.display());
+    let result = htmlang::parser::parse(&input);
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("width=\"24\""), "should override width, got: {}", html);
+    assert!(html.contains("fill=\"red\""), "should set fill from color attr, got: {}", html);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn svg_directive_missing_file() {
+    let result = htmlang::parser::parse("@svg /nonexistent/missing.svg");
+    let errors: Vec<_> = result.diagnostics.iter()
+        .filter(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("cannot load SVG"))
+        .collect();
+    assert!(!errors.is_empty(), "should error on missing SVG, got: {:?}", result.diagnostics);
+}
+
+#[test]
+fn css_property_directive() {
+    let input = "@css-property --my-color\n  syntax \"<color>\"\n  inherits true\n  initial-value #000\n\n@el [background var(--my-color)] Content";
+    let result = htmlang::parser::parse(input);
+    assert!(result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error),
+        "should parse without errors: {:?}", result.diagnostics);
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("@property --my-color"), "@css-property should emit CSS @property rule, got: {}", html);
+    assert!(html.contains("syntax:\"<color>\""), "should include syntax, got: {}", html);
+    assert!(html.contains("inherits:true"), "should include inherits, got: {}", html);
+    assert!(html.contains("initial-value:#000"), "should include initial-value, got: {}", html);
+}
+
+#[test]
+fn partial_output() {
+    let result = htmlang::parser::parse("@page Test\n@el [padding 20]\n  Hello");
+    let html = htmlang::codegen::generate_partial(&result.document);
+    assert!(!html.contains("<!DOCTYPE"), "partial should not have doctype, got: {}", html);
+    assert!(!html.contains("<html"), "partial should not have html tag, got: {}", html);
+    assert!(!html.contains("<head"), "partial should not have head tag, got: {}", html);
+    assert!(!html.contains("<body"), "partial should not have body tag, got: {}", html);
+    assert!(html.contains("<style>"), "partial should still have CSS, got: {}", html);
+    assert!(html.contains("Hello"), "partial should have content, got: {}", html);
+}
+
+#[test]
+fn partial_output_dev() {
+    let result = htmlang::parser::parse("@page Test\n@el [padding 20]\n  Hello");
+    let html = htmlang::codegen::generate_partial_dev(&result.document);
+    assert!(!html.contains("<!DOCTYPE"), "partial dev should not have doctype");
+    assert!(html.contains("<style>"), "partial dev should have style");
+    assert!(html.contains("Hello"), "partial dev should have content");
+}
+
+#[test]
+fn responsive_srcset_on_image() {
+    let output = compile("@image [responsive 400 800 1200, alt Photo] photo.jpg");
+    assert!(output.contains("srcset=\""), "should generate srcset, got: {}", output);
+    assert!(output.contains("photo-400.jpg 400w"), "should have 400w source, got: {}", output);
+    assert!(output.contains("photo-800.jpg 800w"), "should have 800w source, got: {}", output);
+    assert!(output.contains("photo-1200.jpg 1200w"), "should have 1200w source, got: {}", output);
+    assert!(output.contains("sizes="), "should generate sizes attribute, got: {}", output);
+}
+
+#[test]
+fn auto_image_dimensions_png() {
+    // Create a minimal valid PNG (1x1 pixel)
+    let dir = std::env::temp_dir().join("htmlang_test_img_dim");
+    let _ = std::fs::create_dir_all(&dir);
+    let png_path = dir.join("test.png");
+    // Minimal 1x1 PNG file
+    let png_data: Vec<u8> = vec![
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+        0x00, 0x00, 0x00, 0x0D, // IHDR length
+        0x49, 0x48, 0x44, 0x52, // IHDR
+        0x00, 0x00, 0x00, 0x01, // width = 1
+        0x00, 0x00, 0x00, 0x01, // height = 1
+        0x08, 0x02, 0x00, 0x00, 0x00, // bit depth, color type, etc.
+        0x90, 0x77, 0x53, 0xDE, // CRC
+        0x00, 0x00, 0x00, 0x0C, // IDAT length
+        0x49, 0x44, 0x41, 0x54, // IDAT
+        0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
+        0xE2, 0x21, 0xBC, 0x33, // CRC
+        0x00, 0x00, 0x00, 0x00, // IEND length
+        0x49, 0x45, 0x4E, 0x44, // IEND
+        0xAE, 0x42, 0x60, 0x82, // CRC
+    ];
+    std::fs::write(&png_path, &png_data).unwrap();
+
+    let input = format!("@image [alt test] {}", png_path.display());
+    let result = htmlang::parser::parse(&input);
+    let html = htmlang::codegen::generate(&result.document);
+    assert!(html.contains("width=\"1\""), "should auto-detect width=1 from PNG, got: {}", html);
+    assert!(html.contains("height=\"1\""), "should auto-detect height=1 from PNG, got: {}", html);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn auto_image_dimensions_not_for_urls() {
+    // Remote URLs should not trigger dimension detection
+    let output = compile("@image [alt test] https://example.com/photo.png");
+    // Should not crash or add dimensions for remote URLs
+    assert!(output.contains("src=\"https://example.com/photo.png\""), "should keep URL src, got: {}", output);
+}
+
+#[test]
+fn auto_image_dimensions_respects_explicit() {
+    // If width/height are explicitly set, don't override them
+    let dir = std::env::temp_dir().join("htmlang_test_img_explicit");
+    let _ = std::fs::create_dir_all(&dir);
+    let png_path = dir.join("test2.png");
+    let png_data: Vec<u8> = vec![
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D,
+        0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x01,
+        0x08, 0x02, 0x00, 0x00, 0x00,
+        0x90, 0x77, 0x53, 0xDE,
+        0x00, 0x00, 0x00, 0x0C,
+        0x49, 0x44, 0x41, 0x54,
+        0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
+        0xE2, 0x21, 0xBC, 0x33,
+        0x00, 0x00, 0x00, 0x00,
+        0x49, 0x45, 0x4E, 0x44,
+        0xAE, 0x42, 0x60, 0x82,
+    ];
+    std::fs::write(&png_path, &png_data).unwrap();
+
+    let input = format!("@image [width 100, height 100, alt test] {}", png_path.display());
+    let result = htmlang::parser::parse(&input);
+    let html = htmlang::codegen::generate(&result.document);
+    // When width/height are set as CSS attrs, auto-dimensions should not add HTML width/height
+    assert!(html.contains("width:100px"), "should have CSS width, got: {}", html);
+    assert!(html.contains("height:100px"), "should have CSS height, got: {}", html);
+    assert!(!html.contains("width=\"1\""), "should NOT auto-detect dimensions when CSS size is set, got: {}", html);
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

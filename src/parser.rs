@@ -904,6 +904,221 @@ impl Parser {
             return Ok(None); // No nodes emitted
         }
 
+        // --- @env (compile-time environment variables) ---
+
+        if let Some(rest) = content.strip_prefix("@env ") {
+            let rest = rest.trim();
+            // @env VAR_NAME default_value  OR  @env VAR_NAME
+            let (var_name, default_val) = if let Some((name, default)) = rest.split_once(' ') {
+                (name.trim(), Some(default.trim()))
+            } else {
+                (rest, None)
+            };
+            let env_val = std::env::var(var_name).ok().or_else(|| default_val.map(|d| {
+                let d = substitute_vars(d, &ctx.variables);
+                d
+            }));
+            match env_val {
+                Some(val) => {
+                    // Store as variable with lowercase name
+                    let key = var_name.to_lowercase().replace('-', "_");
+                    ctx.variables.insert(key, val);
+                }
+                None => {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!("environment variable '{}' is not set and no default provided", var_name),
+                        severity: Severity::Warning,
+                        source_line: Some(content.clone()),
+                    });
+                }
+            }
+            return Ok(None);
+        }
+
+        // --- @fetch (compile-time HTTP data fetching) ---
+
+        if let Some(rest) = content.strip_prefix("@fetch ") {
+            let rest = rest.trim();
+            // @fetch $prefix https://url  OR  @fetch https://url
+            let (prefix, url) = if rest.starts_with('$') {
+                if let Some((p, u)) = rest.split_once(' ') {
+                    (p.strip_prefix('$').unwrap_or(p).to_string(), u.trim().to_string())
+                } else {
+                    return Err(ParseError {
+                        line: line_num,
+                        message: "@fetch requires: @fetch $prefix url or @fetch url".to_string(),
+                    });
+                }
+            } else {
+                (String::new(), rest.to_string())
+            };
+
+            let url = substitute_vars(&url, &ctx.variables);
+
+            // Synchronous HTTP GET using std::net
+            match fetch_url_blocking(&url) {
+                Ok(body) => {
+                    // Try to parse as JSON
+                    match parse_json(&body) {
+                        Some(json) => {
+                            if prefix.is_empty() {
+                                if let JsonValue::Object(pairs) = &json {
+                                    for (key, val) in pairs {
+                                        let mut sub = HashMap::new();
+                                        flatten_json(key, val, &mut sub);
+                                        for (k, v) in sub {
+                                            ctx.variables.insert(k, v);
+                                        }
+                                    }
+                                } else {
+                                    // Store the raw body as a single variable
+                                    ctx.variables.insert("__fetch_body".to_string(), body);
+                                }
+                            } else {
+                                let mut sub = HashMap::new();
+                                flatten_json(&prefix, &json, &mut sub);
+                                for (k, v) in sub {
+                                    ctx.variables.insert(k, v);
+                                }
+                            }
+                        }
+                        None => {
+                            // Not JSON — store raw body
+                            if prefix.is_empty() {
+                                ctx.variables.insert("__fetch_body".to_string(), body);
+                            } else {
+                                ctx.variables.insert(prefix, body);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!("@fetch failed for '{}': {}", url, e),
+                        severity: Severity::Error,
+                        source_line: Some(content.clone()),
+                    });
+                }
+            }
+            return Ok(None);
+        }
+
+        // --- @svg (inline SVG from file) ---
+
+        if let Some(rest) = content.strip_prefix("@svg ") {
+            let rest = rest.trim();
+            // @svg file.svg  OR  @svg [attrs] file.svg
+            let (attrs_part, filename) = if rest.starts_with('[') {
+                if let Some(bracket_end) = rest.find(']') {
+                    let attrs_str = &rest[..=bracket_end];
+                    let file = rest[bracket_end + 1..].trim();
+                    (Some(attrs_str.to_string()), file.to_string())
+                } else {
+                    (None, rest.to_string())
+                }
+            } else {
+                (None, rest.to_string())
+            };
+
+            let filename = substitute_vars(&filename, &ctx.variables);
+            let resolved = match &ctx.base_path {
+                Some(base) => base.join(&filename),
+                None => PathBuf::from(&filename),
+            };
+
+            match std::fs::read_to_string(&resolved) {
+                Ok(svg_content) => {
+                    let mut svg = svg_content.trim().to_string();
+                    // Apply attributes (width, height, color/fill, class)
+                    if let Some(ref attrs_str) = attrs_part {
+                        let (attrs, _) = parse_attr_brackets(attrs_str, line_num, ctx)?;
+                        for attr in &attrs {
+                            match attr.key.as_str() {
+                                "width" => {
+                                    if let Some(ref val) = attr.value {
+                                        svg = set_svg_attr(&svg, "width", val);
+                                    }
+                                }
+                                "height" => {
+                                    if let Some(ref val) = attr.value {
+                                        svg = set_svg_attr(&svg, "height", val);
+                                    }
+                                }
+                                "color" | "fill" => {
+                                    if let Some(ref val) = attr.value {
+                                        svg = set_svg_attr(&svg, "fill", val);
+                                    }
+                                }
+                                "class" => {
+                                    if let Some(ref val) = attr.value {
+                                        svg = set_svg_attr(&svg, "class", val);
+                                    }
+                                }
+                                "id" => {
+                                    if let Some(ref val) = attr.value {
+                                        svg = set_svg_attr(&svg, "id", val);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    return Ok(Some(vec![Node::Raw(svg)]));
+                }
+                Err(e) => {
+                    ctx.diagnostics.push(Diagnostic {
+                        line: line_num,
+                        message: format!("cannot load SVG '{}': {}", filename, e),
+                        severity: Severity::Error,
+                        source_line: Some(content.clone()),
+                    });
+                    return Ok(None);
+                }
+            }
+        }
+
+        // --- @css-property (CSS @property rule for typed custom properties) ---
+
+        if let Some(rest) = content.strip_prefix("@css-property ") {
+            let rest = rest.trim();
+            // @css-property --name
+            //   syntax "<color>"
+            //   inherits true
+            //   initial-value #000
+            let prop_name = substitute_vars(rest, &ctx.variables);
+            let mut syntax = String::from("\"*\"");
+            let mut inherits = String::from("false");
+            let mut initial_value = String::new();
+
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    let trimmed = s.trim();
+                    if let Some((key, value)) = trimmed.split_once(' ') {
+                        let value = substitute_vars(value.trim(), &ctx.variables);
+                        match key.trim() {
+                            "syntax" => syntax = value,
+                            "inherits" => inherits = value,
+                            "initial-value" | "initial_value" => initial_value = value,
+                            _ => {}
+                        }
+                    }
+                }
+                self.pos += 1;
+            }
+
+            let mut rule = format!("@property {} {{", prop_name);
+            rule.push_str(&format!("syntax:{};", syntax));
+            rule.push_str(&format!("inherits:{};", inherits));
+            if !initial_value.is_empty() {
+                rule.push_str(&format!("initial-value:{};", initial_value));
+            }
+            rule.push('}');
+            ctx.custom_css.push(rule);
+            return Ok(None);
+        }
+
         // --- @data (load JSON file into variables) ---
 
         if let Some(rest) = content.strip_prefix("@data ") {
@@ -2878,6 +3093,8 @@ const KNOWN_ATTRS: &[&str] = &[
     "anchor-name", "position-anchor", "position-area", "inset-area",
     // Drop caps
     "initial-letter",
+    // Responsive images
+    "responsive",
 ];
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
@@ -4450,6 +4667,153 @@ fn json_value_to_string(v: &JsonValue) -> String {
         JsonValue::Null => String::new(),
         JsonValue::Array(_) | JsonValue::Object(_) => String::new(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP fetch helper (blocking, minimal, no dependencies)
+// ---------------------------------------------------------------------------
+
+fn fetch_url_blocking(url: &str) -> Result<String, String> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+
+    let is_https = url.starts_with("https://");
+    let url_without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .ok_or_else(|| "URL must start with http:// or https://".to_string())?;
+
+    let (host_port, path) = match url_without_scheme.find('/') {
+        Some(pos) => (&url_without_scheme[..pos], &url_without_scheme[pos..]),
+        None => (url_without_scheme, "/"),
+    };
+
+    let (host, port) = match host_port.find(':') {
+        Some(pos) => (
+            &host_port[..pos],
+            host_port[pos + 1..]
+                .parse::<u16>()
+                .map_err(|e| format!("invalid port: {}", e))?,
+        ),
+        None => (host_port, if is_https { 443 } else { 80 }),
+    };
+
+    if is_https {
+        return Err("@fetch does not support https:// (no TLS in std). Use @data with a local JSON file, or set up a build script to fetch data before compilation.".to_string());
+    }
+
+    let addr = format!("{}:{}", host, port);
+    let mut stream =
+        TcpStream::connect(&addr).map_err(|e| format!("connection failed: {}", e))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .ok();
+
+    let request = format!(
+        "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nAccept: application/json, text/plain, */*\r\n\r\n",
+        path, host
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| format!("write failed: {}", e))?;
+
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .map_err(|e| format!("read failed: {}", e))?;
+
+    let response_str = String::from_utf8_lossy(&response);
+    // Split headers and body
+    if let Some(body_start) = response_str.find("\r\n\r\n") {
+        let headers = &response_str[..body_start];
+        let body = &response_str[body_start + 4..];
+
+        // Check status code
+        if let Some(first_line) = headers.lines().next() {
+            if let Some(code_str) = first_line.split_whitespace().nth(1) {
+                let code: u16 = code_str.parse().unwrap_or(0);
+                if code >= 400 {
+                    return Err(format!("HTTP {}", code));
+                }
+            }
+        }
+
+        // Handle chunked transfer encoding
+        if headers.to_lowercase().contains("transfer-encoding: chunked") {
+            return Ok(decode_chunked(body));
+        }
+
+        Ok(body.to_string())
+    } else {
+        Err("malformed HTTP response".to_string())
+    }
+}
+
+fn decode_chunked(body: &str) -> String {
+    let mut result = String::new();
+    let mut rest = body;
+    loop {
+        let rest_trimmed = rest.trim_start();
+        if rest_trimmed.is_empty() {
+            break;
+        }
+        let size_end = rest_trimmed
+            .find("\r\n")
+            .unwrap_or(rest_trimmed.len());
+        let size_str = &rest_trimmed[..size_end];
+        let size = usize::from_str_radix(size_str.trim(), 16).unwrap_or(0);
+        if size == 0 {
+            break;
+        }
+        let chunk_start = size_end + 2;
+        if chunk_start + size <= rest_trimmed.len() {
+            result.push_str(&rest_trimmed[chunk_start..chunk_start + size]);
+            rest = &rest_trimmed[chunk_start + size..];
+            if rest.starts_with("\r\n") {
+                rest = &rest[2..];
+            }
+        } else {
+            result.push_str(&rest_trimmed[chunk_start..]);
+            break;
+        }
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// SVG attribute injection helper
+// ---------------------------------------------------------------------------
+
+fn set_svg_attr(svg: &str, attr_name: &str, value: &str) -> String {
+    // If the SVG already has this attribute, replace it
+    let pattern = format!("{}=\"", attr_name);
+    if let Some(pos) = svg.find(&pattern) {
+        let after = &svg[pos + pattern.len()..];
+        if let Some(end) = after.find('"') {
+            let mut result = String::with_capacity(svg.len());
+            result.push_str(&svg[..pos]);
+            result.push_str(attr_name);
+            result.push_str("=\"");
+            result.push_str(value);
+            result.push('"');
+            result.push_str(&after[end + 1..]);
+            return result;
+        }
+    }
+    // Otherwise inject it into the opening <svg tag
+    if let Some(pos) = svg.find("<svg") {
+        let tag_end = svg[pos..].find('>').map(|p| pos + p).unwrap_or(svg.len());
+        let mut result = String::with_capacity(svg.len() + attr_name.len() + value.len() + 4);
+        result.push_str(&svg[..tag_end]);
+        result.push(' ');
+        result.push_str(attr_name);
+        result.push_str("=\"");
+        result.push_str(value);
+        result.push('"');
+        result.push_str(&svg[tag_end..]);
+        return result;
+    }
+    svg.to_string()
 }
 
 // ---------------------------------------------------------------------------

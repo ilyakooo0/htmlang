@@ -723,6 +723,10 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@mixin", "Define a composable style group (use with ...$name)", "@mixin "),
         ("@assert", "Compile-time assertion for variable values", "@assert "),
         ("@data", "Load JSON data file into template variables", "@data "),
+        ("@env", "Access compile-time environment variable", "@env "),
+        ("@fetch", "Fetch data from URL at compile time", "@fetch "),
+        ("@svg", "Inline SVG file with optional attributes", "@svg "),
+        ("@css-property", "Define typed CSS custom property (@property)", "@css-property "),
     ]
     .iter()
     .map(|(name, detail, insert)| {
@@ -3369,7 +3373,7 @@ fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
                     | "@unless" | "@og" | "@breakpoint"
                     | "@canonical" | "@base" | "@font-face" | "@json-ld"
                     | "@mixin" | "@assert" | "@theme" | "@deprecated" | "@extends"
-                    | "@use" | "@data" => 0, // keyword
+                    | "@use" | "@data" | "@env" | "@fetch" | "@svg" | "@css-property" => 0, // keyword
                     _ => {
                         // Check if it's a user function call (starts with @ but not a builtin element)
                         if is_builtin_element(word) { 0 } else { 2 } // function

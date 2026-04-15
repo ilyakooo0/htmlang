@@ -380,6 +380,16 @@ pub fn generate_dev(doc: &Document) -> String {
     generate_with_options(doc, true)
 }
 
+/// Generate an HTML fragment — body content + inline style, no document wrapper.
+pub fn generate_partial(doc: &Document) -> String {
+    generate_partial_with_options(doc, false)
+}
+
+/// Generate a dev-mode HTML fragment.
+pub fn generate_partial_dev(doc: &Document) -> String {
+    generate_partial_with_options(doc, true)
+}
+
 /// Generate with aggressive minification: collapse whitespace in text nodes,
 /// strip HTML comments, and minimize output size.
 pub fn generate_minified(doc: &Document) -> String {
@@ -1008,6 +1018,83 @@ img {{ display: block; }}
     }
 }
 
+/// Generate an HTML fragment: body + optional <style>, no <html>/<head>/<body> wrapper.
+fn generate_partial_with_options(doc: &Document, dev: bool) -> String {
+    let mut styles = StyleCollector::new();
+    let mut ctx = GenContext { dev, depth: 0 };
+    let mut body = String::new();
+
+    for node in &doc.nodes {
+        generate_node(node, None, &mut body, &mut styles, &mut ctx);
+    }
+
+    let has_custom_css = !doc.custom_css.is_empty();
+    let mut element_css = String::new();
+
+    // CSS custom properties
+    if !doc.css_vars.is_empty() || !doc.theme_tokens.is_empty() {
+        if dev {
+            element_css.push_str(":root {\n");
+            for (name, value) in &doc.css_vars {
+                element_css.push_str(&format!("  {}: {};\n", name, value));
+            }
+            for (name, value) in &doc.theme_tokens {
+                let css_name = format!("--{}", name);
+                if !doc.css_vars.iter().any(|(n, _)| *n == css_name) {
+                    element_css.push_str(&format!("  {}: {};\n", css_name, value));
+                }
+            }
+            element_css.push_str("}\n");
+        } else {
+            element_css.push_str(":root{");
+            for (name, value) in &doc.css_vars {
+                element_css.push_str(name);
+                element_css.push(':');
+                element_css.push_str(value);
+                element_css.push(';');
+            }
+            for (name, value) in &doc.theme_tokens {
+                let css_name = format!("--{}", name);
+                if !doc.css_vars.iter().any(|(n, _)| *n == css_name) {
+                    element_css.push_str(&css_name);
+                    element_css.push(':');
+                    element_css.push_str(value);
+                    element_css.push(';');
+                }
+            }
+            element_css.push('}');
+        }
+    }
+
+    element_css.push_str(&styles.to_css_formatted(dev, !has_custom_css));
+
+    for (name, kf_body) in &doc.keyframes {
+        if dev {
+            element_css.push_str(&format!("@keyframes {} {{\n{}\n}}\n", name, kf_body));
+        } else {
+            element_css.push_str(&format!("@keyframes {}{{{}}}", name, kf_body));
+        }
+    }
+
+    for block in &doc.custom_css {
+        if dev {
+            element_css.push_str(block);
+            element_css.push('\n');
+        } else {
+            let minified: String = block.lines().map(|l| l.trim()).collect::<Vec<_>>().join("");
+            element_css.push_str(&minified);
+        }
+    }
+
+    if element_css.is_empty() {
+        body
+    } else if dev {
+        format!("<style>\n{}</style>\n{}", element_css, body)
+    } else {
+        format!("<style>{}</style>{}", element_css, body)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Node generation
 // ---------------------------------------------------------------------------
@@ -1607,6 +1694,52 @@ fn generate_self_closing(
                 }
             }
         }
+        // Responsive srcset: @image photo.jpg [responsive 400 800 1200]
+        let responsive_attr = elem.attrs.iter().find(|a| a.key == "responsive");
+        if let Some(resp) = responsive_attr {
+            if let Some(ref sizes_str) = resp.value {
+                let widths: Vec<&str> = sizes_str.split_whitespace().collect();
+                if !widths.is_empty() {
+                    let src = elem.argument.as_deref().unwrap_or("");
+                    if !src.is_empty() {
+                        // Generate srcset with width descriptors
+                        // Convention: file-{width}.ext (e.g., photo-400.jpg)
+                        let dot_pos = src.rfind('.').unwrap_or(src.len());
+                        let base = &src[..dot_pos];
+                        let ext = &src[dot_pos..];
+                        let mut srcset_parts = Vec::new();
+                        for w in &widths {
+                            srcset_parts.push(format!("{}-{}{} {}w", base, w, ext, w));
+                        }
+                        out.push_str(" srcset=\"");
+                        out.push_str(&srcset_parts.join(", "));
+                        out.push('"');
+                        // Generate sizes attribute
+                        let max_width = widths.last().unwrap_or(&"100vw");
+                        out.push_str(&format!(" sizes=\"(max-width: {}px) 100vw, {}px\"", max_width, max_width));
+                    }
+                }
+            }
+        }
+
+        // Auto image dimensions: read local image file to inject width/height
+        let has_width = elem.attrs.iter().any(|a| a.key == "width");
+        let has_height = elem.attrs.iter().any(|a| a.key == "height");
+        if !has_width || !has_height {
+            if let Some(ref src) = elem.argument {
+                if !src.starts_with("http://") && !src.starts_with("https://") && !src.starts_with("data:") {
+                    if let Some((w, h)) = read_image_dimensions(src) {
+                        if !has_width {
+                            out.push_str(&format!(" width=\"{}\"", w));
+                        }
+                        if !has_height {
+                            out.push_str(&format!(" height=\"{}\"", h));
+                        }
+                    }
+                }
+            }
+        }
+
         if !elem.attrs.iter().any(|a| a.key == "loading") {
             out.push_str(" loading=\"lazy\"");
         }
@@ -2753,7 +2886,7 @@ fn attrs_to_css(
             | "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload"
             | "loading" | "decoding" | "ordered" | "src"
             | "open" | "novalidate" | "low" | "high" | "optimum"
-            | "colspan" | "rowspan" | "scope" | "inline"
+            | "colspan" | "rowspan" | "scope" | "inline" | "responsive"
             | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list"
             | "sandbox" | "allow" | "allowfullscreen" | "referrerpolicy"
             | "formaction" | "formmethod" | "formtarget" | "target"
@@ -2815,6 +2948,72 @@ fn extract_id_class(attrs: &[Attribute]) -> (Option<String>, Option<String>) {
         }
     }
     (id, class)
+}
+
+/// Read image dimensions from a local file by parsing the header bytes.
+/// Supports PNG, JPEG, GIF, and WebP.
+fn read_image_dimensions(path: &str) -> Option<(u32, u32)> {
+    let data = std::fs::read(path).ok()?;
+    if data.len() < 24 {
+        return None;
+    }
+
+    // PNG: 8-byte signature, then IHDR chunk with width/height at bytes 16-23
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let w = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
+        let h = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
+        return Some((w, h));
+    }
+
+    // GIF: "GIF87a" or "GIF89a", width/height at bytes 6-9 (little-endian)
+    if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        let w = u16::from_le_bytes([data[6], data[7]]) as u32;
+        let h = u16::from_le_bytes([data[8], data[9]]) as u32;
+        return Some((w, h));
+    }
+
+    // JPEG: scan for SOF0/SOF2 marker (0xFF 0xC0 or 0xFF 0xC2)
+    if data.starts_with(b"\xff\xd8") {
+        let mut i = 2;
+        while i + 9 < data.len() {
+            if data[i] != 0xFF {
+                i += 1;
+                continue;
+            }
+            let marker = data[i + 1];
+            if marker == 0xC0 || marker == 0xC2 {
+                let h = u16::from_be_bytes([data[i + 5], data[i + 6]]) as u32;
+                let w = u16::from_be_bytes([data[i + 7], data[i + 8]]) as u32;
+                return Some((w, h));
+            }
+            // Skip to next marker
+            if i + 3 < data.len() {
+                let len = u16::from_be_bytes([data[i + 2], data[i + 3]]) as usize;
+                i += 2 + len;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // WebP: "RIFF" ... "WEBP", VP8 header at byte 20
+    if data.len() >= 30 && &data[..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        // VP8 (lossy): dimensions at bytes 26-29
+        if &data[12..16] == b"VP8 " && data.len() >= 30 {
+            let w = u16::from_le_bytes([data[26], data[27]]) as u32 & 0x3FFF;
+            let h = u16::from_le_bytes([data[28], data[29]]) as u32 & 0x3FFF;
+            return Some((w, h));
+        }
+        // VP8L (lossless): signature byte 0x2f at byte 21
+        if &data[12..16] == b"VP8L" && data.len() >= 25 && data[21] == 0x2F {
+            let bits = u32::from_le_bytes([data[22], data[23], data[24], data[25]]);
+            let w = (bits & 0x3FFF) + 1;
+            let h = ((bits >> 14) & 0x3FFF) + 1;
+            return Some((w, h));
+        }
+    }
+
+    None
 }
 
 fn html_escape(s: &str) -> String {

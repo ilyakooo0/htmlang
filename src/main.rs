@@ -14,10 +14,10 @@ struct DiagnosticJson {
 }
 
 fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>) -> (bool, Vec<PathBuf>) {
-    compile_inner(input_path, dev, error_overlay, check_only, output_path, format_json, json_collector, false, false, false)
+    compile_inner(input_path, dev, error_overlay, check_only, output_path, format_json, json_collector, false, false, false, false)
 }
 
-fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>, minify: bool, compat: bool, strict: bool) -> (bool, Vec<PathBuf>) {
+fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>, minify: bool, compat: bool, strict: bool, partial: bool) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
@@ -87,13 +87,21 @@ fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: b
                 let _ = fs::write(&out_path, &error_html);
             }
         } else {
-            let html = match (minify, dev, compat) {
-                (true, _, true) => htmlang::codegen::generate_minified_compat(&result.document),
-                (true, _, false) => htmlang::codegen::generate_minified(&result.document),
-                (false, true, true) => htmlang::codegen::generate_dev_compat(&result.document),
-                (false, true, false) => htmlang::codegen::generate_dev(&result.document),
-                (false, false, true) => htmlang::codegen::generate_compat(&result.document),
-                (false, false, false) => htmlang::codegen::generate(&result.document),
+            let html = if partial {
+                if dev {
+                    htmlang::codegen::generate_partial_dev(&result.document)
+                } else {
+                    htmlang::codegen::generate_partial(&result.document)
+                }
+            } else {
+                match (minify, dev, compat) {
+                    (true, _, true) => htmlang::codegen::generate_minified_compat(&result.document),
+                    (true, _, false) => htmlang::codegen::generate_minified(&result.document),
+                    (false, true, true) => htmlang::codegen::generate_dev_compat(&result.document),
+                    (false, true, false) => htmlang::codegen::generate_dev(&result.document),
+                    (false, false, true) => htmlang::codegen::generate_compat(&result.document),
+                    (false, false, false) => htmlang::codegen::generate(&result.document),
+                }
             };
             match fs::write(&out_path, &html) {
                 Ok(()) => eprintln!("wrote {}", out_path.display()),
@@ -356,6 +364,8 @@ Commands:
   bundle <file|dir> [-o <out>]  Compile and inline all assets as data URIs
   size <file|dir>       Report output sizes (raw, minified, ~gzip)
   benchmark <file|dir>  Measure compile time and output size
+  lsp                  Start the Language Server Protocol server
+  completions <shell>  Generate shell completions (bash, zsh, fish)
 
 Options:
   -w, --watch       Watch for changes and recompile
@@ -367,6 +377,7 @@ Options:
   -c, --check       Check for errors without writing output
   --compat          Add vendor prefixes for broader browser support
   --strict          Treat warnings as errors (useful for CI)
+  --partial         Output HTML fragment without document wrapper
   --format json     Output diagnostics as JSON to stdout
   -h, --help        Show this help
   -V, --version     Show version
@@ -889,9 +900,23 @@ fn main() {
     let mut compat = false;
     let mut strict = false;
     let mut open_browser = false;
+    let mut partial = false;
     let mut port: u16 = 3000;
     let mut output_path: Option<String> = None;
     let mut input_path = None;
+
+    // Handle "lsp" subcommand — launch the LSP server from the main binary
+    if args.len() >= 2 && args[1] == "lsp" {
+        run_lsp();
+        return;
+    }
+
+    // Handle "completions" subcommand — generate shell completions
+    if args.len() >= 2 && args[1] == "completions" {
+        let shell = args.get(2).map(|s| s.as_str()).unwrap_or("bash");
+        print_shell_completions(shell);
+        return;
+    }
 
     // Handle "init" subcommand
     if args.len() >= 2 && args[1] == "init" {
@@ -1009,7 +1034,7 @@ fn main() {
                     }
                     let path_str = file.to_string_lossy().to_string();
                     let (has_errors, _) = if build_minify || build_compat {
-                        compile_inner(&path_str, false, false, false, effective_out.as_deref(), false, None, build_minify, build_compat, false)
+                        compile_inner(&path_str, false, false, false, effective_out.as_deref(), false, None, build_minify, build_compat, false, false)
                     } else {
                         compile(&path_str, false, false, false, effective_out.as_deref(), false, None)
                     };
@@ -2919,6 +2944,7 @@ compile();
             "--compat" => compat = true,
             "--strict" => strict = true,
             "--open" => open_browser = true,
+            "--partial" => partial = true,
             "--format" => {
                 i += 1;
                 match args.get(i) {
@@ -3008,7 +3034,7 @@ compile();
                 }
                 out_p.to_string_lossy().to_string()
             });
-            let (has_errors, included) = compile_inner(&path_str, dev, serve, check, effective_out.as_deref(), format_json, json_collector.as_ref(), false, compat, strict);
+            let (has_errors, included) = compile_inner(&path_str, dev, serve, check, effective_out.as_deref(), format_json, json_collector.as_ref(), false, compat, strict, partial);
             if has_errors {
                 any_errors = true;
             }
@@ -3028,14 +3054,14 @@ compile();
             return;
         }
 
-        // For directory serve mode, serve the directory with index.html
+        // For directory serve mode, serve the directory with route mapping
         let reload_tx = if serve {
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
-            let index_path = dir.join("index.html");
+            let serve_dir = dir.to_path_buf();
             let server_tx = tx.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
-                rt.block_on(htmlang::serve::run(port, index_path, server_tx));
+                rt.block_on(htmlang::serve::run_dir(port, serve_dir, server_tx));
             });
             if open_browser {
                 open_in_browser(port);
@@ -3051,7 +3077,7 @@ compile();
 
     // --- Single file mode ---
     let json_collector_single = if format_json { Some(Mutex::new(Vec::new())) } else { None };
-    let (has_errors, included_files) = compile_inner(&input_path, dev, serve, check, output_path.as_deref(), format_json, json_collector_single.as_ref(), false, compat, strict);
+    let (has_errors, included_files) = compile_inner(&input_path, dev, serve, check, output_path.as_deref(), format_json, json_collector_single.as_ref(), false, compat, strict, partial);
     if format_json {
         if let Some(ref collector) = json_collector_single {
             print_json_diagnostics(&collector.lock().unwrap());
@@ -3094,6 +3120,235 @@ compile();
         serve,
         reload_tx,
     );
+}
+
+// ---------------------------------------------------------------------------
+// LSP subcommand: launch the Language Server Protocol server
+// ---------------------------------------------------------------------------
+
+fn run_lsp() {
+    // Try to find the htmlang-lsp binary alongside this binary, or in PATH
+    let self_exe = env::current_exe().ok();
+    let lsp_name = if cfg!(windows) { "htmlang-lsp.exe" } else { "htmlang-lsp" };
+
+    let lsp_path = self_exe
+        .as_ref()
+        .and_then(|exe| exe.parent())
+        .map(|dir| dir.join(lsp_name))
+        .filter(|p| p.exists());
+
+    let lsp_cmd = lsp_path
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| lsp_name.to_string());
+
+    let status = std::process::Command::new(&lsp_cmd)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status();
+
+    match status {
+        Ok(s) => {
+            if !s.success() {
+                process::exit(s.code().unwrap_or(1));
+            }
+        }
+        Err(_) => {
+            eprintln!("error: could not find htmlang-lsp binary");
+            eprintln!("hint: ensure htmlang-lsp is in the same directory as htmlang, or in your PATH");
+            process::exit(1);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shell completion generation
+// ---------------------------------------------------------------------------
+
+fn print_shell_completions(shell: &str) {
+    match shell {
+        "bash" => print_bash_completions(),
+        "zsh" => print_zsh_completions(),
+        "fish" => print_fish_completions(),
+        _ => {
+            eprintln!("unknown shell: {}. Supported: bash, zsh, fish", shell);
+            process::exit(1);
+        }
+    }
+}
+
+fn print_bash_completions() {
+    println!(r#"_htmlang() {{
+    local cur prev commands
+    cur="${{COMP_WORDS[COMP_CWORD]}}"
+    prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+    commands="init new build serve watch check convert fmt sitemap lint stats preview diff export repl feed components deps dead-code deploy playground clean upgrade create-component outline doctor migrate bundle size benchmark test lsp completions"
+
+    if [ "$COMP_CWORD" -eq 1 ]; then
+        COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+        COMPREPLY+=( $(compgen -f -X '!*.hl' -- "$cur") )
+        COMPREPLY+=( $(compgen -d -- "$cur") )
+        return
+    fi
+
+    case "$prev" in
+        -o|--output) COMPREPLY=( $(compgen -f -- "$cur") ) ;;
+        -p|--port) COMPREPLY=() ;;
+        --format) COMPREPLY=( $(compgen -W "json" -- "$cur") ) ;;
+        --template|-t) COMPREPLY=( $(compgen -W "blog docs portfolio" -- "$cur") ) ;;
+        --provider) COMPREPLY=( $(compgen -W "github-pages netlify vercel cloudflare" -- "$cur") ) ;;
+        completions) COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
+        *)
+            COMPREPLY=( $(compgen -W "-w --watch -s --serve -d --dev -c --check --compat --strict --partial --open --format --minify -o --output -p --port -h --help -V --version" -- "$cur") )
+            COMPREPLY+=( $(compgen -f -X '!*.hl' -- "$cur") )
+            COMPREPLY+=( $(compgen -d -- "$cur") )
+            ;;
+    esac
+}}
+complete -F _htmlang htmlang"#);
+}
+
+fn print_zsh_completions() {
+    println!(r#"#compdef htmlang
+
+_htmlang() {{
+    local -a commands=(
+        'init:Create a new project'
+        'new:Create a new .hl page'
+        'build:Compile all .hl files'
+        'serve:Start dev server'
+        'watch:Watch and recompile'
+        'check:Check for errors'
+        'convert:Convert HTML to .hl'
+        'fmt:Format a .hl file'
+        'sitemap:Generate sitemap.xml'
+        'lint:Lint checks'
+        'stats:Show file statistics'
+        'preview:Compile and open in browser'
+        'diff:Compare two .hl files'
+        'export:Bundle into archive'
+        'repl:Interactive REPL'
+        'feed:Generate RSS feed'
+        'components:List @fn definitions'
+        'deps:Show dependency graph'
+        'dead-code:Find unused definitions'
+        'deploy:Build and deploy'
+        'playground:Generate playground'
+        'clean:Remove generated files'
+        'upgrade:Auto-upgrade syntax'
+        'create-component:Scaffold component'
+        'outline:Show document structure'
+        'doctor:Check toolchain health'
+        'migrate:Upgrade deprecated syntax'
+        'bundle:Inline all assets'
+        'size:Report output sizes'
+        'benchmark:Measure compile time'
+        'test:Run assertions'
+        'lsp:Start LSP server'
+        'completions:Generate shell completions'
+    )
+
+    local -a flags=(
+        '-w[Watch for changes]'
+        '--watch[Watch for changes]'
+        '-s[Start dev server]'
+        '--serve[Start dev server]'
+        '-d[Development mode]'
+        '--dev[Development mode]'
+        '-c[Check only]'
+        '--check[Check only]'
+        '--compat[Vendor prefixes]'
+        '--strict[Warnings as errors]'
+        '--partial[Output HTML fragment]'
+        '--open[Open browser]'
+        '--minify[Minify output]'
+        '-o[Output path]:path:_files'
+        '--output[Output path]:path:_files'
+        '-p[Port]:port:'
+        '--port[Port]:port:'
+        '--format[Output format]:format:(json)'
+        '-h[Show help]'
+        '--help[Show help]'
+        '-V[Show version]'
+        '--version[Show version]'
+    )
+
+    if (( CURRENT == 2 )); then
+        _alternative 'commands:command:compadd -a commands' 'files:file:_files -g "*.hl"' 'dirs:directory:_directories'
+    else
+        _alternative 'flags:flag:compadd -a flags' 'files:file:_files -g "*.hl"' 'dirs:directory:_directories'
+    fi
+}}
+
+_htmlang "$@""#);
+}
+
+fn print_fish_completions() {
+    let commands = [
+        ("init", "Create a new project"),
+        ("new", "Create a new .hl page"),
+        ("build", "Compile all .hl files"),
+        ("serve", "Start dev server with hot reload"),
+        ("watch", "Watch for changes and recompile"),
+        ("check", "Check for errors"),
+        ("convert", "Convert HTML to .hl"),
+        ("fmt", "Format a .hl file"),
+        ("sitemap", "Generate sitemap.xml"),
+        ("lint", "Strict lint checks"),
+        ("stats", "Show file statistics"),
+        ("preview", "Compile and open in browser"),
+        ("diff", "Compare two .hl files"),
+        ("export", "Bundle into archive"),
+        ("repl", "Interactive REPL"),
+        ("feed", "Generate RSS feed"),
+        ("components", "List @fn definitions"),
+        ("deps", "Show dependency graph"),
+        ("dead-code", "Find unused definitions"),
+        ("deploy", "Build and deploy"),
+        ("playground", "Generate playground"),
+        ("clean", "Remove generated files"),
+        ("upgrade", "Auto-upgrade syntax"),
+        ("create-component", "Scaffold component"),
+        ("outline", "Show document structure"),
+        ("doctor", "Check toolchain health"),
+        ("migrate", "Upgrade deprecated syntax"),
+        ("bundle", "Inline all assets as data URIs"),
+        ("size", "Report output sizes"),
+        ("benchmark", "Measure compile time"),
+        ("test", "Run assertions"),
+        ("lsp", "Start LSP server"),
+        ("completions", "Generate shell completions"),
+    ];
+
+    for (cmd, desc) in &commands {
+        println!("complete -c htmlang -n '__fish_use_subcommand' -a '{}' -d '{}'", cmd, desc);
+    }
+
+    let flags = [
+        ("-w", "--watch", "Watch for changes"),
+        ("-s", "--serve", "Start dev server"),
+        ("-d", "--dev", "Development mode"),
+        ("-c", "--check", "Check only"),
+        ("", "--compat", "Add vendor prefixes"),
+        ("", "--strict", "Treat warnings as errors"),
+        ("", "--partial", "Output HTML fragment without document wrapper"),
+        ("", "--open", "Open browser"),
+        ("", "--minify", "Minify output"),
+        ("-o", "--output", "Output path"),
+        ("-p", "--port", "Dev server port"),
+        ("-h", "--help", "Show help"),
+        ("-V", "--version", "Show version"),
+    ];
+
+    for (short, long, desc) in &flags {
+        if short.is_empty() {
+            println!("complete -c htmlang -l '{}' -d '{}'", long.trim_start_matches('-'), desc);
+        } else {
+            println!("complete -c htmlang -s '{}' -l '{}' -d '{}'", short.trim_start_matches('-'), long.trim_start_matches('-'), desc);
+        }
+    }
+
+    println!("complete -c htmlang -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'");
 }
 
 fn collect_hl_files(dir: &Path) -> Vec<PathBuf> {
