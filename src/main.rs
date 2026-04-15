@@ -217,6 +217,10 @@ Commands:
   repl                  Interactive REPL (type .hl, get HTML)
   feed <dir> [-b URL]   Generate RSS feed from @page metadata
   components <dir>      List all @fn definitions across a project
+  deps <dir>            Show file dependency graph (@include/@import)
+  dead-code <dir>       Find unused @fn, @define, @let across project
+  deploy <dir>          Build and deploy to GitHub Pages
+  playground [out.html] Generate a self-contained HTML playground
 
 Options:
   -w, --watch       Watch for changes and recompile
@@ -519,6 +523,63 @@ fn count_elements(
     }
 }
 
+/// Extract shared CSS rules across multiple HTML files and write shared.css
+fn extract_shared_css(html_files: &[PathBuf], out_dir: &Path) {
+    // Parse <style> blocks from each HTML file and count rule occurrences
+    let mut rule_counts: HashMap<String, usize> = HashMap::new();
+    let total = html_files.len();
+    for file in html_files {
+        if let Ok(html) = fs::read_to_string(file) {
+            // Extract CSS between <style> and </style>
+            if let Some(start) = html.find("<style>") {
+                if let Some(end) = html[start..].find("</style>") {
+                    let css = &html[start + 7..start + end];
+                    // Extract individual rules (class-based)
+                    let mut seen_in_file = std::collections::HashSet::new();
+                    let mut i = 0;
+                    let bytes = css.as_bytes();
+                    while i < bytes.len() {
+                        if bytes[i] == b'.' || bytes[i] == b'@' {
+                            // Find end of rule block
+                            let start_pos = i;
+                            let mut depth = 0;
+                            let mut found_open = false;
+                            while i < bytes.len() {
+                                if bytes[i] == b'{' { depth += 1; found_open = true; }
+                                else if bytes[i] == b'}' {
+                                    depth -= 1;
+                                    if found_open && depth == 0 { i += 1; break; }
+                                }
+                                i += 1;
+                            }
+                            let rule = &css[start_pos..i];
+                            if !rule.is_empty() && !seen_in_file.contains(rule) {
+                                seen_in_file.insert(rule.to_string());
+                                *rule_counts.entry(rule.to_string()).or_insert(0) += 1;
+                            }
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Rules appearing in ALL files are shared
+    let shared_rules: Vec<&String> = rule_counts.iter()
+        .filter(|(_, count)| **count == total)
+        .map(|(rule, _)| rule)
+        .collect();
+    if shared_rules.is_empty() {
+        return;
+    }
+    let shared_css_path = out_dir.join("shared.css");
+    let shared_css: String = shared_rules.iter().map(|r| r.as_str()).collect::<Vec<_>>().join("\n");
+    if fs::write(&shared_css_path, &shared_css).is_ok() {
+        eprintln!("extracted {} shared CSS rules to {}", shared_rules.len(), shared_css_path.display());
+    }
+}
+
 fn open_in_browser(port: u16) {
     let url = format!("http://127.0.0.1:{}", port);
     let cmd = if cfg!(target_os = "macos") {
@@ -718,6 +779,19 @@ fn main() {
         // Copy non-.hl static assets to output directory
         if let Some(out) = out_dir {
             copy_non_hl_files(dir, Path::new(out));
+
+            // Shared CSS extraction: find duplicate CSS rules across pages
+            let out_path = Path::new(out);
+            let html_files: Vec<PathBuf> = hl_files.iter()
+                .map(|f| {
+                    let rel = f.strip_prefix(dir).unwrap_or(f);
+                    out_path.join(rel).with_extension("html")
+                })
+                .filter(|p| p.exists())
+                .collect();
+            if html_files.len() > 1 {
+                extract_shared_css(&html_files, out_path);
+            }
         }
         return;
     }
@@ -1287,6 +1361,354 @@ fn main() {
         } else {
             eprintln!("\n{} component(s) found", total);
         }
+        return;
+    }
+
+    // Handle "deps" subcommand — show dependency graph
+    if args.len() >= 2 && args[1] == "deps" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let path = Path::new(target);
+        let hl_files = if path.is_dir() {
+            collect_hl_files_recursive(path)
+        } else {
+            vec![PathBuf::from(target)]
+        };
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", target);
+            process::exit(1);
+        }
+        let mut graph: Vec<(String, Vec<String>)> = Vec::new();
+        for file in &hl_files {
+            let input = match fs::read_to_string(file) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let rel = file.strip_prefix(path).unwrap_or(file);
+            let rel_str = rel.display().to_string();
+            let mut deps = Vec::new();
+            for line in input.lines() {
+                let trimmed = line.trim();
+                for directive in &["@include ", "@import ", "@extends ", "@use "] {
+                    if let Some(rest) = trimmed.strip_prefix(directive) {
+                        let dep = rest.split_whitespace().next().unwrap_or("").to_string();
+                        if !dep.is_empty() {
+                            deps.push(dep);
+                        }
+                    }
+                }
+            }
+            graph.push((rel_str, deps));
+        }
+        for (file, deps) in &graph {
+            if deps.is_empty() {
+                println!("{} (no dependencies)", file);
+            } else {
+                println!("{}", file);
+                for (i, dep) in deps.iter().enumerate() {
+                    let prefix = if i == deps.len() - 1 { "└── " } else { "├── " };
+                    println!("  {}{}", prefix, dep);
+                }
+            }
+        }
+        return;
+    }
+
+    // Handle "dead-code" subcommand — project-wide unused definitions
+    if args.len() >= 2 && args[1] == "dead-code" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let path = Path::new(target);
+        let hl_files = if path.is_dir() {
+            collect_hl_files_recursive(path)
+        } else {
+            vec![PathBuf::from(target)]
+        };
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", target);
+            process::exit(1);
+        }
+        // Pass 1: collect all definitions and usages across all files
+        let mut all_fn_defs: Vec<(String, String, usize)> = Vec::new();   // (name, file, line)
+        let mut all_def_defs: Vec<(String, String, usize)> = Vec::new();
+        let mut all_let_defs: Vec<(String, String, usize)> = Vec::new();
+        let mut all_refs: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for file in &hl_files {
+            let input = match fs::read_to_string(file) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let rel = file.strip_prefix(path).unwrap_or(file).display().to_string();
+            for (line_num, line) in input.lines().enumerate() {
+                let trimmed = line.trim();
+                if let Some(rest) = trimmed.strip_prefix("@fn ") {
+                    if let Some(name) = rest.split_whitespace().next() {
+                        all_fn_defs.push((name.to_string(), rel.clone(), line_num + 1));
+                    }
+                } else if let Some(rest) = trimmed.strip_prefix("@define ") {
+                    if let Some(name) = rest.split_whitespace().next() {
+                        let name = name.trim_end_matches('[');
+                        all_def_defs.push((name.to_string(), rel.clone(), line_num + 1));
+                    }
+                } else if let Some(rest) = trimmed.strip_prefix("@let ") {
+                    if let Some(name) = rest.split_whitespace().next() {
+                        all_let_defs.push((name.to_string(), rel.clone(), line_num + 1));
+                    }
+                }
+                // Collect references: @name calls and $name usages
+                if trimmed.starts_with('@') && !trimmed.starts_with("@fn ")
+                    && !trimmed.starts_with("@let ") && !trimmed.starts_with("@define ")
+                    && !trimmed.starts_with("@include ") && !trimmed.starts_with("@import ")
+                    && !trimmed.starts_with("@extends ") && !trimmed.starts_with("@page")
+                    && !trimmed.starts_with("@meta ") && !trimmed.starts_with("@og ")
+                    && !trimmed.starts_with("@head") && !trimmed.starts_with("@style")
+                    && !trimmed.starts_with("@keyframes ") && !trimmed.starts_with("@theme")
+                    && !trimmed.starts_with("@deprecated ") && !trimmed.starts_with("@breakpoint ")
+                    && !trimmed.starts_with("@use ") && !trimmed.starts_with("@slot ")
+                    && !trimmed.starts_with("@lang ") && !trimmed.starts_with("@favicon ")
+                    && !trimmed.starts_with("--")
+                {
+                    if let Some(name) = trimmed[1..].split(|c: char| c == ' ' || c == '[').next() {
+                        all_refs.insert(name.to_string());
+                    }
+                }
+                // Collect $var references
+                let mut rest = trimmed;
+                while let Some(pos) = rest.find('$') {
+                    let after = &rest[pos + 1..];
+                    let end = after.find(|c: char| !c.is_alphanumeric() && c != '-' && c != '_').unwrap_or(after.len());
+                    if end > 0 {
+                        all_refs.insert(after[..end].to_string());
+                    }
+                    rest = if end < after.len() { &after[end..] } else { "" };
+                }
+            }
+        }
+        // Pass 2: report unused
+        let mut count = 0;
+        for (name, file, line) in &all_fn_defs {
+            if !all_refs.contains(name) {
+                println!("unused @fn '{}' — {}:{}", name, file, line);
+                count += 1;
+            }
+        }
+        for (name, file, line) in &all_def_defs {
+            if !all_refs.contains(name) {
+                println!("unused @define '{}' — {}:{}", name, file, line);
+                count += 1;
+            }
+        }
+        for (name, file, line) in &all_let_defs {
+            if !all_refs.contains(name) && !name.starts_with("--") {
+                println!("unused @let '{}' — {}:{}", name, file, line);
+                count += 1;
+            }
+        }
+        if count == 0 {
+            eprintln!("no unused definitions found");
+        } else {
+            eprintln!("\n{} unused definition(s) found", count);
+        }
+        return;
+    }
+
+    // Handle "deploy" subcommand — deploy to GitHub Pages
+    if args.len() >= 2 && args[1] == "deploy" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let path = Path::new(target);
+        if !path.is_dir() {
+            eprintln!("error: '{}' is not a directory", target);
+            process::exit(1);
+        }
+        // Build first
+        let hl_files = collect_hl_files_recursive(path);
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", target);
+            process::exit(1);
+        }
+        let deploy_dir = path.join("_deploy");
+        let _ = fs::create_dir_all(&deploy_dir);
+        let any_errors = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|s| {
+            for file in &hl_files {
+                let any_errors = &any_errors;
+                let deploy_dir = &deploy_dir;
+                s.spawn(move || {
+                    let rel = file.strip_prefix(path).unwrap_or(file);
+                    let out_path = deploy_dir.join(rel).with_extension("html");
+                    if let Some(parent) = out_path.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    let out_str = out_path.to_string_lossy().to_string();
+                    let path_str = file.to_string_lossy().to_string();
+                    let (has_errors, _) = compile(&path_str, false, false, false, Some(&out_str), false, None);
+                    if has_errors {
+                        any_errors.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                });
+            }
+        });
+        if any_errors.load(std::sync::atomic::Ordering::Relaxed) {
+            eprintln!("error: build failed, not deploying");
+            process::exit(1);
+        }
+        copy_non_hl_files(path, &deploy_dir);
+        // Deploy via gh-pages push
+        eprintln!("built {} files to {}", hl_files.len(), deploy_dir.display());
+        let status = process::Command::new("git")
+            .args(&["init"])
+            .current_dir(&deploy_dir)
+            .status();
+        if status.is_err() || !status.unwrap().success() {
+            eprintln!("error: git init failed in deploy directory");
+            process::exit(1);
+        }
+        let _ = process::Command::new("git")
+            .args(&["checkout", "-b", "gh-pages"])
+            .current_dir(&deploy_dir)
+            .status();
+        let _ = process::Command::new("git")
+            .args(&["add", "."])
+            .current_dir(&deploy_dir)
+            .status();
+        let status = process::Command::new("git")
+            .args(&["commit", "-m", "deploy"])
+            .current_dir(&deploy_dir)
+            .status();
+        if status.is_err() || !status.unwrap().success() {
+            eprintln!("error: git commit failed");
+            process::exit(1);
+        }
+        // Check if remote origin exists in parent
+        let remote_output = process::Command::new("git")
+            .args(&["remote", "get-url", "origin"])
+            .output();
+        if let Ok(output) = remote_output {
+            if output.status.success() {
+                let remote_url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let _ = process::Command::new("git")
+                    .args(&["remote", "add", "origin", &remote_url])
+                    .current_dir(&deploy_dir)
+                    .status();
+                eprintln!("pushing to gh-pages branch at {}...", remote_url);
+                let push_status = process::Command::new("git")
+                    .args(&["push", "-f", "origin", "gh-pages"])
+                    .current_dir(&deploy_dir)
+                    .status();
+                if push_status.is_err() || !push_status.unwrap().success() {
+                    eprintln!("error: push failed — run 'git push -f origin gh-pages' manually from {}", deploy_dir.display());
+                    process::exit(1);
+                }
+                eprintln!("deployed to GitHub Pages!");
+            } else {
+                eprintln!("no git remote found — deploy directory ready at {}", deploy_dir.display());
+                eprintln!("push manually: cd {} && git remote add origin <url> && git push -f origin gh-pages", deploy_dir.display());
+            }
+        }
+        return;
+    }
+
+    // Handle "playground" subcommand — generate self-contained HTML playground
+    if args.len() >= 2 && args[1] == "playground" {
+        let out = if args.len() >= 3 { &args[2] } else { "playground.html" };
+        let playground_html = r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>htmlang Playground</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{font-family:system-ui,-apple-system,sans-serif;display:flex;height:100vh;background:#1a1a2e;color:#eee}
+.panel{flex:1;display:flex;flex-direction:column;min-width:0}
+.header{padding:12px 16px;background:#16213e;border-bottom:1px solid #0f3460;display:flex;align-items:center;gap:12px}
+.header h1{font-size:14px;font-weight:600;color:#e94560}
+.header .tag{font-size:11px;padding:2px 8px;background:#0f3460;border-radius:4px;color:#a8b2d1}
+textarea{flex:1;resize:none;border:none;outline:none;padding:16px;font-family:ui-monospace,monospace;font-size:14px;line-height:1.6;background:#1a1a2e;color:#e6e6e6;tab-size:2}
+iframe{flex:1;border:none;background:white}
+.divider{width:1px;background:#0f3460}
+.toolbar{padding:8px 16px;background:#16213e;border-top:1px solid #0f3460;display:flex;gap:8px;align-items:center}
+button{padding:6px 16px;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:500}
+.btn-run{background:#e94560;color:white}
+.btn-run:hover{background:#c81e45}
+.btn-copy{background:#0f3460;color:#a8b2d1}
+.status{margin-left:auto;font-size:12px;color:#666}
+</style>
+</head>
+<body>
+<div class="panel">
+<div class="header"><h1>htmlang</h1><span class="tag">playground</span></div>
+<textarea id="editor" spellcheck="false">@page Hello World
+@let primary #3b82f6
+
+@fn card $title
+  @el [padding 20, background white, rounded 8, border 1 #e5e7eb, hover:border 1 $primary, transition all 0.15s ease]
+    @text [bold, size 18] $title
+    @children
+
+@column [max-width 800, center-x, padding 40, spacing 20]
+  @text [bold, size 32, color $primary] Hello from htmlang!
+
+  @paragraph [line-height 1.6]
+    Edit this code and click Run to see the output.
+
+  @row [wrap, spacing 10]
+    @card [title Simple]
+      Write layouts without CSS
+    @card [title Fast]
+      Compiles to a single HTML file
+    @card [title Zero-dep]
+      No JavaScript, no externals</textarea>
+<div class="toolbar">
+<button class="btn-run" onclick="compile()">▶ Run</button>
+<button class="btn-copy" onclick="copyOutput()">Copy HTML</button>
+<span class="status" id="status">Ready</span>
+</div>
+</div>
+<div class="divider"></div>
+<div class="panel">
+<div class="header"><span class="tag">preview</span></div>
+<iframe id="preview"></iframe>
+</div>
+<script>
+let lastOutput='';
+function compile(){
+  const src=document.getElementById('editor').value;
+  const status=document.getElementById('status');
+  status.textContent='Note: client-side preview is approximate. Use htmlang CLI for exact output.';
+  // Simple client-side approximation
+  let html=approxCompile(src);
+  lastOutput=html;
+  const iframe=document.getElementById('preview');
+  iframe.srcdoc=html;
+}
+function copyOutput(){
+  if(lastOutput)navigator.clipboard.writeText(lastOutput);
+}
+function approxCompile(src){
+  const lines=src.split('\n');
+  let title='',body='',css='';
+  let vars={},cls=0;
+  for(const line of lines){
+    const t=line.trim();
+    if(t.startsWith('@page '))title=t.slice(6);
+    else if(t.startsWith('@let ')){const p=t.slice(5).split(' ');if(p.length>=2)vars[p[0]]=p.slice(1).join(' ');}
+    else if(t.startsWith('--'))continue;
+    else if(t.startsWith('@'))body+='<div>'+subVars(t,vars)+'</div>';
+    else if(t)body+='<span>'+subVars(t,vars)+'</span>';
+  }
+  function subVars(s,v){for(const[k,val]of Object.entries(v))s=s.replaceAll('$'+k,val);return s;}
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+title+'</title><style>*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif}</style></head><body>'+body+'</body></html>';
+}
+compile();
+document.getElementById('editor').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();compile();}if(e.key==='Tab'){e.preventDefault();const s=e.target;const start=s.selectionStart;s.value=s.value.substring(0,start)+'  '+s.value.substring(s.selectionEnd);s.selectionStart=s.selectionEnd=start+2;}});
+</script>
+</body>
+</html>"##;
+        if let Err(e) = fs::write(out, playground_html) {
+            eprintln!("error writing {}: {}", out, e);
+            process::exit(1);
+        }
+        eprintln!("playground written to {}", out);
+        eprintln!("open in browser: open {}", out);
         return;
     }
 

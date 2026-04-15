@@ -33,6 +33,12 @@
         "path": "./syntaxes/htmlang.tmLanguage.json"
       }
     ],
+    "snippets": [
+      {
+        "language": "htmlang",
+        "path": "./snippets/htmlang.json"
+      }
+    ],
     "configuration": {
       "title": "htmlang",
       "properties": {

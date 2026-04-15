@@ -1,0 +1,5 @@
+@page Layer Test
+@el [padding 20, background white]
+  Hello
+@el [hover:background #f0f0f0, padding 10]
+  Hoverable

@@ -1,0 +1,202 @@
+{
+  "Page boilerplate": {
+    "prefix": "@page",
+    "body": [
+      "@page ${1:My Page}",
+      "@let primary ${2:#3b82f6}",
+      "",
+      "@column [max-width ${3:800}, center-x, padding ${4:40}, spacing ${5:20}]",
+      "  $0"
+    ],
+    "description": "Page boilerplate with title, variables, and layout"
+  },
+  "Function component": {
+    "prefix": "@fn",
+    "body": [
+      "@fn ${1:component} \\$${2:title}",
+      "  @el [${3:padding 20, background white, rounded 8}]",
+      "    @text [bold] \\$$2",
+      "    @children",
+      "",
+      "@$1 [$2 ${4:Hello}]",
+      "  $0"
+    ],
+    "description": "Reusable function component with @children slot"
+  },
+  "Function with named slots": {
+    "prefix": "@fn-slots",
+    "body": [
+      "@fn ${1:layout} \\$${2:title}",
+      "  @column [${3:max-width 800, center-x, padding 40}]",
+      "    @slot ${4:header}",
+      "      @text [bold, size 32] \\$$2",
+      "    @slot ${5:content}",
+      "    @slot ${6:footer}",
+      "",
+      "@$1 [$2 ${7:My Page}]",
+      "  @slot $5",
+      "    $0"
+    ],
+    "description": "Function with named slots for multi-region layouts"
+  },
+  "Card component": {
+    "prefix": "@card",
+    "body": [
+      "@el [padding ${1:20}, background ${2:white}, rounded ${3:8}, border 1 ${4:#e5e7eb}, hover:border 1 ${5:\\$primary}, transition all 0.15s ease]",
+      "  @text [bold, size ${6:18}] ${7:Title}",
+      "  $0"
+    ],
+    "description": "Card with border, hover effect, and title"
+  },
+  "Responsive row": {
+    "prefix": "@responsive-row",
+    "body": [
+      "@row [wrap, spacing ${1:20}]",
+      "  @el [width fill, min-width ${2:300}]",
+      "    ${3:Column 1}",
+      "  @el [width fill, min-width $2]",
+      "    ${4:Column 2}",
+      "  $0"
+    ],
+    "description": "Responsive wrapping row layout"
+  },
+  "Navigation bar": {
+    "prefix": "@navbar",
+    "body": [
+      "@nav [padding-x ${1:20}, padding-y ${2:12}, background ${3:#1a1a2e}]",
+      "  @row [spacing ${4:20}, align-items center]",
+      "    @text [bold, color ${5:white}, size ${6:18}] ${7:Logo}",
+      "    @el [width fill]",
+      "    @each \\$name, \\$url in ${8:Home /, About /about, Contact /contact}",
+      "      @link \\$url",
+      "        @text [color ${9:#a8b2d1}, hover:color white] \\$name",
+      "    $0"
+    ],
+    "description": "Navigation bar with logo and links"
+  },
+  "Each loop": {
+    "prefix": "@each",
+    "body": [
+      "@each \\$${1:item} in ${2:items}",
+      "  $0",
+      "@else",
+      "  @text [color #888] No items found."
+    ],
+    "description": "Each loop with @else fallback"
+  },
+  "Conditional": {
+    "prefix": "@if",
+    "body": [
+      "@if ${1:condition}",
+      "  $0",
+      "@else",
+      "  "
+    ],
+    "description": "If/else conditional block"
+  },
+  "Grid layout": {
+    "prefix": "@grid",
+    "body": [
+      "@grid [grid-cols ${1:3}, gap ${2:20}]",
+      "  @el [padding ${3:20}]",
+      "    ${4:Item 1}",
+      "  @el [padding $3]",
+      "    ${5:Item 2}",
+      "  @el [padding $3]",
+      "    ${6:Item 3}",
+      "  $0"
+    ],
+    "description": "CSS Grid layout with columns"
+  },
+  "Grid with named areas": {
+    "prefix": "@grid-areas",
+    "body": [
+      "@el [grid, grid-template-areas \"${1:header header}\" \"${2:sidebar main}\" \"${3:footer footer}\", gap ${4:20}]",
+      "  @el [grid-area ${5:header}]",
+      "    ${6:Header}",
+      "  @el [grid-area ${7:sidebar}]",
+      "    ${8:Sidebar}",
+      "  @el [grid-area ${9:main}]",
+      "    $0"
+    ],
+    "description": "CSS Grid with named template areas"
+  },
+  "Form with inputs": {
+    "prefix": "@form",
+    "body": [
+      "@form [method ${1:post}, spacing ${2:16}] ${3:/submit}",
+      "  @label [for ${4:email}] ${5:Email}",
+      "  @input [type ${6:email}, name $4, required, padding 8, border 1 #d1d5db, rounded 4]",
+      "  @button [type submit, padding 10, background ${7:\\$primary}, color white, rounded 4, bold]",
+      "    ${8:Submit}",
+      "  $0"
+    ],
+    "description": "Form with labeled input and submit button"
+  },
+  "Dark mode toggle": {
+    "prefix": "@darkmode",
+    "body": [
+      "@el [background ${1:white}, dark:background ${2:#1a1a2e}, color ${3:#333}, dark:color ${4:#eee}, transition all 0.2s ease]",
+      "  $0"
+    ],
+    "description": "Element with light/dark mode styles"
+  },
+  "Hero section": {
+    "prefix": "@hero",
+    "body": [
+      "@column [center-x, center-y, min-height ${1:80vh}, padding ${2:40}, spacing ${3:20}]",
+      "  @text [bold, size ${4:48}, text-align center] ${5:Hero Title}",
+      "  @paragraph [max-width ${6:600}, text-align center, color ${7:#666}, line-height 1.6]",
+      "    ${8:Hero description text}",
+      "  @el [padding 12 24, background ${9:\\$primary}, rounded 8] > @link ${10:#}",
+      "    @text [color white, bold] ${11:Get Started}",
+      "  $0"
+    ],
+    "description": "Hero section with title, description, and CTA"
+  },
+  "Theme tokens": {
+    "prefix": "@theme",
+    "body": [
+      "@theme",
+      "  primary ${1:#3b82f6}",
+      "  secondary ${2:#10b981}",
+      "  bg ${3:#ffffff}",
+      "  text ${4:#1a1a2e}",
+      "  spacing-sm ${5:8}",
+      "  spacing-md ${6:16}",
+      "  spacing-lg ${7:32}",
+      "  font-body ${8:system-ui, sans-serif}",
+      "$0"
+    ],
+    "description": "Design token theme definition"
+  },
+  "Keyframes animation": {
+    "prefix": "@keyframes",
+    "body": [
+      "@keyframes ${1:fade-in}",
+      "  from [opacity 0]",
+      "  to [opacity 1]",
+      "",
+      "@el [animate $1 ${2:0.3s} ${3:ease}]",
+      "  $0"
+    ],
+    "description": "Keyframe animation with element usage"
+  },
+  "Include/Import": {
+    "prefix": "@import",
+    "body": [
+      "@import ${1:components.hl}",
+      "$0"
+    ],
+    "description": "Import definitions from another file"
+  },
+  "Template inheritance": {
+    "prefix": "@extends",
+    "body": [
+      "@extends ${1:layout.hl}",
+      "@slot ${2:content}",
+      "  $0"
+    ],
+    "description": "Extend a base layout template"
+  }
+}

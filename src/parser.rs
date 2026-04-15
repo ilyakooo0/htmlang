@@ -345,6 +345,14 @@ impl Parser {
             let rest = rest.trim();
             if let Some((name, value)) = rest.split_once(' ') {
                 let value = value.trim();
+                // Support @let name = expr syntax (strip leading =)
+                let value = if value.starts_with("= ") {
+                    value[2..].trim()
+                } else if value == "=" {
+                    ""
+                } else {
+                    value
+                };
                 // Support quoted string interpolation: @let greeting "Hello $name"
                 let value = if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
                     &value[1..value.len()-1]
@@ -1771,6 +1779,14 @@ const KNOWN_ATTRS: &[&str] = &[
     "content",
     // CSS shorthands
     "truncate", "line-clamp", "blur", "backdrop-blur", "no-scrollbar", "skeleton", "gradient",
+    // Grid areas
+    "grid-template-areas", "grid-area",
+    // View transitions
+    "view-transition-name",
+    // Animate shorthand
+    "animate",
+    // Critical CSS hint
+    "critical",
 ];
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
@@ -2268,6 +2284,18 @@ fn strip_all_prefixes(key: &str) -> &str {
             if key.starts_with("nth:") {
                 let rest = &key[4..];
                 rest.find(':').map(|pos| &rest[pos + 1..])
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            // Handle has(...): prefix (e.g., has(.active):background -> background)
+            if key.starts_with("has(") {
+                if let Some(close) = key.find("):") {
+                    Some(&key[close + 2..])
+                } else {
+                    None
+                }
             } else {
                 None
             }

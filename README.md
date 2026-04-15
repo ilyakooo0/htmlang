@@ -167,6 +167,14 @@ Attribute lists can span multiple lines:
 - `@raw """..."""` for embedding arbitrary HTML/CSS/JS
 - `@image [inline] logo.svg` inlines SVG content
 - `@each $name, $url in Home /, About /about` destructuring
+- `@let large = $base * 2` computed variables
+- `[grid-template-areas "header main", grid-area header]` named grid areas
+- `[animate fade-in 0.3s ease]` animation shorthand
+- `[view-transition-name hero]` View Transitions API
+- `[has(.active):background blue]` `:has()` pseudo-selector
+- `@slot header` / `@slot content` named slots in `@fn`
+- `@theme` design tokens as runtime CSS custom properties
+- VS Code snippets for common patterns
 
 ## Documentation
 

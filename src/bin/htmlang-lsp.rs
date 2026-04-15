@@ -1107,6 +1107,17 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("before:", "Style ::before pseudo-element", false),
         ("after:", "Style ::after pseudo-element", false),
         ("selection:", "Style text selection", false),
+        // Grid areas
+        ("grid-template-areas", "Define named grid areas (quoted string)", true),
+        ("grid-area", "Place element in a named grid area", true),
+        // View transitions
+        ("view-transition-name", "Assign a view transition name", true),
+        // Animate shorthand
+        ("animate", "Animation shorthand (name duration [timing])", true),
+        // Has pseudo-selector
+        ("has(", "Style when element has matching children :has()", false),
+        // Critical CSS hint
+        ("critical", "Mark as above-fold critical CSS", false),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -1812,6 +1823,17 @@ fn hover_builtin(word: &str) -> Option<String> {
         "skeleton" => "**skeleton** \u{2014} Loading skeleton\n\nAdds a shimmer animation for loading placeholders.\n\nUsage: `@el [width fill, height 20, rounded 4, skeleton]`",
         "gradient" => "**gradient** `<from> <to> [angle]` \u{2014} Linear gradient\n\nShorthand for `background: linear-gradient(...)`.\n\nUsage:\n- `[gradient #fff #000]` \u{2192} top-to-bottom\n- `[gradient #fff #000 45deg]` \u{2192} 45\u{00b0} angle",
         "direction" => "**direction** `<value>` \u{2014} Text direction (`ltr`, `rtl`).",
+        // Grid areas
+        "grid-template-areas" => "**grid-template-areas** `<value>` \u{2014} Define named grid areas.\n\nUsage: `[grid, grid-template-areas \"header header\" \"sidebar main\"]`\n\nChildren use `grid-area` to place themselves.",
+        "grid-area" => "**grid-area** `<name>` \u{2014} Place element in a named grid area.\n\nUsage: `@el [grid-area header] ...`\n\nRequires parent with `grid-template-areas`.",
+        // View transitions
+        "view-transition-name" => "**view-transition-name** `<name>` \u{2014} Assign a View Transition API name.\n\nEnables smooth transitions between pages.\n\nUsage: `@el [view-transition-name hero]`",
+        // Animate shorthand
+        "animate" => "**animate** `<name> <duration> [timing]` \u{2014} Animation shorthand.\n\nAlias for the CSS `animation` property.\n\nUsage: `@el [animate fade-in 0.3s ease]`\n\nRequires a matching `@keyframes fade-in` definition.",
+        // Has pseudo-selector
+        "has(" => "**has(selector):** \u{2014} Parent selector pseudo-class.\n\nStyle an element based on its children.\n\nUsage: `@el [has(.active):background blue, has(img):padding 0]`\n\nGenerates CSS `:has()` selector.",
+        // Critical
+        "critical" => "**critical** \u{2014} Mark element as above-fold.\n\nHint for build tools to prioritize this element's CSS.",
         // Variable filters
         "\\$|uppercase" => "**|uppercase** \u{2014} Convert variable to UPPERCASE.\n\nUsage: `$name|uppercase`",
         "\\$|lowercase" => "**|lowercase** \u{2014} Convert variable to lowercase.\n\nUsage: `$name|lowercase`",
@@ -2540,6 +2562,7 @@ fn code_actions(
         }
 
         // Quick-fix: auto-import suggestion for unknown element @name
+        // Searches current directory and subdirectories for @fn definitions
         if msg.contains("unknown element @") {
             if let Some(fn_name) = extract_between(msg, "unknown element @", ",")
                 .or_else(|| extract_between(msg, "unknown element @", ""))
@@ -2548,35 +2571,52 @@ fn code_actions(
                 if !fn_name.is_empty() {
                     if let Ok(file_path) = uri.to_file_path() {
                         if let Some(dir) = file_path.parent() {
-                            if let Ok(entries) = std::fs::read_dir(dir) {
-                                for entry in entries.flatten() {
-                                    let path = entry.path();
-                                    if path.extension().and_then(|e| e.to_str()) != Some("hl") {
-                                        continue;
+                            // Search current dir and subdirs for .hl files defining this function
+                            let mut search_dirs = vec![dir.to_path_buf()];
+                            // Also search parent dir's subdirs (for project-wide imports)
+                            if let Some(parent) = dir.parent() {
+                                if let Ok(entries) = std::fs::read_dir(parent) {
+                                    for entry in entries.flatten() {
+                                        let p = entry.path();
+                                        if p.is_dir() && p != dir {
+                                            search_dirs.push(p);
+                                        }
                                     }
-                                    // Skip the current file
-                                    if path == file_path {
-                                        continue;
-                                    }
-                                    if let Ok(content) = std::fs::read_to_string(&path) {
-                                        let defines_fn = content.lines().any(|l| {
-                                            let t = l.trim();
-                                            if let Some(rest) = t.strip_prefix("@fn ") {
-                                                rest.split_whitespace().next() == Some(fn_name)
-                                            } else {
-                                                false
-                                            }
-                                        });
-                                        if defines_fn {
-                                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                                                // Check if already imported
+                                }
+                            }
+                            for search_dir in &search_dirs {
+                                if let Ok(entries) = std::fs::read_dir(search_dir) {
+                                    for entry in entries.flatten() {
+                                        let path = entry.path();
+                                        if path.extension().and_then(|e| e.to_str()) != Some("hl") {
+                                            continue;
+                                        }
+                                        if path == file_path {
+                                            continue;
+                                        }
+                                        if let Ok(content) = std::fs::read_to_string(&path) {
+                                            let defines_fn = content.lines().any(|l| {
+                                                let t = l.trim();
+                                                if let Some(rest) = t.strip_prefix("@fn ") {
+                                                    rest.split_whitespace().next() == Some(fn_name)
+                                                } else {
+                                                    false
+                                                }
+                                            });
+                                            if defines_fn {
+                                                // Compute relative path from current file's dir
+                                                let rel = path.strip_prefix(dir)
+                                                    .map(|p| p.display().to_string())
+                                                    .unwrap_or_else(|_| {
+                                                        path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string()
+                                                    });
                                                 let already_imported = text.lines().any(|l| {
                                                     let t = l.trim();
-                                                    t == format!("@import {}", name)
-                                                        || t == format!("@include {}", name)
+                                                    t == format!("@import {}", rel)
+                                                        || t == format!("@include {}", rel)
                                                 });
                                                 if !already_imported {
-                                                    let import_line = format!("@import {}\n", name);
+                                                    let import_line = format!("@import {}\n", rel);
                                                     let edit = TextEdit {
                                                         range: Range::new(
                                                             Position::new(0, 0),
@@ -2587,7 +2627,7 @@ fn code_actions(
                                                     let mut changes = HashMap::new();
                                                     changes.insert(uri.clone(), vec![edit]);
                                                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                                                        title: format!("Add '@import {}' for @{}", name, fn_name),
+                                                        title: format!("Add '@import {}' for @{}", rel, fn_name),
                                                         kind: Some(CodeActionKind::QUICKFIX),
                                                         diagnostics: Some(vec![diag.clone()]),
                                                         edit: Some(WorkspaceEdit {

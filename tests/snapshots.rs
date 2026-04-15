@@ -2589,3 +2589,129 @@ fn test_repl_components_feed_subcommands_recognized() {
     let result = htmlang::parser::parse("@page Test Site\n@meta description A test\n@fn card $title\n  @text $title");
     assert!(!result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error));
 }
+
+// =========================================================================
+// Batch 6: Grid areas, view transitions, animate, :has(), computed @let,
+//          @layer wrapping, named slots in @fn
+// =========================================================================
+
+#[test]
+fn snapshot_grid_areas() {
+    snapshot_test("grid_areas");
+}
+
+#[test]
+fn snapshot_view_transitions() {
+    snapshot_test("view_transitions");
+}
+
+#[test]
+fn snapshot_animate_shorthand() {
+    snapshot_test("animate_shorthand");
+}
+
+#[test]
+fn snapshot_has_pseudo() {
+    snapshot_test("has_pseudo");
+}
+
+#[test]
+fn snapshot_computed_let() {
+    snapshot_test("computed_let");
+}
+
+#[test]
+fn snapshot_layer_wrapping() {
+    snapshot_test("layer_wrapping");
+}
+
+// --- Grid area assertions ---
+
+#[test]
+fn grid_template_areas_passthrough() {
+    let output = compile("@page T\n@el [grid, grid-template-areas \"a b\"]\n  @el [grid-area a]\n    A");
+    assert!(output.contains("grid-template-areas:\"a b\""), "grid-template-areas should pass through: {}", output);
+    assert!(output.contains("grid-area:a"), "grid-area should pass through: {}", output);
+}
+
+// --- View transition assertions ---
+
+#[test]
+fn view_transition_name_passthrough() {
+    let output = compile("@page T\n@el [view-transition-name hero]\n  Content");
+    assert!(output.contains("view-transition-name:hero"), "view-transition-name should pass through: {}", output);
+}
+
+// --- Animate shorthand assertions ---
+
+#[test]
+fn animate_generates_animation_css() {
+    let output = compile("@page T\n@keyframes fade\n  from [opacity 0]\n  to [opacity 1]\n@el [animate fade 0.3s ease]\n  Content");
+    assert!(output.contains("animation:fade 0.3s ease"), "animate should generate animation CSS: {}", output);
+}
+
+// --- :has() pseudo assertions ---
+
+#[test]
+fn has_pseudo_generates_css() {
+    let output = compile("@page T\n@el [has(.active):background blue]\n  Content");
+    assert!(output.contains(":has(.active)"), "should generate :has() selector: {}", output);
+    assert!(output.contains("background:blue"), "should have background:blue in :has() rule: {}", output);
+}
+
+#[test]
+fn has_pseudo_no_warning() {
+    let diags = parse_diagnostics("@el [has(.child):background red]");
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "has() prefix should not produce unknown attribute warning: {:?}",
+        diags
+    );
+}
+
+// --- Computed @let assertions ---
+
+#[test]
+fn computed_let_equals_syntax() {
+    let output = compile("@page T\n@let base 10\n@let doubled = $base * 2\n@el [width $doubled]\n  test");
+    assert!(output.contains("width:20px"), "computed @let with = should work: {}", output);
+}
+
+// --- @layer wrapping assertions ---
+
+#[test]
+fn output_contains_layer_wrapping() {
+    let output = compile("@page T\n@el [padding 10]\n  test");
+    assert!(output.contains("@layer htmlang{"), "output should contain @layer htmlang wrapper: {}", output);
+}
+
+// --- Named slots in @fn assertions ---
+
+#[test]
+fn fn_named_slots() {
+    let output = compile("@fn layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot header\n    Custom Header\n  @slot content\n    Page body");
+    assert!(output.contains("Custom Header"), "named slot should be filled: {}", output);
+    assert!(output.contains("Page body"), "content slot should be filled: {}", output);
+    assert!(!output.contains("Default Header"), "default should be overridden: {}", output);
+}
+
+#[test]
+fn fn_named_slot_default() {
+    let output = compile("@fn layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot content\n    Only content");
+    assert!(output.contains("Default Header"), "unfilled slot should use default: {}", output);
+    assert!(output.contains("Only content"), "filled slot should render: {}", output);
+}
+
+// --- No warnings for new attributes ---
+
+#[test]
+fn no_warning_new_attrs_batch6() {
+    let diags = parse_diagnostics(
+        "@el [grid-template-areas \"a b\", grid-area a, view-transition-name hero, animate fade 1s, critical]"
+    );
+    assert!(
+        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        "new attributes should be recognized: {:?}",
+        diags
+    );
+}

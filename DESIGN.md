@@ -700,9 +700,15 @@ htmlang repl                 # interactive REPL (type .hl, get HTML)
 htmlang feed src/            # generate RSS feed from @page metadata
 htmlang feed src/ -b https://mysite.com  # with custom base URL
 htmlang components src/      # list all @fn definitions across project
+htmlang deps src/            # show dependency graph (@include/@import)
+htmlang dead-code src/       # find unused @fn, @define, @let across project
+htmlang deploy src/          # build and deploy to GitHub Pages
+htmlang playground           # generate self-contained HTML playground
 ```
 
 Watch mode recompiles automatically when the source file or any `@include`d/`@import`ed files change.
+
+The `build` command automatically extracts shared CSS rules across pages into a `shared.css` file when outputting to a directory.
 
 ## Compilation target
 
@@ -814,6 +820,130 @@ Raw CSS syntax is also supported for backwards compatibility.
 |-----------|--------|
 | `autofocus` | Auto-focus element on page load (boolean) |
 
+## Named grid areas
+
+Use CSS Grid's named template areas with the `grid-template-areas` and `grid-area` attributes:
+
+```
+@el [grid, grid-template-areas "header header" "sidebar main" "footer footer", gap 20]
+  @el [grid-area header, padding 10, background #3b82f6]
+    Header
+  @el [grid-area sidebar, padding 10]
+    Sidebar
+  @el [grid-area main, padding 10]
+    Main content
+  @el [grid-area footer, padding 10]
+    Footer
+```
+
+## Animate shorthand
+
+The `animate` attribute is shorthand for the CSS `animation` property:
+
+```
+@keyframes fade-in
+  from [opacity 0]
+  to [opacity 1]
+
+@el [animate fade-in 0.3s ease]
+  Fades in on load
+```
+
+## View transitions
+
+The `view-transition-name` attribute enables the View Transitions API for smooth page transitions:
+
+```
+@el [view-transition-name hero]
+  Hero content that transitions between pages
+```
+
+## `:has()` pseudo-selector
+
+Style elements based on their children using the `has()` prefix:
+
+```
+@el [padding 20, has(.active):background #dbeafe, has(img):padding 0]
+  Content
+```
+
+Generates CSS `:has()` selectors: `.class:has(.active) { background:#dbeafe; }`
+
+## Computed `@let`
+
+Variables support arithmetic expressions. The `=` sign is optional:
+
+```
+@let base 16
+@let large = $base * 2     -- 32
+@let gap $base + 4         -- 20 (= is optional)
+```
+
+Supported operators: `+`, `-`, `*`, `/`.
+
+## Named slots in `@fn`
+
+Functions support named `@slot` blocks for multi-region components:
+
+```
+@fn layout $title
+  @column [max-width 800, center-x, padding 40]
+    @slot header
+      @text [bold, size 32] $title
+    @slot content
+    @slot footer
+      @text [color #888] Default Footer
+
+@layout [title My Page]
+  @slot header
+    @text [bold, size 32] Custom Header
+  @slot content
+    @paragraph Main content here
+```
+
+Slots not filled by the caller use the default children from the function definition.
+
+## CSS `@layer` wrapping
+
+Generated styles are wrapped in `@layer htmlang { ... }` for specificity management. This allows `@style` blocks and `@raw` CSS to easily override generated styles without specificity wars.
+
+## CLI commands
+
+### `htmlang deps`
+
+Show the file dependency graph (`@include`, `@import`, `@extends` relationships):
+
+```
+htmlang deps src/
+```
+
+### `htmlang dead-code`
+
+Find unused `@fn`, `@define`, and `@let` definitions across an entire project:
+
+```
+htmlang dead-code src/
+```
+
+### `htmlang deploy`
+
+Build and deploy to GitHub Pages:
+
+```
+htmlang deploy src/
+```
+
+Compiles all `.hl` files, copies static assets, and pushes to a `gh-pages` branch.
+
+### `htmlang playground`
+
+Generate a self-contained HTML playground for experimenting with htmlang:
+
+```
+htmlang playground              # writes playground.html
+htmlang playground my-play.html # custom output path
+```
+
 ## Editor support
 
 A VS Code extension is available in `editors/vscode/` with:
@@ -829,6 +959,9 @@ A VS Code extension is available in `editors/vscode/` with:
   - Signature help for `@fn` parameters
   - Document formatting (format on save)
   - Code actions (quick-fixes for typos, unused variables, missing attributes)
+  - Auto-import suggestions (scans project for `@fn` definitions)
+  - Extract selection to `@fn` refactoring
   - Color picker for hex colors
   - Code folding and document symbols
   - Semantic tokens for syntax highlighting
+  - VS Code snippets for common patterns (`@fn`, `@each`, `@grid`, `@form`, etc.)

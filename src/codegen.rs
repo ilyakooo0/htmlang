@@ -112,18 +112,35 @@ impl StyleCollector {
         Some(name)
     }
 
-    fn to_css_formatted(&self, dev: bool) -> String {
+    fn to_css_formatted(&self, dev: bool, use_layer: bool) -> String {
         let mut css = String::new();
         let (sp, nl) = if dev { (" ", "\n") } else { ("", "") };
+
+        // Wrap in @layer for specificity management
+        if use_layer {
+            if dev {
+                css.push_str("@layer htmlang {\n");
+            } else {
+                css.push_str("@layer htmlang{");
+            }
+        }
 
         // Non-responsive rules
         for e in &self.entries {
             if !e.base.is_empty() {
-                css.push_str(&format!(".{}{sp}{{{}}}{nl}", e.class_name, e.base));
+                if use_layer && dev {
+                    css.push_str(&format!("  .{}{sp}{{{}}}{nl}", e.class_name, e.base));
+                } else {
+                    css.push_str(&format!(".{}{sp}{{{}}}{nl}", e.class_name, e.base));
+                }
             }
             for (selector, pseudo_css) in &e.pseudo {
                 if !pseudo_css.is_empty() {
-                    css.push_str(&format!(".{}{}{sp}{{{}}}{nl}", e.class_name, selector, pseudo_css));
+                    if use_layer && dev {
+                        css.push_str(&format!("  .{}{}{sp}{{{}}}{nl}", e.class_name, selector, pseudo_css));
+                    } else {
+                        css.push_str(&format!(".{}{}{sp}{{{}}}{nl}", e.class_name, selector, pseudo_css));
+                    }
                 }
             }
         }
@@ -300,6 +317,15 @@ impl StyleCollector {
             }
         }
 
+        // Close @layer
+        if use_layer {
+            if dev {
+                css.push_str("}\n");
+            } else {
+                css.push('}');
+            }
+        }
+
         css
     }
 }
@@ -346,12 +372,21 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
 
     let mut element_css = String::new();
 
-    // CSS custom properties
-    if !doc.css_vars.is_empty() {
+    // CSS custom properties (includes @theme runtime tokens)
+    let has_theme_tokens = !doc.theme_tokens.is_empty();
+    if !doc.css_vars.is_empty() || has_theme_tokens {
         if dev {
             element_css.push_str(":root {\n");
             for (name, value) in &doc.css_vars {
                 element_css.push_str(&format!("  {}: {};\n", name, value));
+            }
+            // @theme tokens as runtime CSS custom properties
+            for (name, value) in &doc.theme_tokens {
+                let css_name = format!("--{}", name);
+                // Only emit if not already in css_vars
+                if !doc.css_vars.iter().any(|(n, _)| *n == css_name) {
+                    element_css.push_str(&format!("  {}: {};\n", css_name, value));
+                }
             }
             element_css.push_str("}\n");
         } else {
@@ -362,11 +397,21 @@ fn generate_with_options(doc: &Document, dev: bool) -> String {
                 element_css.push_str(value);
                 element_css.push(';');
             }
+            for (name, value) in &doc.theme_tokens {
+                let css_name = format!("--{}", name);
+                if !doc.css_vars.iter().any(|(n, _)| *n == css_name) {
+                    element_css.push_str(&css_name);
+                    element_css.push(':');
+                    element_css.push_str(value);
+                    element_css.push(';');
+                }
+            }
             element_css.push('}');
         }
     }
 
-    element_css.push_str(&styles.to_css_formatted(dev));
+    let has_custom_css = !doc.custom_css.is_empty();
+    element_css.push_str(&styles.to_css_formatted(dev, !has_custom_css));
 
     // @keyframes
     for (name, kf_body) in &doc.keyframes {
@@ -1130,6 +1175,27 @@ fn compute_class(
         }
     }
 
+    // Collect has(...): dynamic pseudo selectors
+    let mut has_prefixes: Vec<String> = Vec::new();
+    for attr in attrs {
+        if attr.key.starts_with("has(") {
+            if let Some(close) = attr.key.find("):") {
+                let prefix = format!("{}:", &attr.key[..close + 1]);
+                if !has_prefixes.contains(&prefix) {
+                    has_prefixes.push(prefix);
+                }
+            }
+        }
+    }
+    for prefix in &has_prefixes {
+        let inner = &prefix[4..prefix.len() - 2]; // extract selector from has(selector):
+        let selector = format!(":has({})", inner);
+        let css = attrs_to_css(attrs, &prefix, kind, parent_kind);
+        if !css.is_empty() {
+            pseudo.push((selector, css));
+        }
+    }
+
     // Collect responsive overrides
     let mut responsive = Vec::new();
     for &(bp_name, _) in BREAKPOINTS {
@@ -1215,6 +1281,7 @@ fn is_prefixed_attr(key: &str) -> bool {
         || MEDIA_PREFIXES.iter().any(|p| key.starts_with(p))
         || CONTAINER_QUERY_PREFIXES.iter().any(|p| key.starts_with(p))
         || key.starts_with("nth:")
+        || key.starts_with("has(")
 }
 
 fn attrs_to_css(
@@ -2063,6 +2130,27 @@ fn attrs_to_css(
                     push_css(&mut css, "background", &bg);
                 }
             }
+
+            // Grid areas
+            "grid-template-areas" => {
+                if let Some(v) = val { push_css(&mut css, "grid-template-areas", v); }
+            }
+            "grid-area" => {
+                if let Some(v) = val { push_css(&mut css, "grid-area", v); }
+            }
+
+            // View transitions
+            "view-transition-name" => {
+                if let Some(v) = val { push_css(&mut css, "view-transition-name", v); }
+            }
+
+            // Animate shorthand (alias for animation)
+            "animate" => {
+                if let Some(v) = val { push_css(&mut css, "animation", v); }
+            }
+
+            // Critical CSS hint — not CSS, handled elsewhere
+            "critical" => {}
 
             // Identity and HTML passthrough — not CSS
             "id" | "class" => {}
