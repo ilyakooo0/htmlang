@@ -3030,3 +3030,197 @@ fn round_trip_basic() {
         result2.diagnostics
     );
 }
+
+// -----------------------------------------------------------------------
+// @for numeric loop tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn for_basic_range() {
+    let html = compile("@for $i in 1..3\n  @text $i\n");
+    assert!(html.contains("1"));
+    assert!(html.contains("2"));
+    assert!(html.contains("3"));
+}
+
+#[test]
+fn for_with_step() {
+    let html = compile("@for $i in 0..10 step 5\n  @text $i\n");
+    assert!(html.contains("0"));
+    assert!(html.contains("5"));
+    assert!(html.contains("10"));
+}
+
+#[test]
+fn for_reverse_range() {
+    let html = compile("@for $i in 3..1\n  @text $i\n");
+    assert!(html.contains("3"));
+    assert!(html.contains("2"));
+    assert!(html.contains("1"));
+}
+
+#[test]
+fn for_with_variable_bounds() {
+    let html = compile("@let start 1\n@let end 3\n@for $i in $start..$end\n  @text $i\n");
+    assert!(html.contains("1"));
+    assert!(html.contains("2"));
+    assert!(html.contains("3"));
+}
+
+// -----------------------------------------------------------------------
+// Conditional attribute tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn conditional_attr_true() {
+    let html = compile("@let show true\n@el [padding 10 if $show]\n  test\n");
+    assert!(html.contains("padding:10px"));
+}
+
+#[test]
+fn conditional_attr_false() {
+    let html = compile("@let show false\n@el [padding 10 if $show]\n  test\n");
+    assert!(!html.contains("padding:10px"));
+}
+
+#[test]
+fn conditional_attr_boolean_true() {
+    let html = compile("@let loading true\n@button [disabled if $loading] Click\n");
+    assert!(html.contains("disabled"));
+}
+
+#[test]
+fn conditional_attr_boolean_false() {
+    let html = compile("@let loading false\n@button [disabled if $loading] Click\n");
+    assert!(!html.contains("disabled"));
+}
+
+// -----------------------------------------------------------------------
+// @component tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn component_wraps_in_scoped_div() {
+    let html = compile("@component card $title\n  @text $title\n\n@card [title Hello]\n");
+    assert!(html.contains("hl-card"));
+}
+
+#[test]
+fn component_with_children() {
+    let html = compile("@component box\n  @el [padding 10]\n    @children\n\n@box\n  @text Inside\n");
+    assert!(html.contains("hl-box"));
+    assert!(html.contains("Inside"));
+}
+
+// -----------------------------------------------------------------------
+// @switch tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn switch_matches_case() {
+    let html = compile("@let variant primary\n@switch $variant\n  @case primary\n    @text Primary\n  @case danger\n    @text Danger\n");
+    assert!(html.contains("Primary"));
+    assert!(!html.contains("Danger"));
+}
+
+#[test]
+fn switch_falls_to_default() {
+    let html = compile("@let variant unknown\n@switch $variant\n  @case primary\n    @text Primary\n  @default\n    @text Default\n");
+    assert!(!html.contains("Primary"));
+    assert!(html.contains("Default"));
+}
+
+#[test]
+fn switch_with_attrs() {
+    let _html = compile("@let variant primary\n@switch $variant\n  @case primary [background blue, color white]\n  @case danger [background red, color white]\n");
+    // The @switch should register matched attrs as __switch define
+    let result = htmlang::parser::parse("@let variant primary\n@switch $variant\n  @case primary [background blue, color white]\n  @case danger [background red, color white]\n");
+    assert!(result.document.defines.contains_key("__switch"));
+}
+
+// -----------------------------------------------------------------------
+// HTML minification test
+// -----------------------------------------------------------------------
+
+#[test]
+fn minified_output_is_smaller() {
+    let input = "@page Test\n@column [padding 20]\n  @text [bold] Hello World\n  @paragraph\n    Some text here\n";
+    let result = htmlang::parser::parse(input);
+    let normal = htmlang::codegen::generate(&result.document);
+    let minified = htmlang::codegen::generate_minified(&result.document);
+    assert!(minified.len() <= normal.len(), "minified ({}) should be <= normal ({})", minified.len(), normal.len());
+    assert!(minified.contains("Hello World"));
+}
+
+#[test]
+fn minified_strips_comments() {
+    let input = "@page Test\n@column\n  @text Hello\n";
+    let result = htmlang::parser::parse(input);
+    let dev = htmlang::codegen::generate_dev(&result.document);
+    let minified = htmlang::codegen::generate_minified(&result.document);
+    // Dev mode has comments, minified should not
+    assert!(dev.contains("<!--"));
+    assert!(!minified.contains("<!--"));
+}
+
+// -----------------------------------------------------------------------
+// Critical CSS test
+// -----------------------------------------------------------------------
+
+#[test]
+fn critical_attr_inlines_styles() {
+    let html = compile("@el [critical, padding 20, background red]\n  test\n");
+    assert!(html.contains("style=\""));
+}
+
+// -----------------------------------------------------------------------
+// Enhanced a11y warnings
+// -----------------------------------------------------------------------
+
+#[test]
+fn warning_input_without_label() {
+    let diags = parse_diagnostics("@input [type text]\n");
+    let has_label_warning = diags.iter().any(|d|
+        d.message.contains("aria-label") || d.message.contains("@label")
+    );
+    assert!(has_label_warning, "should warn about input without label association");
+}
+
+#[test]
+fn warning_iframe_without_title() {
+    let diags = parse_diagnostics("@iframe https://example.com\n");
+    let has_title_warning = diags.iter().any(|d| d.message.contains("title"));
+    assert!(has_title_warning, "should warn about iframe without title");
+}
+
+#[test]
+fn warning_button_without_text() {
+    let diags = parse_diagnostics("@button [background red]\n");
+    let has_warning = diags.iter().any(|d| d.message.contains("text content") || d.message.contains("aria-label"));
+    assert!(has_warning, "should warn about button without accessible text");
+}
+
+#[test]
+fn warning_positive_tabindex() {
+    let diags = parse_diagnostics("@el [tabindex 5]\n  test\n");
+    let has_warning = diags.iter().any(|d| d.message.contains("tabindex"));
+    assert!(has_warning, "should warn about positive tabindex");
+}
+
+#[test]
+fn no_warning_input_with_aria_label() {
+    let diags = parse_diagnostics("@input [type text, aria-label Search]\n");
+    let has_label_warning = diags.iter().any(|d|
+        d.message.contains("should have an") && d.message.contains("@label")
+    );
+    assert!(!has_label_warning, "should not warn when aria-label is present");
+}
+
+#[test]
+fn no_warning_input_in_label() {
+    let diags = parse_diagnostics("@label\n  @input [type text]\n");
+    let has_label_warning = diags.iter().any(|d|
+        d.message.contains("should have an") && d.message.contains("@label")
+    );
+    assert!(!has_label_warning, "should not warn when input is inside @label");
+}

@@ -156,14 +156,32 @@ impl LanguageServer for Backend {
         };
         drop(docs);
 
-        // Check if we're on an @include/@import line for path completions
+        // Check if we're on an @include/@import/@use/@extends line for path/symbol completions
         let lines: Vec<&str> = text.lines().collect();
         if let Some(line) = lines.get(pos.line as usize) {
             let trimmed = line.trim_start();
-            if trimmed.starts_with("@include ") || trimmed.starts_with("@import ") {
+            if trimmed.starts_with("@include ") || trimmed.starts_with("@import ")
+                || trimmed.starts_with("@extends ") {
                 let items = path_completions(uri, pos);
                 if !items.is_empty() {
                     return Ok(Some(CompletionResponse::Array(items)));
+                }
+            }
+            // @use "file.hl" fn1, fn2 — after the filename, suggest exported @fn names
+            if trimmed.starts_with("@use ") {
+                let after_use = &trimmed[5..];
+                // If we already have a filename (quoted or unquoted), suggest symbols from that file
+                let has_file = after_use.contains(".hl");
+                if has_file {
+                    let items = use_symbol_completions(uri, trimmed, pos);
+                    if !items.is_empty() {
+                        return Ok(Some(CompletionResponse::Array(items)));
+                    }
+                } else {
+                    let items = path_completions(uri, pos);
+                    if !items.is_empty() {
+                        return Ok(Some(CompletionResponse::Array(items)));
+                    }
                 }
             }
         }
@@ -838,6 +856,95 @@ fn path_completions(uri: &Url, position: Position) -> Vec<CompletionItem> {
             }
         }
     }
+    items
+}
+
+/// Suggest exported @fn and @define names from a file referenced in @use
+fn use_symbol_completions(uri: &Url, line: &str, position: Position) -> Vec<CompletionItem> {
+    let file_path = match uri.to_file_path() {
+        Ok(p) => p,
+        Err(_) => return vec![],
+    };
+    let dir = match file_path.parent() {
+        Some(d) => d,
+        None => return vec![],
+    };
+
+    // Extract the filename from @use "file.hl" or @use file.hl
+    let after_use = &line.trim_start()[5..]; // skip "@use "
+    let filename = if after_use.starts_with('"') {
+        let end = after_use[1..].find('"').map(|i| i + 1).unwrap_or(after_use.len());
+        &after_use[1..end]
+    } else {
+        after_use.split_whitespace().next().unwrap_or("")
+    };
+
+    if filename.is_empty() {
+        return vec![];
+    }
+
+    let target_path = dir.join(filename);
+    let target_content = match std::fs::read_to_string(&target_path) {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+
+    let col = position.character as u32;
+    let edit_range = Range::new(Position::new(position.line, col), Position::new(position.line, col));
+
+    let mut items = Vec::new();
+
+    for target_line in target_content.lines() {
+        let trimmed = target_line.trim();
+        if let Some(rest) = trimmed.strip_prefix("@fn ") {
+            if let Some(name) = rest.split_whitespace().next() {
+                let params: Vec<&str> = rest.split_whitespace().skip(1).collect();
+                let detail = if params.is_empty() {
+                    format!("@fn {} (from {})", name, filename)
+                } else {
+                    format!("@fn {} {} (from {})", name, params.join(" "), filename)
+                };
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    detail: Some(detail),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: edit_range,
+                        new_text: name.to_string(),
+                    })),
+                    ..Default::default()
+                });
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("@define ") {
+            if let Some(name) = rest.split_whitespace().next() {
+                let name = name.trim_end_matches('[');
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::VARIABLE),
+                    detail: Some(format!("@define {} (from {})", name, filename)),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: edit_range,
+                        new_text: name.to_string(),
+                    })),
+                    ..Default::default()
+                });
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("@component ") {
+            if let Some(name) = rest.split_whitespace().next() {
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::CLASS),
+                    detail: Some(format!("@component {} (from {})", name, filename)),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: edit_range,
+                        new_text: name.to_string(),
+                    })),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+
     items
 }
 

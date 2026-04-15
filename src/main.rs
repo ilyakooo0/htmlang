@@ -14,6 +14,14 @@ struct DiagnosticJson {
 }
 
 fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>) -> (bool, Vec<PathBuf>) {
+    compile_inner(input_path, dev, error_overlay, check_only, output_path, format_json, json_collector, false)
+}
+
+fn compile_minified(input_path: &str, output_path: Option<&str>) -> (bool, Vec<PathBuf>) {
+    compile_inner(input_path, false, false, false, output_path, false, None, true)
+}
+
+fn compile_inner(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, output_path: Option<&str>, format_json: bool, json_collector: Option<&Mutex<Vec<DiagnosticJson>>>, minify: bool) -> (bool, Vec<PathBuf>) {
     let input = match fs::read_to_string(input_path) {
         Ok(s) => s,
         Err(e) => {
@@ -82,7 +90,9 @@ fn compile(input_path: &str, dev: bool, error_overlay: bool, check_only: bool, o
                 let _ = fs::write(&out_path, &error_html);
             }
         } else {
-            let html = if dev {
+            let html = if minify {
+                htmlang::codegen::generate_minified(&result.document)
+            } else if dev {
                 htmlang::codegen::generate_dev(&result.document)
             } else {
                 htmlang::codegen::generate(&result.document)
@@ -202,7 +212,7 @@ Usage: htmlang [options] <file.hl | directory>
 Commands:
   init [dir]            Create a new project (defaults to current directory)
   new <page-name>       Create a new .hl page from a template
-  build <dir> [-o <out>]  Compile all .hl files recursively (parallel)
+  build <dir> [-o <out>] [--minify]  Compile all .hl files (parallel)
   serve [dir|file] [-p N] [--open]  Start dev server with hot reload
   watch [dir|file] [-o out]  Watch for changes and recompile
   check <file.hl | dir> Check for errors without writing output
@@ -222,6 +232,8 @@ Commands:
   deploy <dir>          Build and deploy to GitHub Pages
   playground [out.html] Generate a self-contained HTML playground
   clean [dir]           Remove generated .html files
+  upgrade [dir|file]    Auto-upgrade syntax to latest conventions
+  create-component <name> [params...]  Scaffold a new component file
   outline <file.hl>     Show document structure tree
   doctor                Check toolchain health
   migrate [dir|file]    Auto-upgrade deprecated syntax
@@ -703,6 +715,7 @@ fn main() {
     if args.len() >= 2 && args[1] == "build" {
         let mut src_dir = None;
         let mut out_dir = None;
+        let mut build_minify = false;
         let mut i = 2;
         while i < args.len() {
             match args[i].as_str() {
@@ -710,6 +723,7 @@ fn main() {
                     i += 1;
                     out_dir = args.get(i).map(|s| s.as_str());
                 }
+                "--minify" => build_minify = true,
                 _ if src_dir.is_none() => src_dir = Some(args[i].as_str()),
                 _ => {
                     eprintln!("unknown argument: {}", args[i]);
@@ -768,7 +782,11 @@ fn main() {
                         }
                     }
                     let path_str = file.to_string_lossy().to_string();
-                    let (has_errors, _) = compile(&path_str, false, false, false, effective_out.as_deref(), false, None);
+                    let (has_errors, _) = if build_minify {
+                        compile_minified(&path_str, effective_out.as_deref())
+                    } else {
+                        compile(&path_str, false, false, false, effective_out.as_deref(), false, None)
+                    };
                     if has_errors {
                         any_errors.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
@@ -1627,20 +1645,27 @@ body{font-family:system-ui,-apple-system,sans-serif;display:flex;height:100vh;ba
 .header{padding:12px 16px;background:#16213e;border-bottom:1px solid #0f3460;display:flex;align-items:center;gap:12px}
 .header h1{font-size:14px;font-weight:600;color:#e94560}
 .header .tag{font-size:11px;padding:2px 8px;background:#0f3460;border-radius:4px;color:#a8b2d1}
-textarea{flex:1;resize:none;border:none;outline:none;padding:16px;font-family:ui-monospace,monospace;font-size:14px;line-height:1.6;background:#1a1a2e;color:#e6e6e6;tab-size:2}
+.editor-wrap{flex:1;position:relative;overflow:hidden}
+textarea{width:100%;height:100%;resize:none;border:none;outline:none;padding:16px;font-family:ui-monospace,monospace;font-size:14px;line-height:1.6;background:#1a1a2e;color:#e6e6e6;tab-size:2;position:absolute;top:0;left:0}
+.highlight-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;padding:16px;font-family:ui-monospace,monospace;font-size:14px;line-height:1.6;tab-size:2;white-space:pre-wrap;overflow:hidden;color:transparent}
+.highlight-overlay .kw{color:#c792ea}.highlight-overlay .dir{color:#82aaff}.highlight-overlay .str{color:#c3e88d}
+.highlight-overlay .cm{color:#546e7a}.highlight-overlay .var{color:#f78c6c}.highlight-overlay .attr{color:#ffcb6b}
 iframe{flex:1;border:none;background:white}
-.divider{width:1px;background:#0f3460}
+.divider{width:1px;background:#0f3460;cursor:col-resize}
+.divider:hover{background:#e94560}
 .toolbar{padding:8px 16px;background:#16213e;border-top:1px solid #0f3460;display:flex;gap:8px;align-items:center}
 button{padding:6px 16px;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:500}
 .btn-run{background:#e94560;color:white}
 .btn-run:hover{background:#c81e45}
 .btn-copy{background:#0f3460;color:#a8b2d1}
+.btn-share{background:#0f3460;color:#a8b2d1}
 .status{margin-left:auto;font-size:12px;color:#666}
 </style>
 </head>
 <body>
-<div class="panel">
+<div class="panel" id="editor-panel">
 <div class="header"><h1>htmlang</h1><span class="tag">playground</span></div>
+<div class="editor-wrap">
 <textarea id="editor" spellcheck="false">@page Hello World
 @let primary #3b82f6
 
@@ -1653,7 +1678,7 @@ button{padding:6px 16px;border:none;border-radius:4px;cursor:pointer;font-size:1
   @text [bold, size 32, color $primary] Hello from htmlang!
 
   @paragraph [line-height 1.6]
-    Edit this code and click Run to see the output.
+    Edit this code and press Ctrl+Enter to compile.
 
   @row [wrap, spacing 10]
     @card [title Simple]
@@ -1662,14 +1687,16 @@ button{padding:6px 16px;border:none;border-radius:4px;cursor:pointer;font-size:1
       Compiles to a single HTML file
     @card [title Zero-dep]
       No JavaScript, no externals</textarea>
+</div>
 <div class="toolbar">
-<button class="btn-run" onclick="compile()">▶ Run</button>
+<button class="btn-run" onclick="compile()">&#9654; Run (Ctrl+Enter)</button>
 <button class="btn-copy" onclick="copyOutput()">Copy HTML</button>
+<button class="btn-share" onclick="share()">Share</button>
 <span class="status" id="status">Ready</span>
 </div>
 </div>
-<div class="divider"></div>
-<div class="panel">
+<div class="divider" id="divider"></div>
+<div class="panel" id="preview-panel">
 <div class="header"><span class="tag">preview</span></div>
 <iframe id="preview"></iframe>
 </div>
@@ -1678,33 +1705,171 @@ let lastOutput='';
 function compile(){
   const src=document.getElementById('editor').value;
   const status=document.getElementById('status');
-  status.textContent='Note: client-side preview is approximate. Use htmlang CLI for exact output.';
-  // Simple client-side approximation
+  const start=performance.now();
   let html=approxCompile(src);
+  const ms=(performance.now()-start).toFixed(1);
   lastOutput=html;
-  const iframe=document.getElementById('preview');
-  iframe.srcdoc=html;
+  document.getElementById('preview').srcdoc=html;
+  status.textContent='Compiled in '+ms+'ms (approximate preview)';
 }
-function copyOutput(){
-  if(lastOutput)navigator.clipboard.writeText(lastOutput);
+function copyOutput(){if(lastOutput)navigator.clipboard.writeText(lastOutput).then(()=>{document.getElementById('status').textContent='Copied to clipboard!'});}
+function share(){
+  const src=document.getElementById('editor').value;
+  const encoded=btoa(unescape(encodeURIComponent(src)));
+  const url=location.origin+location.pathname+'#'+encoded;
+  navigator.clipboard.writeText(url).then(()=>{document.getElementById('status').textContent='Share URL copied to clipboard!'});
+  history.replaceState(null,'','#'+encoded);
+}
+function loadFromHash(){
+  if(location.hash.length>1){
+    try{
+      const decoded=decodeURIComponent(escape(atob(location.hash.slice(1))));
+      document.getElementById('editor').value=decoded;
+    }catch(e){}
+  }
 }
 function approxCompile(src){
   const lines=src.split('\n');
-  let title='',body='',css='';
-  let vars={},cls=0;
-  for(const line of lines){
-    const t=line.trim();
-    if(t.startsWith('@page '))title=t.slice(6);
-    else if(t.startsWith('@let ')){const p=t.slice(5).split(' ');if(p.length>=2)vars[p[0]]=p.slice(1).join(' ');}
-    else if(t.startsWith('--'))continue;
-    else if(t.startsWith('@'))body+='<div>'+subVars(t,vars)+'</div>';
-    else if(t)body+='<span>'+subVars(t,vars)+'</span>';
+  let title='',vars={},fns={},css='',body='',clsIdx=0;
+  // Pass 1: collect definitions
+  let i=0;
+  while(i<lines.length){
+    const t=lines[i].trim();
+    const indent=lines[i].length-lines[i].trimStart().length;
+    if(t.startsWith('@page '))title=subVars(t.slice(6),vars);
+    else if(t.startsWith('@let ')){const p=t.slice(5).split(' ');if(p.length>=2)vars[p[0]]=subVars(p.slice(1).join(' '),vars);}
+    else if(t.startsWith('@fn ')){
+      const parts=t.slice(4).split(/\s+/);const name=parts[0];const params=parts.slice(1).map(p=>p.replace(/^\$/,''));
+      const bodyLines=[];i++;
+      while(i<lines.length&&(lines[i].trim()===''||(lines[i].length-lines[i].trimStart().length)>indent)){bodyLines.push(lines[i]);i++;}
+      fns[name]={params,body:bodyLines};continue;
+    }
+    i++;
   }
-  function subVars(s,v){for(const[k,val]of Object.entries(v))s=s.replaceAll('$'+k,val);return s;}
-  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+title+'</title><style>*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif}</style></head><body>'+body+'</body></html>';
+  // Pass 2: render
+  function renderNodes(lines,depth,localVars){
+    let html='';const allVars={...vars,...localVars};let i=0;
+    while(i<lines.length){
+      const raw=lines[i];const indent=raw.length-raw.trimStart().length;
+      if(indent<depth&&depth>0)break;
+      const t=raw.trim();i++;
+      if(!t||t.startsWith('--')||t.startsWith('@let ')||t.startsWith('@fn ')||t.startsWith('@page '))continue;
+      if(t.startsWith('@')){
+        const name=t.slice(1).split(/[\s\[]/)[0];
+        // Parse attributes
+        let attrsStr='';const bStart=t.indexOf('[');const bEnd=t.lastIndexOf(']');
+        if(bStart!==-1&&bEnd>bStart)attrsStr=t.slice(bStart+1,bEnd);
+        const attrs={};if(attrsStr){attrsStr.split(',').forEach(a=>{a=a.trim();if(!a)return;const sp=a.indexOf(' ');if(sp>0){attrs[a.slice(0,sp)]=subVars(a.slice(sp+1),allVars);}else attrs[a]=true;});}
+        // Compute CSS
+        let style='';
+        function addCSS(k,v){style+=k+':'+v+';'}
+        for(const[k,v]of Object.entries(attrs)){
+          if(typeof v!=='string')continue;
+          const px=s=>(/^\d+$/.test(s)?s+'px':s);
+          if(k==='padding')addCSS('padding',v.split(' ').map(px).join(' '));
+          else if(k==='spacing'||k==='gap')addCSS('gap',px(v));
+          else if(k==='background')addCSS('background',v);
+          else if(k==='color')addCSS('color',v);
+          else if(k==='rounded')addCSS('border-radius',px(v));
+          else if(k==='size')addCSS('font-size',px(v));
+          else if(k==='width')addCSS(v==='fill'?'flex':'width',v==='fill'?'1':px(v));
+          else if(k==='height')addCSS('height',v==='fill'?'100%':px(v));
+          else if(k==='max-width')addCSS('max-width',px(v));
+          else if(k==='center-x'){addCSS('margin-left','auto');addCSS('margin-right','auto');}
+          else if(k==='border'){const p=v.split(' ');addCSS('border',px(p[0])+' solid '+(p[1]||'currentColor'));}
+          else if(k==='shadow')addCSS('box-shadow',v);
+          else if(k==='font')addCSS('font-family',v);
+          else if(k==='text-align')addCSS('text-align',v);
+          else if(k==='line-height')addCSS('line-height',v);
+          else if(k==='transition')addCSS('transition',v);
+          else if(k==='cursor')addCSS('cursor',v);
+          else if(k==='opacity')addCSS('opacity',v);
+          else if(k==='position')addCSS('position',v);
+          else if(k==='overflow')addCSS('overflow',v);
+        }
+        if(attrs.bold)addCSS('font-weight','bold');
+        if(attrs.italic)addCSS('font-style','italic');
+        if(attrs.underline)addCSS('text-decoration','underline');
+        if(attrs.wrap)addCSS('flex-wrap','wrap');
+        // Base styles
+        let baseStyle='';
+        if(name==='row')baseStyle='display:flex;flex-direction:row;';
+        else if(name==='column'||name==='col')baseStyle='display:flex;flex-direction:column;';
+        else if(name==='el')baseStyle='display:flex;flex-direction:column;';
+        else if(name==='grid')baseStyle='display:grid;';
+        // Get inline text
+        let textAfterBracket='';
+        if(bEnd>0&&bEnd<t.length-1)textAfterBracket=subVars(t.slice(bEnd+1).trim(),allVars);
+        else if(bStart===-1&&t.indexOf(' ',t.indexOf(name)+name.length)>0){
+          const afterName=t.slice(t.indexOf(name)+name.length).trim();
+          if(!afterName.startsWith('['))textAfterBracket=subVars(afterName,allVars);
+        }
+        // Collect children
+        const childLines=[];const childIndent=i<lines.length?(lines[i].length-lines[i].trimStart().length):indent+2;
+        while(i<lines.length){const ci=lines[i].length-lines[i].trimStart().length;if(ci<=indent&&lines[i].trim()!=='')break;childLines.push(lines[i]);i++;}
+        // Function call?
+        if(fns[name]){
+          const fn=fns[name];const fnVars={...allVars};
+          fn.params.forEach((p,idx)=>{if(attrs[p])fnVars[p]=attrs[p];});
+          const fnBody=fn.body.map(l=>{let s=l;for(const[k,v]of Object.entries(fnVars))s=s.replaceAll('$'+k,v);return s;});
+          const minI=Math.min(...fnBody.filter(l=>l.trim()).map(l=>l.length-l.trimStart().length));
+          // Replace @children with caller's children
+          const childHtml=renderNodes(childLines,childIndent,fnVars);
+          let fnHtml=renderNodes(fnBody,minI,fnVars);
+          fnHtml=fnHtml.replace('<!-- @children -->',childHtml);
+          html+=fnHtml;continue;
+        }
+        // Element tags
+        let tag='div';
+        if(name==='text')tag='span';
+        else if(name==='paragraph'||name==='p')tag='p';
+        else if(name==='link')tag='a';
+        else if(name==='button'||name==='btn')tag='button';
+        else if(name==='image'||name==='img')tag='img';
+        else if(name==='header')tag='header';
+        else if(name==='footer')tag='footer';
+        else if(name==='nav')tag='nav';
+        else if(name==='main')tag='main';
+        else if(name==='section')tag='section';
+        else if(name==='article')tag='article';
+        else if(name==='aside')tag='aside';
+        else if(name==='list')tag='ul';
+        else if(name==='item'||name==='li')tag='li';
+        else if(name==='children'){html+='<!-- @children -->';continue;}
+        const cls='_'+(clsIdx++);css+='.'+cls+'{'+baseStyle+style+'}\n';
+        let extra='';
+        if(tag==='a'&&textAfterBracket){const sp=textAfterBracket.indexOf(' ');if(sp>0){extra=' href="'+textAfterBracket.slice(0,sp)+'"';textAfterBracket=textAfterBracket.slice(sp+1);}else{extra=' href="'+textAfterBracket+'"';textAfterBracket='';}}
+        if(tag==='img'){extra=' src="'+(textAfterBracket||'')+'"';if(attrs.alt)extra+=' alt="'+attrs.alt+'"';html+='<img class="'+cls+'"'+extra+'>';continue;}
+        html+='<'+tag+' class="'+cls+'"'+extra+'>';
+        if(textAfterBracket)html+=esc(textAfterBracket);
+        html+=renderNodes(childLines,childIndent,allVars);
+        html+='</'+tag+'>';
+      } else {
+        html+='<span>'+esc(subVars(t,allVars))+'</span>';
+      }
+    }
+    return html;
+  }
+  function subVars(s,v){if(!s.includes('$'))return s;for(const[k,val]of Object.entries(v))s=s.replaceAll('$'+k,val);return s;}
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  body=renderNodes(lines,0,vars);
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif}img{display:block}'+css+'</style></head><body>'+body+'</body></html>';
 }
+// Resizable divider
+const divider=document.getElementById('divider');
+const editorPanel=document.getElementById('editor-panel');
+let dragging=false;
+divider.addEventListener('mousedown',()=>{dragging=true;document.body.style.cursor='col-resize';document.body.style.userSelect='none';});
+document.addEventListener('mousemove',e=>{if(!dragging)return;const pct=(e.clientX/window.innerWidth)*100;editorPanel.style.flex='none';editorPanel.style.width=pct+'%';});
+document.addEventListener('mouseup',()=>{if(dragging){dragging=false;document.body.style.cursor='';document.body.style.userSelect='';}});
+// Keyboard shortcuts and auto-compile
+const editor=document.getElementById('editor');
+editor.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();compile();}
+  if(e.key==='Tab'){e.preventDefault();const s=e.target;const start=s.selectionStart;s.value=s.value.substring(0,start)+'  '+s.value.substring(s.selectionEnd);s.selectionStart=s.selectionEnd=start+2;}
+});
+loadFromHash();
 compile();
-document.getElementById('editor').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();compile();}if(e.key==='Tab'){e.preventDefault();const s=e.target;const start=s.selectionStart;s.value=s.value.substring(0,start)+'  '+s.value.substring(s.selectionEnd);s.selectionStart=s.selectionEnd=start+2;}});
 </script>
 </body>
 </html>"##;
@@ -2009,6 +2174,159 @@ document.getElementById('editor').addEventListener('keydown',e=>{if(e.key==='Ent
         if hl_files.len() > 1 {
             let per_file = elapsed.as_secs_f64() * 1000.0 / hl_files.len() as f64;
             eprintln!("  per file:       {:.2}ms", per_file);
+        }
+        return;
+    }
+
+    // Handle "upgrade" subcommand — comprehensive version-to-version migration
+    if args.len() >= 2 && args[1] == "upgrade" {
+        let target = if args.len() >= 3 { &args[2] } else { "." };
+        let path = Path::new(target);
+        let hl_files = if path.is_dir() {
+            collect_hl_files_recursive(path)
+        } else {
+            vec![PathBuf::from(target)]
+        };
+        if hl_files.is_empty() {
+            eprintln!("no .hl files found in {}", target);
+            process::exit(1);
+        }
+        let mut total_changes = 0usize;
+        for file in &hl_files {
+            let input = match fs::read_to_string(file) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let mut output = String::new();
+            let mut changes = 0usize;
+            for line in input.lines() {
+                let mut migrated = line.to_string();
+                // Migrate @divider -> @hr
+                if migrated.trim().starts_with("@divider") {
+                    migrated = migrated.replace("@divider", "@hr");
+                    changes += 1;
+                }
+                // Migrate @ul -> @list
+                if migrated.trim().starts_with("@ul") && !migrated.trim().starts_with("@unless") {
+                    migrated = migrated.replacen("@ul", "@list", 1);
+                    changes += 1;
+                }
+                // Migrate @col -> @column (full form)
+                if migrated.trim().starts_with("@col ") || migrated.trim() == "@col" {
+                    migrated = migrated.replacen("@col", "@column", 1);
+                    changes += 1;
+                }
+                // Migrate @img -> @image (full form)
+                if migrated.trim().starts_with("@img ") || migrated.trim() == "@img" {
+                    migrated = migrated.replacen("@img", "@image", 1);
+                    changes += 1;
+                }
+                // Migrate @p -> @paragraph (full form)
+                if migrated.trim().starts_with("@p ") || migrated.trim() == "@p" {
+                    migrated = migrated.replacen("@p ", "@paragraph ", 1);
+                    changes += 1;
+                }
+                // Migrate @btn -> @button (full form)
+                if migrated.trim().starts_with("@btn ") || migrated.trim() == "@btn" {
+                    migrated = migrated.replacen("@btn", "@button", 1);
+                    changes += 1;
+                }
+                // Migrate @li -> @item (full form)
+                if migrated.trim().starts_with("@li ") || migrated.trim() == "@li" {
+                    migrated = migrated.replacen("@li", "@item", 1);
+                    changes += 1;
+                }
+                // Migrate align-center -> center-x
+                if migrated.contains("align-center") {
+                    migrated = migrated.replace("align-center", "center-x");
+                    changes += 1;
+                }
+                // Migrate spacing -> gap (modern naming)
+                if migrated.contains("spacing ") && migrated.contains('[') {
+                    migrated = migrated.replace("spacing ", "gap ");
+                    changes += 1;
+                }
+                output.push_str(&migrated);
+                output.push('\n');
+            }
+            if !input.ends_with('\n') && output.ends_with('\n') {
+                output.pop();
+            }
+            if changes > 0 {
+                match fs::write(file, &output) {
+                    Ok(()) => {
+                        eprintln!("upgraded {} ({} change{})", file.display(), changes, if changes == 1 { "" } else { "s" });
+                        total_changes += changes;
+                    }
+                    Err(e) => eprintln!("error: {}: {}", file.display(), e),
+                }
+            }
+        }
+        if total_changes == 0 {
+            eprintln!("no upgrades needed — all files are up to date");
+        } else {
+            eprintln!("\n{} total change(s) applied", total_changes);
+        }
+        return;
+    }
+
+    // Handle "create-component" subcommand — scaffold a new component
+    if args.len() >= 2 && args[1] == "create-component" {
+        if args.len() < 3 {
+            eprintln!("usage: htmlang create-component <name> [param1] [param2] ...");
+            process::exit(1);
+        }
+        let comp_name = &args[2];
+        let params: Vec<&str> = args[3..].iter().map(|s| s.as_str()).collect();
+        let file_name = format!("{}.hl", comp_name);
+        let file_path = Path::new(&file_name);
+        if file_path.exists() {
+            eprintln!("error: {} already exists", file_name);
+            process::exit(1);
+        }
+
+        let mut template = String::new();
+        template.push_str(&format!("-- {} component\n", comp_name));
+        template.push_str("-- Usage: @");
+        template.push_str(comp_name);
+        if !params.is_empty() {
+            template.push_str(" [");
+            for (i, p) in params.iter().enumerate() {
+                if i > 0 { template.push_str(", "); }
+                template.push_str(p);
+                template.push_str(" value");
+            }
+            template.push(']');
+        }
+        template.push('\n');
+        template.push('\n');
+
+        // Generate @fn definition
+        template.push_str("@fn ");
+        template.push_str(comp_name);
+        for p in &params {
+            template.push(' ');
+            template.push('$');
+            template.push_str(p);
+        }
+        template.push('\n');
+        template.push_str("  @el [padding 16, rounded 8, border 1 #e5e7eb]\n");
+        if !params.is_empty() {
+            for p in &params {
+                template.push_str(&format!("    @text ${}\\n", p));
+            }
+        }
+        template.push_str("    @children\n");
+
+        match fs::write(file_path, &template) {
+            Ok(()) => {
+                eprintln!("created {}", file_name);
+                eprintln!("import with: @use \"{}\" {}", file_name, comp_name);
+            }
+            Err(e) => {
+                eprintln!("error: {}: {}", file_name, e);
+                process::exit(1);
+            }
         }
         return;
     }

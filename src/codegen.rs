@@ -361,6 +361,93 @@ pub fn generate_dev(doc: &Document) -> String {
     generate_with_options(doc, true)
 }
 
+/// Generate with aggressive minification: collapse whitespace in text nodes,
+/// strip HTML comments, and minimize output size.
+pub fn generate_minified(doc: &Document) -> String {
+    let html = generate_with_options(doc, false);
+    minify_html(&html)
+}
+
+fn minify_html(html: &str) -> String {
+    let mut result = String::with_capacity(html.len());
+    let mut in_pre = false;
+    let mut in_script = false;
+    let mut in_style = false;
+    let mut prev_was_space = false;
+    let chars: Vec<char> = html.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        // Track <pre>, <script>, <style> contexts
+        if i + 4 < chars.len() && chars[i] == '<' {
+            let rest: String = chars[i..].iter().take(10).collect();
+            let rest_lower = rest.to_lowercase();
+            if rest_lower.starts_with("<pre") {
+                in_pre = true;
+            } else if rest_lower.starts_with("</pre") {
+                in_pre = false;
+            } else if rest_lower.starts_with("<script") {
+                in_script = true;
+            } else if rest_lower.starts_with("</script") {
+                in_script = false;
+            } else if rest_lower.starts_with("<style") {
+                in_style = true;
+            } else if rest_lower.starts_with("</style") {
+                in_style = false;
+            }
+        }
+
+        // Strip HTML comments (<!-- ... -->)
+        if !in_script && !in_style && i + 3 < chars.len()
+            && chars[i] == '<' && chars[i+1] == '!' && chars[i+2] == '-' && chars[i+3] == '-'
+        {
+            // Skip to -->
+            let mut j = i + 4;
+            while j + 2 < chars.len() {
+                if chars[j] == '-' && chars[j+1] == '-' && chars[j+2] == '>' {
+                    j += 3;
+                    break;
+                }
+                j += 1;
+            }
+            i = j;
+            continue;
+        }
+
+        // In <pre>, preserve everything
+        if in_pre || in_script || in_style {
+            result.push(chars[i]);
+            i += 1;
+            continue;
+        }
+
+        // Collapse whitespace between tags
+        if chars[i].is_whitespace() {
+            if !prev_was_space {
+                // Only emit a space if we're between content (not between tags)
+                result.push(' ');
+                prev_was_space = true;
+            }
+            i += 1;
+            continue;
+        }
+
+        // Trim space before closing tags
+        if chars[i] == '<' && prev_was_space {
+            // Remove trailing space before tag
+            if result.ends_with(' ') {
+                result.pop();
+            }
+        }
+
+        prev_was_space = false;
+        result.push(chars[i]);
+        i += 1;
+    }
+
+    result
+}
+
 fn generate_with_options(doc: &Document, dev: bool) -> String {
     let mut styles = StyleCollector::new();
     let mut ctx = GenContext { dev, depth: 0 };
@@ -1092,7 +1179,24 @@ fn generate_element(
         }
     }
 
-    emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
+    // Critical CSS: inline styles directly instead of using a class
+    let is_critical = elem.attrs.iter().any(|a| a.key == "critical");
+    if is_critical {
+        let inline_css = attrs_to_css(&elem.attrs, "", &elem.kind, parent_kind);
+        if !inline_css.is_empty() {
+            out.push_str(" style=\"");
+            out.push_str(&html_escape(&inline_css));
+            out.push('"');
+        }
+        // Still use class for non-base styles (pseudo, responsive, etc.)
+        if gen_class.as_deref().map_or(false, |c| !c.is_empty()) {
+            emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
+        } else if let Some(ref uc) = user_class {
+            emit_class_attr(out, None, Some(uc));
+        }
+    } else {
+        emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
+    }
 
     if let Some(id) = id {
         out.push_str(" id=\"");

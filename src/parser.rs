@@ -990,6 +990,87 @@ impl Parser {
             return Ok(Some(all_nodes));
         }
 
+        // --- @for numeric loop ---
+
+        if let Some(rest) = content.strip_prefix("@for ") {
+            let rest = rest.trim();
+            // @for $var in start..end  OR  @for $var in start..end step N
+            let (var_name, range_str) = if let Some((before_in, after_in)) = rest.split_once(" in ") {
+                let var = before_in.trim().strip_prefix('$').unwrap_or(before_in.trim());
+                (var.to_string(), after_in.trim().to_string())
+            } else {
+                return Err(ParseError {
+                    line: line_num,
+                    message: "@for requires: @for $var in start..end".to_string(),
+                });
+            };
+            let range_str = substitute_vars(&range_str, &ctx.variables);
+            track_var_refs(&range_str, &mut ctx.used_variables);
+
+            let items: Vec<String> = if let Some((start_s, rest_range)) = range_str.split_once("..") {
+                let (end_s, step) = if let Some((e, s)) = rest_range.split_once(" step ") {
+                    (e.trim(), s.trim().parse::<i64>().unwrap_or(1).max(1))
+                } else {
+                    (rest_range.trim(), 1i64)
+                };
+                if let (Ok(start), Ok(end)) = (start_s.trim().parse::<i64>(), end_s.parse::<i64>()) {
+                    if start <= end {
+                        let mut items = Vec::new();
+                        let mut n = start;
+                        while n <= end { items.push(n.to_string()); n += step; }
+                        items
+                    } else {
+                        let mut items = Vec::new();
+                        let mut n = start;
+                        while n >= end { items.push(n.to_string()); n -= step; }
+                        items
+                    }
+                } else {
+                    return Err(ParseError {
+                        line: line_num,
+                        message: "@for range requires numeric bounds: @for $i in 1..10".to_string(),
+                    });
+                }
+            } else {
+                return Err(ParseError {
+                    line: line_num,
+                    message: "@for requires range syntax: @for $i in 1..10".to_string(),
+                });
+            };
+
+            // Collect body lines
+            let mut body_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                body_lines.push(self.lines[self.pos].clone());
+                self.pos += 1;
+            }
+
+            if body_lines.is_empty() || items.is_empty() {
+                return Ok(None);
+            }
+
+            let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
+            let adjusted: Vec<Line> = body_lines
+                .iter()
+                .map(|l| Line {
+                    indent: l.indent - min_indent,
+                    content: l.content.clone(),
+                    line_num: l.line_num,
+                })
+                .collect();
+
+            let saved_vars = ctx.variables.clone();
+            let mut all_nodes = Vec::new();
+            for item in &items {
+                ctx.variables.insert(var_name.clone(), item.clone());
+                let mut body_parser = Parser { lines: adjusted.clone(), pos: 0 };
+                let nodes = body_parser.parse_children(0, ctx);
+                all_nodes.extend(nodes);
+            }
+            ctx.variables = saved_vars;
+            return Ok(Some(all_nodes));
+        }
+
         // --- @match ---
 
         if let Some(rest) = content.strip_prefix("@match ") {
@@ -1076,6 +1157,107 @@ impl Parser {
             let nodes = body_parser.parse_children(0, ctx);
             ctx.variables = saved_vars;
             return Ok(Some(nodes));
+        }
+
+        // --- @switch (variant-based attribute switching) ---
+        // @switch $variant
+        //   @case primary [background #3b82f6, color white]
+        //   @case danger [background #ef4444, color white]
+        //   @default [background #gray, color black]
+        // Registers matching @define and emits the matching case's children
+
+        if let Some(rest) = content.strip_prefix("@switch ") {
+            let switch_val = substitute_vars(rest.trim(), &ctx.variables);
+            track_var_refs(rest.trim(), &mut ctx.used_variables);
+
+            let mut switch_lines = Vec::new();
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                switch_lines.push(self.lines[self.pos].clone());
+                self.pos += 1;
+            }
+
+            if switch_lines.is_empty() {
+                return Ok(None);
+            }
+
+            let case_indent = switch_lines[0].indent;
+            let mut si = 0;
+            let mut matched_attrs: Option<Vec<Attribute>> = None;
+            let mut matched_body: Vec<Line> = Vec::new();
+
+            while si < switch_lines.len() {
+                if switch_lines[si].indent == case_indent {
+                    if let LineContent::Normal(ref s) = switch_lines[si].content {
+                        let trimmed = s.trim();
+                        if let Some(case_rest) = trimmed.strip_prefix("@case ") {
+                            let case_rest = case_rest.trim();
+                            // Extract case value and optional [attrs]
+                            let (case_val, case_attrs_str) = if let Some(bracket_pos) = case_rest.find('[') {
+                                (substitute_vars(case_rest[..bracket_pos].trim(), &ctx.variables), Some(&case_rest[bracket_pos..]))
+                            } else {
+                                (substitute_vars(case_rest, &ctx.variables), None)
+                            };
+                            si += 1;
+                            // Collect body lines
+                            let mut body = Vec::new();
+                            while si < switch_lines.len() && switch_lines[si].indent > case_indent {
+                                body.push(switch_lines[si].clone());
+                                si += 1;
+                            }
+                            if matched_attrs.is_none() && case_val == switch_val {
+                                if let Some(attrs_str) = case_attrs_str {
+                                    let (attrs, _) = parse_attr_brackets(attrs_str, line_num, ctx)?;
+                                    matched_attrs = Some(attrs);
+                                }
+                                matched_body = body;
+                            }
+                        } else if trimmed == "@default" || trimmed.starts_with("@default ") {
+                            let default_rest = trimmed.strip_prefix("@default").unwrap_or("").trim();
+                            si += 1;
+                            let mut body = Vec::new();
+                            while si < switch_lines.len() && switch_lines[si].indent > case_indent {
+                                body.push(switch_lines[si].clone());
+                                si += 1;
+                            }
+                            if matched_attrs.is_none() {
+                                if !default_rest.is_empty() && default_rest.starts_with('[') {
+                                    let (attrs, _) = parse_attr_brackets(default_rest, line_num, ctx)?;
+                                    matched_attrs = Some(attrs);
+                                }
+                                matched_body = body;
+                            }
+                        } else {
+                            si += 1;
+                        }
+                    } else {
+                        si += 1;
+                    }
+                } else {
+                    si += 1;
+                }
+            }
+
+            // Store matched attrs as a temporary define for use with $__switch
+            if let Some(attrs) = matched_attrs {
+                ctx.defines.insert("__switch".to_string(), attrs);
+            }
+
+            // Parse matched body if any
+            if !matched_body.is_empty() {
+                let min_indent = matched_body.iter().map(|l| l.indent).min().unwrap_or(0);
+                let adjusted: Vec<Line> = matched_body.iter().map(|l| Line {
+                    indent: l.indent - min_indent,
+                    content: l.content.clone(),
+                    line_num: l.line_num,
+                }).collect();
+                let saved_vars = ctx.variables.clone();
+                let mut body_parser = Parser { lines: adjusted, pos: 0 };
+                let nodes = body_parser.parse_children(0, ctx);
+                ctx.variables = saved_vars;
+                return Ok(Some(nodes));
+            }
+
+            return Ok(None);
         }
 
         // --- @warn / @debug ---
@@ -1316,6 +1498,77 @@ impl Parser {
             return Ok(Some(result_nodes));
         }
 
+        // --- @component definition (scoped @fn) ---
+
+        if let Some(rest) = content.strip_prefix("@component ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.is_empty() {
+                return Err(ParseError {
+                    line: line_num,
+                    message: "@component requires a name".to_string(),
+                });
+            }
+            let name = parts[0].to_string();
+            let mut params = Vec::new();
+            let mut defaults = HashMap::new();
+            for part in &parts[1..] {
+                let part = part.strip_prefix('$').unwrap_or(part);
+                if let Some((param_name, default_val)) = part.split_once('=') {
+                    params.push(param_name.to_string());
+                    defaults.insert(param_name.to_string(), default_val.to_string());
+                } else {
+                    params.push(part.to_string());
+                }
+            }
+
+            // Collect body lines and separate @style blocks from element content
+            let mut body_lines = Vec::new();
+            let mut style_lines = Vec::new();
+            let mut in_style = false;
+            let mut style_indent = 0;
+            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
+                    if s.trim() == "@style" {
+                        in_style = true;
+                        style_indent = self.lines[self.pos].indent;
+                        self.pos += 1;
+                        continue;
+                    }
+                }
+                if in_style && self.lines[self.pos].indent > style_indent {
+                    style_lines.push(self.lines[self.pos].clone());
+                } else {
+                    in_style = false;
+                    body_lines.push(self.lines[self.pos].clone());
+                }
+                self.pos += 1;
+            }
+
+            // Register scoped CSS from @style blocks
+            if !style_lines.is_empty() {
+                let scope_class = format!("hl-{}", name);
+                let mut scoped_css = String::new();
+                for line in &style_lines {
+                    if let LineContent::Normal(ref s) = line.content {
+                        let trimmed = s.trim();
+                        // Scope selectors by prepending .hl-componentname
+                        if !trimmed.is_empty() {
+                            scoped_css.push_str(&format!(".{} {}\n", scope_class, trimmed));
+                        }
+                    }
+                }
+                if !scoped_css.is_empty() {
+                    ctx.custom_css.push(scoped_css);
+                }
+            }
+
+            ctx.fn_lines.entry(name.clone()).or_insert(line_num);
+            ctx.functions.insert(name.clone(), FnDef { params, defaults, body_lines });
+            // Mark that this function should wrap output with a scoped class
+            ctx.variables.insert(format!("__component_scope_{}", name), format!("hl-{}", name));
+            return Ok(None);
+        }
+
         // --- Function definition ---
 
         if let Some(rest) = content.strip_prefix("@fn ") {
@@ -1478,7 +1731,22 @@ impl Parser {
         ctx.fn_call_stack.pop();
 
         // Replace @children with caller's children and @slot with slot content
-        Ok(replace_children_and_slots(body_nodes, &caller_children, &slot_contents))
+        let mut result_nodes = replace_children_and_slots(body_nodes, &caller_children, &slot_contents);
+
+        // If this is a @component, wrap output in a scoped container
+        let scope_key = format!("__component_scope_{}", name);
+        if let Some(scope_class) = ctx.variables.get(&scope_key).cloned() {
+            let wrapper = Element {
+                kind: ElementKind::El,
+                attrs: vec![Attribute { key: "class".to_string(), value: Some(scope_class) }],
+                argument: None,
+                children: result_nodes,
+                line_num,
+            };
+            result_nodes = vec![Node::Element(wrapper)];
+        }
+
+        Ok(result_nodes)
     }
 
     fn parse_element_line(
@@ -1658,6 +1926,7 @@ const KNOWN_DIRECTIVES: &[&str] = &[
     "use", "theme", "deprecated", "extends",
     "canonical", "base", "font-face", "json-ld",
     "mixin", "assert",
+    "for", "component", "switch",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -2103,6 +2372,42 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
         // Substitute variables in value
         track_var_refs(part, &mut ctx.used_variables);
         let part = substitute_vars(part, &ctx.variables);
+
+        // Conditional attribute: `key if condition` or `key value if condition`
+        let (part, is_conditional) = {
+            // Check for " if " not inside parentheses
+            let check = part.as_str();
+            let mut found_if = None;
+            let mut depth = 0;
+            for (i, c) in check.char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+                if depth == 0 && check[i..].starts_with(" if ") {
+                    found_if = Some(i);
+                    break;
+                }
+            }
+            if let Some(if_pos) = found_if {
+                let attr_part = &check[..if_pos];
+                let condition = &check[if_pos + 4..];
+                let cond_result = evaluate_condition(condition.trim());
+                if cond_result {
+                    (attr_part.to_string(), false)
+                } else {
+                    (String::new(), true)
+                }
+            } else {
+                (part.to_string(), false)
+            }
+        };
+
+        // Skip this attribute if the condition was false
+        if is_conditional {
+            continue;
+        }
 
         let attr = if let Some((key, value)) = part.split_once(' ') {
             let value = evaluate_if_expr(value.trim());
@@ -2743,6 +3048,83 @@ fn validate_tree(
                                     "low contrast ratio {:.1}:1 between '{}' and '{}' (WCAG AA requires 4.5:1)",
                                     ratio, fg, bg
                                 ),
+                                severity: Severity::Warning,
+                                source_line: None,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // @form inputs should have associated @label
+            if matches!(elem.kind, ElementKind::Input | ElementKind::Select | ElementKind::Textarea) {
+                let has_id = elem.attrs.iter().any(|a| a.key == "id");
+                let has_aria_label = elem.attrs.iter().any(|a| a.key == "aria-label" || a.key == "aria-labelledby");
+                let has_title = elem.attrs.iter().any(|a| a.key == "title");
+                let in_label = matches!(parent_kind, Some(ElementKind::Label));
+                if !has_id && !has_aria_label && !has_title && !in_label {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: format!(
+                            "{} should have an 'id' (with matching @label[for]), 'aria-label', or be wrapped in @label (accessibility)",
+                            element_kind_name(&elem.kind)
+                        ),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+            }
+
+            // @iframe should have title attribute
+            if matches!(elem.kind, ElementKind::Iframe) {
+                if !elem.attrs.iter().any(|a| a.key == "title") {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: "@iframe missing 'title' attribute (accessibility)".to_string(),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+            }
+
+            // @button should have accessible text
+            if matches!(elem.kind, ElementKind::Button) {
+                let has_text = elem.argument.is_some() || !elem.children.is_empty();
+                let has_aria = elem.attrs.iter().any(|a| a.key == "aria-label");
+                if !has_text && !has_aria {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: "@button has no text content or aria-label (accessibility)".to_string(),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+            }
+
+            // @video should have captions or aria-label
+            if matches!(elem.kind, ElementKind::Video) {
+                let has_aria = elem.attrs.iter().any(|a| a.key == "aria-label" || a.key == "aria-describedby");
+                let has_track = elem.children.iter().any(|c| {
+                    matches!(c, Node::Element(e) if e.kind == ElementKind::Source)
+                });
+                if !has_aria && !has_track {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        message: "@video should have aria-label or captions for accessibility".to_string(),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+            }
+
+            // Tabindex > 0 is an anti-pattern
+            if let Some(tabindex_attr) = elem.attrs.iter().find(|a| a.key == "tabindex") {
+                if let Some(ref val) = tabindex_attr.value {
+                    if let Ok(n) = val.parse::<i32>() {
+                        if n > 0 {
+                            diagnostics.push(Diagnostic {
+                                line: elem.line_num,
+                                message: format!("tabindex {} is positive — avoid positive tabindex values as they disrupt natural tab order", n),
                                 severity: Severity::Warning,
                                 source_line: None,
                             });
