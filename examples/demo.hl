@@ -238,12 +238,12 @@
     @row [gap $gap, wrap]
       @column [width fill, spacing $base, min-width 240]
         @text [bold] Unordered
-        @list [spacing 4]
+        @list [spacing 4, list-style disc, padding-inline-start 20]
           @item Composable with @each
           @item Indent to nest children
           @item Bold list items work too
         @text [bold] Ordered
-        @list [ordered]
+        @list [ordered, list-style decimal, padding-inline-start 20]
           @item First
           @item Second
           @item Third
