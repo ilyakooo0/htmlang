@@ -8,7 +8,7 @@ use crate::ast::*;
 // Public types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Error,
     Warning,
@@ -409,11 +409,16 @@ impl Parser {
             return Ok(Some(vec![Node::Raw(content)]));
         }
 
-        // Normal content — clone to release borrow
-        let content = match &self.lines[self.pos].content {
-            LineContent::Normal(s) => s.clone(),
-            _ => unreachable!(),
+        // Normal content — clone to release borrow. Raw is already handled
+        // above; a let-else pattern avoids a panic path if new LineContent
+        // variants are added in the future.
+        let LineContent::Normal(content) = &self.lines[self.pos].content else {
+            return Err(ParseError {
+                line: line_num,
+                message: "internal: unexpected line content variant".to_string(),
+            });
         };
+        let content = content.clone();
         self.pos += 1;
 
         // --- Directives ---
@@ -967,11 +972,17 @@ impl Parser {
             let diag_count_before = ctx.diagnostics.len();
 
             if let Some(ref prefix) = alias {
-                // Parse into a temporary context, then copy definitions with prefix
-                let saved_fns = ctx.functions.clone();
-                let saved_defines = ctx.defines.clone();
-                let saved_mixins = ctx.mixins.clone();
-                let saved_vars = ctx.variables.clone();
+                // Snapshot just the *key sets* before parsing — much cheaper
+                // than cloning the full HashMaps, since we only need to know
+                // which definitions are new afterwards.
+                let fn_keys_before: std::collections::HashSet<String> =
+                    ctx.functions.keys().cloned().collect();
+                let define_keys_before: std::collections::HashSet<String> =
+                    ctx.defines.keys().cloned().collect();
+                let mixin_keys_before: std::collections::HashSet<String> =
+                    ctx.mixins.keys().cloned().collect();
+                let var_keys_before: std::collections::HashSet<String> =
+                    ctx.variables.keys().cloned().collect();
 
                 let imported_lines = preprocess(&imported_text);
                 let mut imported_parser = Parser {
@@ -980,42 +991,43 @@ impl Parser {
                 };
                 let _discarded_nodes = imported_parser.parse_children(0, ctx);
 
-                // Find newly added definitions and re-register with prefix
-                let new_fns: Vec<(String, FnDef)> = ctx.functions.iter()
-                    .filter(|(k, _)| !saved_fns.contains_key(*k))
-                    .map(|(k, v)| (k.clone(), v.clone()))
+                // Remove newly added entries and re-insert them under the prefix.
+                let new_fn_keys: Vec<String> = ctx.functions.keys()
+                    .filter(|k| !fn_keys_before.contains(*k))
+                    .cloned()
                     .collect();
-                let new_defines: Vec<(String, Vec<Attribute>)> = ctx.defines.iter()
-                    .filter(|(k, _)| !saved_defines.contains_key(*k))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                let new_mixins: Vec<(String, Vec<Attribute>)> = ctx.mixins.iter()
-                    .filter(|(k, _)| !saved_mixins.contains_key(*k))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                let new_vars: Vec<(String, String)> = ctx.variables.iter()
-                    .filter(|(k, _)| !saved_vars.contains_key(*k))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-
-                // Restore originals, then add prefixed versions
-                ctx.functions = saved_fns;
-                ctx.defines = saved_defines;
-                ctx.mixins = saved_mixins;
-                ctx.variables = saved_vars;
-
-                for (name, def) in new_fns {
-                    ctx.functions.insert(format!("{}.{}", prefix, name), def);
+                for name in new_fn_keys {
+                    if let Some(def) = ctx.functions.remove(&name) {
+                        ctx.functions.insert(format!("{}.{}", prefix, name), def);
+                    }
                 }
-                for (name, attrs) in new_defines {
-                    ctx.defines.insert(format!("{}.{}", prefix, name), attrs);
+                let new_define_keys: Vec<String> = ctx.defines.keys()
+                    .filter(|k| !define_keys_before.contains(*k))
+                    .cloned()
+                    .collect();
+                for name in new_define_keys {
+                    if let Some(attrs) = ctx.defines.remove(&name) {
+                        ctx.defines.insert(format!("{}.{}", prefix, name), attrs);
+                    }
                 }
-                for (name, attrs) in new_mixins {
-                    ctx.mixins.insert(format!("{}.{}", prefix, name), attrs);
+                let new_mixin_keys: Vec<String> = ctx.mixins.keys()
+                    .filter(|k| !mixin_keys_before.contains(*k))
+                    .cloned()
+                    .collect();
+                for name in new_mixin_keys {
+                    if let Some(attrs) = ctx.mixins.remove(&name) {
+                        ctx.mixins.insert(format!("{}.{}", prefix, name), attrs);
+                    }
                 }
-                for (name, val) in new_vars {
-                    if !name.starts_with("__") {
-                        ctx.variables.insert(format!("{}.{}", prefix, name), val);
+                let new_var_keys: Vec<String> = ctx.variables.keys()
+                    .filter(|k| !var_keys_before.contains(*k))
+                    .cloned()
+                    .collect();
+                for name in new_var_keys {
+                    if let Some(val) = ctx.variables.remove(&name) {
+                        if !name.starts_with("__") {
+                            ctx.variables.insert(format!("{}.{}", prefix, name), val);
+                        }
                     }
                 }
             } else {

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 use crate::ast::*;
 
@@ -55,7 +56,10 @@ struct StyleEntry {
 
 struct StyleCollector {
     entries: Vec<StyleEntry>,
-    index: HashMap<String, usize>,
+    /// Maps a pre-hashed style signature to an index into `entries`.
+    /// Using u64 as the key keeps lookups allocation-free; on the rare case of
+    /// a hash collision we fall back to a full equality check against the entry.
+    index: HashMap<u64, Vec<usize>>,
 }
 
 impl StyleCollector {
@@ -93,24 +97,37 @@ impl StyleCollector {
         {
             return None;
         }
-        let pseudo_key: String = pseudo
-            .iter()
-            .map(|(sel, css)| format!("{}={}", sel, css))
-            .collect::<Vec<_>>()
-            .join("|");
-        let resp_key: String = responsive
-            .iter()
-            .map(|(bp, css)| format!("{}={}", bp, css))
-            .collect::<Vec<_>>()
-            .join("|");
-        let cq_key: String = container
-            .iter()
-            .map(|(bp, css)| format!("{}={}", bp, css))
-            .collect::<Vec<_>>()
-            .join("|");
-        let key = format!("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", base, pseudo_key, resp_key, dark, print, motion_safe, motion_reduce, landscape, portrait, cq_key);
-        if let Some(&idx) = self.index.get(&key) {
-            return Some(self.entries[idx].class_name.clone());
+        use std::collections::hash_map::DefaultHasher;
+        let mut h = DefaultHasher::new();
+        base.hash(&mut h);
+        pseudo.hash(&mut h);
+        responsive.hash(&mut h);
+        dark.hash(&mut h);
+        print.hash(&mut h);
+        motion_safe.hash(&mut h);
+        motion_reduce.hash(&mut h);
+        landscape.hash(&mut h);
+        portrait.hash(&mut h);
+        container.hash(&mut h);
+        let sig = h.finish();
+
+        if let Some(indices) = self.index.get(&sig) {
+            for &idx in indices {
+                let e = &self.entries[idx];
+                if e.base == base
+                    && e.pseudo == pseudo
+                    && e.responsive == responsive
+                    && e.dark == dark
+                    && e.print == print
+                    && e.motion_safe == motion_safe
+                    && e.motion_reduce == motion_reduce
+                    && e.landscape == landscape
+                    && e.portrait == portrait
+                    && e.container == container
+                {
+                    return Some(e.class_name.clone());
+                }
+            }
         }
         let idx = self.entries.len();
         let name = short_class_name(idx);
@@ -127,7 +144,7 @@ impl StyleCollector {
             portrait,
             container,
         });
-        self.index.insert(key, idx);
+        self.index.entry(sig).or_default().push(idx);
         Some(name)
     }
 

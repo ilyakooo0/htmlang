@@ -15,6 +15,15 @@ struct DiagnosticJson {
     message: String,
 }
 
+fn severity_label(s: htmlang::parser::Severity) -> &'static str {
+    match s {
+        htmlang::parser::Severity::Error => "error",
+        htmlang::parser::Severity::Warning => "warning",
+        htmlang::parser::Severity::Info => "info",
+        htmlang::parser::Severity::Help => "help",
+    }
+}
+
 #[derive(Default)]
 struct CompileConfig<'a> {
     dev: bool,
@@ -56,28 +65,17 @@ fn compile(input_path: &str, cfg: &CompileConfig) -> (bool, Vec<PathBuf>) {
         if let Some(collector) = cfg.json_collector {
             let mut collected = collector.lock().unwrap();
             for d in &result.diagnostics {
-                let severity = match d.severity {
-                    htmlang::parser::Severity::Error => "error",
-                    htmlang::parser::Severity::Warning => "warning",
-                    htmlang::parser::Severity::Info => "info",
-                    htmlang::parser::Severity::Help => "help",
-                };
                 collected.push(DiagnosticJson {
                     file: input_path.to_string(),
                     line: d.line,
-                    severity: severity.to_string(),
+                    severity: severity_label(d.severity).to_string(),
                     message: d.message.clone(),
                 });
             }
         }
     } else {
         for d in &result.diagnostics {
-            let prefix = match d.severity {
-                htmlang::parser::Severity::Error => "error",
-                htmlang::parser::Severity::Warning => "warning",
-                htmlang::parser::Severity::Info => "info",
-                htmlang::parser::Severity::Help => "help",
-            };
+            let prefix = severity_label(d.severity);
             if let Some(col) = d.column {
                 eprintln!("{}: line {}:{}: {}", prefix, d.line, col, d.message);
             } else {
@@ -313,12 +311,7 @@ fn copy_non_hl_recursive(base: &Path, dir: &Path, out_dir: &Path) {
 fn generate_error_overlay(diagnostics: &[htmlang::parser::Diagnostic], file: &str) -> String {
     let mut errors = String::new();
     for d in diagnostics {
-        let prefix = match d.severity {
-            htmlang::parser::Severity::Error => "error",
-            htmlang::parser::Severity::Warning => "warning",
-            htmlang::parser::Severity::Info => "info",
-            htmlang::parser::Severity::Help => "help",
-        };
+        let prefix = severity_label(d.severity);
         let escaped = d.message
             .replace('&', "&amp;")
             .replace('<', "&lt;")
@@ -616,12 +609,7 @@ fn lint_file(path: &str) -> Vec<String> {
 
     // Report parser diagnostics
     for d in &result.diagnostics {
-        let prefix = match d.severity {
-            htmlang::parser::Severity::Error => "error",
-            htmlang::parser::Severity::Warning => "warning",
-            htmlang::parser::Severity::Info => "info",
-            htmlang::parser::Severity::Help => "help",
-        };
+        let prefix = severity_label(d.severity);
         warnings.push(format!("{}:{}:{}: {}", path, d.line, prefix, d.message));
     }
 
@@ -1818,12 +1806,7 @@ fn main() {
             }
             let result = htmlang::parser::parse(&buffer);
             for d in &result.diagnostics {
-                let prefix = match d.severity {
-                    htmlang::parser::Severity::Error => "error",
-                    htmlang::parser::Severity::Warning => "warning",
-                    htmlang::parser::Severity::Info => "info",
-                    htmlang::parser::Severity::Help => "help",
-                };
+                let prefix = severity_label(d.severity);
                 eprintln!("{}: line {}: {}", prefix, d.line, d.message);
             }
             if !result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
@@ -2244,11 +2227,14 @@ fn main() {
         }
 
         // Deploy via gh-pages push
-        let status = process::Command::new("git")
-            .args(&["init"])
-            .current_dir(&deploy_dir)
-            .status();
-        if status.is_err() || !status.unwrap().success() {
+        let init_ok = matches!(
+            process::Command::new("git")
+                .args(&["init"])
+                .current_dir(&deploy_dir)
+                .status(),
+            Ok(s) if s.success()
+        );
+        if !init_ok {
             eprintln!("error: git init failed in deploy directory");
             process::exit(1);
         }
@@ -2260,11 +2246,14 @@ fn main() {
             .args(&["add", "."])
             .current_dir(&deploy_dir)
             .status();
-        let status = process::Command::new("git")
-            .args(&["commit", "-m", "deploy"])
-            .current_dir(&deploy_dir)
-            .status();
-        if status.is_err() || !status.unwrap().success() {
+        let commit_ok = matches!(
+            process::Command::new("git")
+                .args(&["commit", "-m", "deploy"])
+                .current_dir(&deploy_dir)
+                .status(),
+            Ok(s) if s.success()
+        );
+        if !commit_ok {
             eprintln!("error: git commit failed");
             process::exit(1);
         }
@@ -2280,11 +2269,14 @@ fn main() {
                     .current_dir(&deploy_dir)
                     .status();
                 eprintln!("pushing to gh-pages branch at {}...", remote_url);
-                let push_status = process::Command::new("git")
-                    .args(&["push", "-f", "origin", "gh-pages"])
-                    .current_dir(&deploy_dir)
-                    .status();
-                if push_status.is_err() || !push_status.unwrap().success() {
+                let push_ok = matches!(
+                    process::Command::new("git")
+                        .args(&["push", "-f", "origin", "gh-pages"])
+                        .current_dir(&deploy_dir)
+                        .status(),
+                    Ok(s) if s.success()
+                );
+                if !push_ok {
                     eprintln!("error: push failed — run 'git push -f origin gh-pages' manually from {}", deploy_dir.display());
                     process::exit(1);
                 }
@@ -2825,12 +2817,7 @@ compile();
         let base = Path::new(file).parent();
         let result = htmlang::parser::parse_with_base(&input, base);
         for d in &result.diagnostics {
-            let prefix = match d.severity {
-                htmlang::parser::Severity::Error => "error",
-                htmlang::parser::Severity::Warning => "warning",
-                htmlang::parser::Severity::Info => "info",
-                htmlang::parser::Severity::Help => "help",
-            };
+            let prefix = severity_label(d.severity);
             eprintln!("{}: line {}: {}", prefix, d.line, d.message);
         }
         if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {

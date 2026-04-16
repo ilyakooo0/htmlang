@@ -4078,3 +4078,67 @@ fn perf_large_document() {
         elapsed.as_millis()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Filesystem-based error tests for @include / @import / @data
+// ---------------------------------------------------------------------------
+
+#[test]
+fn error_circular_include_filesystem() {
+    // a.hl includes b.hl, which includes a.hl — expect a cycle diagnostic.
+    let dir = std::env::temp_dir().join("htmlang_test_circular_include");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let a_path = dir.join("a.hl");
+    let b_path = dir.join("b.hl");
+    std::fs::write(&a_path, "@include b.hl\n").unwrap();
+    std::fs::write(&b_path, "@include a.hl\n").unwrap();
+
+    let input = std::fs::read_to_string(&a_path).unwrap();
+    let result = htmlang::parser::parse_with_base(&input, Some(&dir));
+    let has_cycle = result
+        .diagnostics
+        .iter()
+        .any(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("circular"));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(has_cycle, "expected circular include error, got: {:?}", result.diagnostics);
+}
+
+#[test]
+fn import_with_alias_prefixes_definitions() {
+    // Verify that @import with alias registers imported fns under `alias.name`.
+    let dir = std::env::temp_dir().join("htmlang_test_import_alias");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let lib_path = dir.join("lib.hl");
+    std::fs::write(&lib_path, "@fn card\n  @el\n    @text card-body\n").unwrap();
+
+    let input = "@import lib.hl as ui\n@ui.card\n";
+    let result = htmlang::parser::parse_with_base(input, Some(&dir));
+    let html = htmlang::codegen::generate(&result.document);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error),
+        "no errors expected, got: {:?}", result.diagnostics
+    );
+    assert!(html.contains("card-body"), "alias prefixed call should expand, got: {}", html);
+}
+
+#[test]
+fn error_invalid_json_in_data_directive() {
+    let dir = std::env::temp_dir().join("htmlang_test_bad_json");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let data_path = dir.join("bad.json");
+    std::fs::write(&data_path, "{ not: valid json }").unwrap();
+
+    let input = "@data bad.json\n";
+    let result = htmlang::parser::parse_with_base(input, Some(&dir));
+    let has_err = result
+        .diagnostics
+        .iter()
+        .any(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("invalid JSON"));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(has_err, "expected invalid JSON error, got: {:?}", result.diagnostics);
+}
