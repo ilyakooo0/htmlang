@@ -21,7 +21,7 @@
       @paragraph
         A minimalist layout language that compiles to
         {@text [bold, color $primary] static HTML}.
-    @image [width 80, height 80, rounded 40] https://picsum.photos/80
+    @image [width 80, height 80, rounded 40, alt "A stock photo"] https://picsum.photos/80
 
   -- cards using @fn with hover
   @page-section [title Features]

@@ -4480,10 +4480,10 @@ fn parse_attr_list(
             }
         };
 
-        // Warn on duplicate attributes
+        // Warn on duplicate attributes (compare full key so pseudo-class
+        // variants like `border` and `hover:border` are not conflated)
         if validate {
-            let stripped = strip_all_prefixes(&attr.key).to_string();
-            if seen_keys.contains(&stripped) {
+            if seen_keys.contains(&attr.key) {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
                     column: None,
@@ -4492,7 +4492,7 @@ fn parse_attr_list(
                     source_line: None,
                 });
             } else {
-                seen_keys.push(stripped);
+                seen_keys.push(attr.key.clone());
             }
 
             // Color validation for hex colors

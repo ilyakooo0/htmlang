@@ -1,1 +1,107 @@
-<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>htmlang Demo</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif}img{display:block}._0{display:flex;flex-direction:column;max-width:800px;margin-left:auto;margin-right:auto;padding:40px;gap:20px;}._1{display:flex;flex-direction:row;gap:20px;}._2{display:flex;flex-direction:column;flex:1;min-width:0;gap:10px;}._3{font-weight:bold;font-size:32px;}._4{margin:0;}._5{font-weight:bold;color:#3b82f6;}._6{width:80px;height:80px;border-radius:40px;}._7{display:flex;flex-direction:column;gap:10px;}._8{font-weight:bold;font-size:24px;color:#333;}._9{display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;}._10{display:flex;flex-direction:column;padding:20px;background:white;border-radius:8px;border:1px solid #e5e7eb;transition:all 0.15s ease;cursor:pointer;}._10:hover{border:1px solid #3b82f6;}._11{font-weight:bold;}._12{display:flex;flex-direction:row;gap:10px;}._13{display:flex;flex-direction:column;padding:16px;background:#3b82f6;border-radius:8px;transition:all 0.15s ease;cursor:pointer;}._13:hover{background:#2563eb;}._13:active{background:#1d4ed8;}._14{color:white;font-weight:bold;}._15{display:flex;flex-direction:column;flex:1;min-width:0;}._16{color:#888;}</style></head><body><div class="_0"><div class="_1"><div class="_2"><span class="_3">Welcome to htmlang</span><p class="_4">A minimalist layout language that compiles to <span class="_5">static HTML</span>.</p></div><img src="https://picsum.photos/80" class="_6"></div><div class="_7"><span class="_8">Features</span><div class="_9"><div class="_10"><span class="_11">Simple</span><span>Write layouts without CSS</span></div><div class="_10"><span class="_11">Fast</span><span>Compiles to a single HTML file</span></div><div class="_10"><span class="_11">Minimal</span><span>No JavaScript required</span></div></div></div><div class="_12"><div class="_13"><a href="https://github.com"><span class="_14">Get Started</span></a></div><div class="_15"></div><span class="_16">© 2026</span></div></div></body></html>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>htmlang Demo</title>
+<link rel="preload" href="https://picsum.photos/80" as="image">
+<link rel="dns-prefetch" href="//picsum.photos">
+<link rel="dns-prefetch" href="//github.com">
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+img { display: block; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+@layer htmlang {
+  .a {display:flex;flex-direction:column;max-width:800px;margin-left:auto;margin-right:auto;padding:40px;gap:20px;}
+  .b {display:flex;flex-direction:row;gap:20px;}
+  .c {display:flex;flex-direction:column;flex:1;min-width:0;gap:10px;}
+  .d {font-weight:bold;font-size:32px;}
+  .e {margin:0;}
+  .f {font-weight:bold;color:#3b82f6;}
+  .g {width:80px;height:80px;border-radius:40px;}
+  .h {display:flex;flex-direction:column;gap:10px;}
+  .i {font-weight:bold;font-size:24px;color:#333;}
+  .j {display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;}
+  .k {display:flex;flex-direction:column;padding:20px;background:white;border-radius:8px;border:1px solid #e5e7eb;transition:all 0.15s ease;cursor:pointer;}
+  .k:hover {border:1px solid #3b82f6;}
+  .l {font-weight:bold;}
+  .m {display:flex;flex-direction:row;gap:10px;}
+  .n {display:flex;flex-direction:column;padding:16px;background:#3b82f6;border-radius:8px;transition:all 0.15s ease;cursor:pointer;}
+  .n:hover {background:#2563eb;}
+  .n:active {background:#1d4ed8;}
+  .o {color:white;font-weight:bold;}
+  .p {display:flex;flex-direction:column;flex:1;min-width:0;}
+  .q {color:#888;}
+}
+</style>
+</head>
+<body>
+<!-- @column line 17 -->
+<div class="a" data-hl-line="17" data-hl-el="column">
+  <!-- @row line 18 -->
+  <div class="b" data-hl-line="18" data-hl-el="row">
+    <!-- @column line 19 -->
+    <div class="c" data-hl-line="19" data-hl-el="column">
+      <!-- @text line 20 -->
+      <span class="d" data-hl-line="20" data-hl-el="text">
+Welcome to htmlang      </span>
+      <!-- @paragraph line 21 -->
+      <p class="e" data-hl-line="21" data-hl-el="paragraph">
+A minimalist layout language that compiles to         <span class="f">
+static HTML        </span>.      </p>
+    </div>
+    <!-- @image line 24 -->
+    <img src="https://picsum.photos/80" class="g" alt="&quot;A stock photo&quot;" data-hl-line="24" data-hl-el="image" fetchpriority="high">
+  </div>
+  <!-- @column line 13 -->
+  <div class="h" data-hl-line="13" data-hl-el="column">
+    <!-- @text line 14 -->
+    <span class="i" data-hl-line="14" data-hl-el="text">
+Features    </span>
+    <!-- @row line 28 -->
+    <div class="j" data-hl-line="28" data-hl-el="row">
+      <!-- @el line 7 -->
+      <div class="k" data-hl-line="7" data-hl-el="el">
+        <!-- @text line 8 -->
+        <span class="l" data-hl-line="8" data-hl-el="text">
+Simple        </span>
+        <span>Write layouts without CSS</span>
+      </div>
+      <!-- @el line 7 -->
+      <div class="k" data-hl-line="7" data-hl-el="el">
+        <!-- @text line 8 -->
+        <span class="l" data-hl-line="8" data-hl-el="text">
+Fast        </span>
+        <span>Compiles to a single HTML file</span>
+      </div>
+      <!-- @el line 7 -->
+      <div class="k" data-hl-line="7" data-hl-el="el">
+        <!-- @text line 8 -->
+        <span class="l" data-hl-line="8" data-hl-el="text">
+Minimal        </span>
+        <span>No JavaScript required</span>
+      </div>
+    </div>
+  </div>
+  <!-- @row line 37 -->
+  <div class="m" data-hl-line="37" data-hl-el="row">
+    <!-- @el line 38 -->
+    <div class="n" data-hl-line="38" data-hl-el="el">
+      <!-- @link line 38 -->
+      <a href="https://github.com" rel="noopener noreferrer" target="_blank" data-hl-line="38" data-hl-el="link">
+        <!-- @text line 39 -->
+        <span class="o" data-hl-line="39" data-hl-el="text">
+Get Started        </span>
+      </a>
+    </div>
+    <!-- @el line 40 -->
+    <div class="p" data-hl-line="40" data-hl-el="el">
+    </div>
+    <!-- @text line 41 -->
+    <span class="q" data-hl-line="41" data-hl-el="text">
+© 2026    </span>
+  </div>
+</div>
+</body>
+</html>
