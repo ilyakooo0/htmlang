@@ -4,9 +4,9 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
+use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use tokio_rustls::TlsAcceptor;
 
 /// TLS configuration for the dev server. Load with `load_tls_config` and pass
 /// to `run_https` / `run_dir_https`.
@@ -156,7 +156,6 @@ pub async fn run_dir_https(
     }
 }
 
-
 async fn handle_dir_request<S>(
     mut stream: S,
     root_dir: PathBuf,
@@ -249,7 +248,8 @@ where
             let content_type = content_type_for(&fp);
             let header = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
-                content_type, body.len(),
+                content_type,
+                body.len(),
             );
             stream.write_all(header.as_bytes()).await?;
             stream.write_all(&body).await?;
@@ -282,9 +282,9 @@ fn generate_directory_listing(dir: &Path) -> String {
     } else {
         for page in &pages {
             let display = page.trim_start_matches('/');
-            let clean = display.strip_suffix("/index.html").unwrap_or(
-                display.strip_suffix(".html").unwrap_or(display),
-            );
+            let clean = display
+                .strip_suffix("/index.html")
+                .unwrap_or(display.strip_suffix(".html").unwrap_or(display));
             let label = if clean.is_empty() { "index" } else { clean };
             html.push_str(&format!(
                 "<a href=\"{}\">{} <span class=\"path\">{}</span></a>",
@@ -305,9 +305,10 @@ fn collect_html_pages(base: &Path, dir: &Path, pages: &mut Vec<String>) {
             if path.is_dir() {
                 collect_html_pages(base, &path, pages);
             } else if path.extension().is_some_and(|e| e == "html")
-                && let Ok(rel) = path.strip_prefix(base) {
-                    pages.push(format!("/{}", rel.display()));
-                }
+                && let Ok(rel) = path.strip_prefix(base)
+            {
+                pages.push(format!("/{}", rel.display()));
+            }
         }
     }
 }
@@ -341,10 +342,7 @@ where
     }
 }
 
-async fn handle_sse<S>(
-    mut stream: S,
-    mut rx: broadcast::Receiver<()>,
-) -> std::io::Result<()>
+async fn handle_sse<S>(mut stream: S, mut rx: broadcast::Receiver<()>) -> std::io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send,
 {
@@ -356,7 +354,11 @@ where
     stream.write_all(headers.as_bytes()).await?;
     // Send retry hint (ms) so browsers reconnect quickly after a drop, plus an
     // initial comment line that flushes headers through proxies.
-    if stream.write_all(b"retry: 1000\n: connected\n\n").await.is_err() {
+    if stream
+        .write_all(b"retry: 1000\n: connected\n\n")
+        .await
+        .is_err()
+    {
         return Ok(());
     }
 
@@ -408,8 +410,7 @@ where
     let file_path = if request_path == "/" {
         html_path.to_path_buf()
     } else {
-        let dir = root_dir
-            .unwrap_or_else(|| html_path.parent().unwrap_or(Path::new(".")));
+        let dir = root_dir.unwrap_or_else(|| html_path.parent().unwrap_or(Path::new(".")));
         dir.join(&request_path[1..])
     };
 

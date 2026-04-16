@@ -87,7 +87,11 @@ Examples:
 
 pub fn run_lsp() {
     let self_exe = env::current_exe().ok();
-    let lsp_name = if cfg!(windows) { "htmlang-lsp.exe" } else { "htmlang-lsp" };
+    let lsp_name = if cfg!(windows) {
+        "htmlang-lsp.exe"
+    } else {
+        "htmlang-lsp"
+    };
 
     let lsp_path = self_exe
         .as_ref()
@@ -113,7 +117,9 @@ pub fn run_lsp() {
         }
         Err(_) => {
             eprintln!("error: could not find htmlang-lsp binary");
-            eprintln!("hint: ensure htmlang-lsp is in the same directory as htmlang, or in your PATH");
+            eprintln!(
+                "hint: ensure htmlang-lsp is in the same directory as htmlang, or in your PATH"
+            );
             process::exit(1);
         }
     }
@@ -132,7 +138,8 @@ pub fn print_shell_completions(shell: &str) {
 }
 
 fn print_bash_completions() {
-    println!(r#"_htmlang() {{
+    println!(
+        r#"_htmlang() {{
     local cur prev commands
     cur="${{COMP_WORDS[COMP_CWORD]}}"
     prev="${{COMP_WORDS[COMP_CWORD-1]}}"
@@ -159,11 +166,13 @@ fn print_bash_completions() {
             ;;
     esac
 }}
-complete -F _htmlang htmlang"#);
+complete -F _htmlang htmlang"#
+    );
 }
 
 fn print_zsh_completions() {
-    println!(r#"#compdef htmlang
+    println!(
+        r#"#compdef htmlang
 
 _htmlang() {{
     local -a commands=(
@@ -235,7 +244,8 @@ _htmlang() {{
     fi
 }}
 
-_htmlang "$@""#);
+_htmlang "$@""#
+    );
 }
 
 fn print_fish_completions() {
@@ -277,7 +287,10 @@ fn print_fish_completions() {
     ];
 
     for (cmd, desc) in &commands {
-        println!("complete -c htmlang -n '__fish_use_subcommand' -a '{}' -d '{}'", cmd, desc);
+        println!(
+            "complete -c htmlang -n '__fish_use_subcommand' -a '{}' -d '{}'",
+            cmd, desc
+        );
     }
 
     let flags = [
@@ -287,7 +300,11 @@ fn print_fish_completions() {
         ("-c", "--check", "Check only"),
         ("", "--compat", "Add vendor prefixes"),
         ("", "--strict", "Treat warnings as errors"),
-        ("", "--partial", "Output HTML fragment without document wrapper"),
+        (
+            "",
+            "--partial",
+            "Output HTML fragment without document wrapper",
+        ),
         ("", "--open", "Open browser"),
         ("", "--minify", "Minify output"),
         ("-o", "--output", "Output path"),
@@ -298,9 +315,18 @@ fn print_fish_completions() {
 
     for (short, long, desc) in &flags {
         if short.is_empty() {
-            println!("complete -c htmlang -l '{}' -d '{}'", long.trim_start_matches('-'), desc);
+            println!(
+                "complete -c htmlang -l '{}' -d '{}'",
+                long.trim_start_matches('-'),
+                desc
+            );
         } else {
-            println!("complete -c htmlang -s '{}' -l '{}' -d '{}'", short.trim_start_matches('-'), long.trim_start_matches('-'), desc);
+            println!(
+                "complete -c htmlang -s '{}' -l '{}' -d '{}'",
+                short.trim_start_matches('-'),
+                long.trim_start_matches('-'),
+                desc
+            );
         }
     }
 

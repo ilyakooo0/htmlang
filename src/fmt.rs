@@ -40,46 +40,67 @@ fn attr_category(key: &str) -> u8 {
 
     match base {
         // Layout (parent)
-        "spacing" | "gap" | "gap-x" | "gap-y" | "wrap"
-        | "grid" | "grid-cols" | "grid-rows"
+        "spacing" | "gap" | "gap-x" | "gap-y" | "wrap" | "grid" | "grid-cols" | "grid-rows"
         | "column-count" | "column-gap" | "column-width" | "column-rule" => 0,
         // Sizing
         "width" | "height" | "min-width" | "max-width" | "min-height" | "max-height"
         | "flex-grow" | "flex-shrink" | "flex-basis" => 1,
         // Padding & margin
-        "padding" | "padding-x" | "padding-y" | "padding-inline" | "padding-block"
-        | "margin" | "margin-x" | "margin-y" | "margin-inline" | "margin-block" => 2,
+        "padding" | "padding-x" | "padding-y" | "padding-inline" | "padding-block" | "margin"
+        | "margin-x" | "margin-y" | "margin-inline" | "margin-block" => 2,
         // Alignment
-        "center-x" | "center-y" | "align-left" | "align-right"
-        | "align-top" | "align-bottom" | "justify-content" | "align-items"
-        | "place-items" | "place-self" | "place-content" => 3,
+        "center-x" | "center-y" | "align-left" | "align-right" | "align-top" | "align-bottom"
+        | "justify-content" | "align-items" | "place-items" | "place-self" | "place-content" => 3,
         // Positioning
         "position" | "top" | "right" | "bottom" | "left" | "z-index" | "order" | "inset"
-        | "col-span" | "row-span" | "display" | "visibility"
-        | "overflow" | "overflow-x" | "overflow-y" | "hidden" => 4,
+        | "col-span" | "row-span" | "display" | "visibility" | "overflow" | "overflow-x"
+        | "overflow-y" | "hidden" => 4,
         // Visual style
-        "background" | "background-size" | "background-position" | "background-repeat"
-        | "color" | "opacity" | "accent-color" | "caret-color"
-        | "background-image" | "background-blend-mode" | "mix-blend-mode" | "isolation" => 5,
+        "background"
+        | "background-size"
+        | "background-position"
+        | "background-repeat"
+        | "color"
+        | "opacity"
+        | "accent-color"
+        | "caret-color"
+        | "background-image"
+        | "background-blend-mode"
+        | "mix-blend-mode"
+        | "isolation" => 5,
         // Border & shape
-        "border" | "border-top" | "border-bottom" | "border-left" | "border-right"
-        | "rounded" | "outline" | "shadow" | "text-shadow"
-        | "border-collapse" | "border-spacing" => 6,
+        "border" | "border-top" | "border-bottom" | "border-left" | "border-right" | "rounded"
+        | "outline" | "shadow" | "text-shadow" | "border-collapse" | "border-spacing" => 6,
         // Typography
-        "bold" | "italic" | "underline" | "size" | "font"
-        | "text-align" | "line-height" | "letter-spacing" | "text-transform"
-        | "white-space" | "text-overflow" | "word-break" | "overflow-wrap"
-        | "text-decoration" | "text-decoration-color" | "text-decoration-thickness"
-        | "text-decoration-style" | "text-underline-offset" | "list-style"
-        | "text-indent" | "hyphens" | "writing-mode" => 7,
+        "bold"
+        | "italic"
+        | "underline"
+        | "size"
+        | "font"
+        | "text-align"
+        | "line-height"
+        | "letter-spacing"
+        | "text-transform"
+        | "white-space"
+        | "text-overflow"
+        | "word-break"
+        | "overflow-wrap"
+        | "text-decoration"
+        | "text-decoration-color"
+        | "text-decoration-thickness"
+        | "text-decoration-style"
+        | "text-underline-offset"
+        | "list-style"
+        | "text-indent"
+        | "hyphens"
+        | "writing-mode" => 7,
         // Effects & interaction
-        "transform" | "transition" | "animation" | "cursor" | "backdrop-filter"
-        | "filter" | "pointer-events" | "user-select" | "aspect-ratio"
-        | "object-fit" | "object-position" | "resize"
-        | "clip-path" => 8,
+        "transform" | "transition" | "animation" | "cursor" | "backdrop-filter" | "filter"
+        | "pointer-events" | "user-select" | "aspect-ratio" | "object-fit" | "object-position"
+        | "resize" | "clip-path" => 8,
         // Container queries & scroll
-        "container" | "container-name" | "container-type"
-        | "scroll-snap-type" | "scroll-snap-align" | "scroll-behavior" => 9,
+        "container" | "container-name" | "container-type" | "scroll-snap-type"
+        | "scroll-snap-align" | "scroll-behavior" => 9,
         // Identity
         "id" | "class" => 10,
         // HTML passthrough / form / accessibility
@@ -95,7 +116,8 @@ fn sort_attrs(attrs_str: &str) -> String {
         let key = part.split_whitespace().next().unwrap_or("");
         attr_category(key)
     });
-    parts.iter()
+    parts
+        .iter()
         .map(|p| p.trim())
         .filter(|p| !p.is_empty())
         .collect::<Vec<_>>()
@@ -221,15 +243,12 @@ pub fn format(input: &str) -> String {
                 let indented_len = level * 2 + formatted.len();
                 // Stay wrapped if the original was wrapped (hysteresis).
                 let should_wrap = (indented_len > MAX_LINE_WIDTH)
-                    || (bracket_was_wrapped
-                        && attrs_count > 1
-                        && indented_len > WRAP_MIN_WIDTH);
-                if should_wrap
-                    && let Some(wrapped) = wrap_attrs(&formatted, level) {
-                        output.push_str(&wrapped);
-                        bracket_was_wrapped = false;
-                        continue;
-                    }
+                    || (bracket_was_wrapped && attrs_count > 1 && indented_len > WRAP_MIN_WIDTH);
+                if should_wrap && let Some(wrapped) = wrap_attrs(&formatted, level) {
+                    output.push_str(&wrapped);
+                    bracket_was_wrapped = false;
+                    continue;
+                }
                 output.push_str(&"  ".repeat(level));
                 output.push_str(&formatted);
                 if let Some(cmt) = pending_comment.take() {
@@ -274,21 +293,23 @@ pub fn format(input: &str) -> String {
 
         let indented_len = level * 2 + formatted.len();
         // Single-line emission — only wrap when we strictly exceed the ceiling.
-        if indented_len > MAX_LINE_WIDTH && formatted.contains('[')
-            && let Some(mut wrapped) = wrap_attrs(&formatted, level) {
-                if let Some(cmt) = &trailing {
-                    // Reattach comment on the final `]` line.
-                    if wrapped.ends_with('\n') {
-                        wrapped.pop();
-                    }
-                    wrapped.push(' ');
-                    wrapped.push_str(cmt);
-                    wrapped.push('\n');
+        if indented_len > MAX_LINE_WIDTH
+            && formatted.contains('[')
+            && let Some(mut wrapped) = wrap_attrs(&formatted, level)
+        {
+            if let Some(cmt) = &trailing {
+                // Reattach comment on the final `]` line.
+                if wrapped.ends_with('\n') {
+                    wrapped.pop();
                 }
-                output.push_str(&wrapped);
-                indent_stack.push(raw_indent);
-                continue;
+                wrapped.push(' ');
+                wrapped.push_str(cmt);
+                wrapped.push('\n');
             }
+            output.push_str(&wrapped);
+            indent_stack.push(raw_indent);
+            continue;
+        }
         let _ = attrs_count;
 
         output.push_str(&"  ".repeat(level));
@@ -350,7 +371,9 @@ fn format_line_with_brackets(line: &str) -> String {
 }
 
 fn count_attrs(line: &str) -> usize {
-    let Some(start) = line.find('[') else { return 0 };
+    let Some(start) = line.find('[') else {
+        return 0;
+    };
     let Some(end) = line.rfind(']') else { return 0 };
     if end <= start {
         return 0;
@@ -395,7 +418,11 @@ fn wrap_attrs(line: &str, indent_level: usize) -> Option<String> {
     let attrs_inner = &line[bracket_start + 1..bracket_end];
     let after = &line[bracket_end + 1..];
 
-    let parts: Vec<&str> = attrs_inner.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let parts: Vec<&str> = attrs_inner
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
     if parts.len() <= 1 {
         return None;
     }
@@ -444,7 +471,10 @@ mod tests {
     fn preserves_trailing_comment() {
         let src = "@text [bold] hello -- greeting\n";
         let out = format(src);
-        assert!(out.contains("-- greeting"), "trailing comment should survive format: {out}");
+        assert!(
+            out.contains("-- greeting"),
+            "trailing comment should survive format: {out}"
+        );
     }
 
     #[test]

@@ -228,20 +228,22 @@ fn collect_image_preload_hints(nodes: &[Node]) -> Vec<crate::ast::PreloadHint> {
 
 fn collect_images_recursive(nodes: &[Node], hints: &mut Vec<crate::ast::PreloadHint>, max: usize) {
     for node in nodes {
-        if hints.len() >= max { return; }
+        if hints.len() >= max {
+            return;
+        }
         if let Node::Element(elem) = node {
             if elem.kind == ElementKind::Image
                 && let Some(ref src) = elem.argument
-                    && !src.is_empty()
-                        && !src.starts_with("data:")
-                        && !src.starts_with('#')
-                    {
-                        hints.push(crate::ast::PreloadHint {
-                            href: src.clone(),
-                            as_type: "image".to_string(),
-                            crossorigin: false,
-                        });
-                    }
+                && !src.is_empty()
+                && !src.starts_with("data:")
+                && !src.starts_with('#')
+            {
+                hints.push(crate::ast::PreloadHint {
+                    href: src.clone(),
+                    as_type: "image".to_string(),
+                    crossorigin: false,
+                });
+            }
             collect_images_recursive(&elem.children, hints, max);
         }
     }
@@ -302,9 +304,7 @@ fn preprocess(input: &str) -> Vec<Line> {
 
                 lines.push(Line {
                     indent,
-                    content: LineContent::Raw(
-                        raw_content.trim_end_matches('\n').to_string(),
-                    ),
+                    content: LineContent::Raw(raw_content.trim_end_matches('\n').to_string()),
                     line_num: i,
                 });
                 continue;
@@ -344,11 +344,7 @@ fn preprocess(input: &str) -> Vec<Line> {
 // ---------------------------------------------------------------------------
 
 impl Parser {
-    fn parse_children(
-        &mut self,
-        min_indent: usize,
-        ctx: &mut ParseContext,
-    ) -> Vec<Node> {
+    fn parse_children(&mut self, min_indent: usize, ctx: &mut ParseContext) -> Vec<Node> {
         let mut nodes = Vec::new();
 
         while self.pos < self.lines.len() {
@@ -379,9 +375,7 @@ impl Parser {
                         source_line: source,
                     });
                     // Skip forward past any deeper-indented children of the errored line
-                    while self.pos < self.lines.len()
-                        && self.lines[self.pos].indent > indent
-                    {
+                    while self.pos < self.lines.len() && self.lines[self.pos].indent > indent {
                         self.pos += 1;
                     }
                 }
@@ -391,10 +385,7 @@ impl Parser {
         nodes
     }
 
-    fn parse_line(
-        &mut self,
-        ctx: &mut ParseContext,
-    ) -> Result<Option<Vec<Node>>, ParseError> {
+    fn parse_line(&mut self, ctx: &mut ParseContext) -> Result<Option<Vec<Node>>, ParseError> {
         let line_num = self.lines[self.pos].line_num;
         let current_indent = self.lines[self.pos].indent;
 
@@ -452,7 +443,7 @@ impl Parser {
                 let value = if let Some(after_open) = value.strip_prefix("\"\"\"") {
                     if after_open.ends_with("\"\"\"") && after_open.len() >= 3 {
                         // Single-line triple-quote: @let name """value"""
-                        value_str = after_open[..after_open.len()-3].to_string();
+                        value_str = after_open[..after_open.len() - 3].to_string();
                         value_str.as_str()
                     } else {
                         // Multi-line: collect indented body lines until closing """
@@ -483,7 +474,7 @@ impl Parser {
                     }
                 } else if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
                     // Support quoted string interpolation: @let greeting "Hello $name"
-                    &value[1..value.len()-1]
+                    &value[1..value.len() - 1]
                 } else {
                     value
                 };
@@ -515,7 +506,7 @@ impl Parser {
             if parts.len() == 2 {
                 let value = substitute_vars(parts[1].trim(), &ctx.variables);
                 let value = if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
-                    value[1..value.len()-1].to_string()
+                    value[1..value.len() - 1].to_string()
                 } else {
                     value
                 };
@@ -527,7 +518,10 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@breakpoint ") {
             let rest = rest.trim();
             if let Some((name, value)) = rest.split_once(' ') {
-                ctx.custom_breakpoints.push((name.trim().to_string(), substitute_vars(value.trim(), &ctx.variables)));
+                ctx.custom_breakpoints.push((
+                    name.trim().to_string(),
+                    substitute_vars(value.trim(), &ctx.variables),
+                ));
             }
             return Ok(None);
         }
@@ -678,14 +672,18 @@ impl Parser {
                             "short_name" | "short-name" => manifest.short_name = Some(value),
                             "start_url" | "start-url" => manifest.start_url = value,
                             "display" => manifest.display = value,
-                            "background_color" | "background-color" => manifest.background_color = Some(value),
+                            "background_color" | "background-color" => {
+                                manifest.background_color = Some(value)
+                            }
                             "theme_color" | "theme-color" => manifest.theme_color = Some(value),
                             "description" => manifest.description = Some(value),
                             "icon" => {
                                 // icon src sizes (e.g., icon /icon-192.png 192x192)
                                 let parts: Vec<&str> = value.splitn(2, ' ').collect();
                                 if parts.len() == 2 {
-                                    manifest.icons.push((parts[0].to_string(), parts[1].to_string()));
+                                    manifest
+                                        .icons
+                                        .push((parts[0].to_string(), parts[1].to_string()));
                                 } else {
                                     manifest.icons.push((value, "192x192".to_string()));
                                 }
@@ -705,7 +703,10 @@ impl Parser {
             let rest = rest.trim();
             // Parse: @with $source as alias
             if let Some((source_part, alias)) = rest.split_once(" as ") {
-                let source_name = source_part.trim().strip_prefix('$').unwrap_or(source_part.trim());
+                let source_name = source_part
+                    .trim()
+                    .strip_prefix('$')
+                    .unwrap_or(source_part.trim());
                 let alias = alias.trim();
                 ctx.used_variables.insert(source_name.to_string());
                 let value = ctx.variables.get(source_name).cloned().unwrap_or_default();
@@ -784,7 +785,10 @@ impl Parser {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
                     column: None,
-                    message: format!("circular include '{}' (cycle: {} → {})", filename, cycle_chain, filename),
+                    message: format!(
+                        "circular include '{}' (cycle: {} → {})",
+                        filename, cycle_chain, filename
+                    ),
                     severity: Severity::Error,
                     source_line: Some(content.clone()),
                 });
@@ -842,17 +846,22 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@import ") {
             let rest = rest.trim();
             // Support @import "file.hl" as prefix — namespace imported definitions
-            let (filename, alias) = if let Some((file_part, alias_part)) = rest.rsplit_once(" as ") {
-                (file_part.trim().to_string(), Some(alias_part.trim().to_string()))
+            let (filename, alias) = if let Some((file_part, alias_part)) = rest.rsplit_once(" as ")
+            {
+                (
+                    file_part.trim().to_string(),
+                    Some(alias_part.trim().to_string()),
+                )
             } else {
                 (rest.to_string(), None)
             };
             // Strip quotes from filename
-            let filename = if filename.starts_with('"') && filename.ends_with('"') && filename.len() >= 2 {
-                filename[1..filename.len()-1].to_string()
-            } else {
-                filename
-            };
+            let filename =
+                if filename.starts_with('"') && filename.ends_with('"') && filename.len() >= 2 {
+                    filename[1..filename.len() - 1].to_string()
+                } else {
+                    filename
+                };
             let filename = substitute_vars(&filename, &ctx.variables);
 
             // Glob support: if filename contains *, expand to multiple imports
@@ -863,7 +872,14 @@ impl Parser {
                 };
                 let pattern_path = Path::new(&filename);
                 let (glob_dir, glob_pattern) = match pattern_path.parent() {
-                    Some(dir) if !dir.as_os_str().is_empty() => (base_dir.join(dir), pattern_path.file_name().unwrap_or_default().to_string_lossy().to_string()),
+                    Some(dir) if !dir.as_os_str().is_empty() => (
+                        base_dir.join(dir),
+                        pattern_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                    ),
                     _ => (base_dir.clone(), filename.clone()),
                 };
                 let matched_files = match std::fs::read_dir(&glob_dir) {
@@ -883,7 +899,10 @@ impl Parser {
                         ctx.diagnostics.push(Diagnostic {
                             line: line_num,
                             column: None,
-                            message: format!("cannot read directory for glob '{}': {}", filename, e),
+                            message: format!(
+                                "cannot read directory for glob '{}': {}",
+                                filename, e
+                            ),
                             severity: Severity::Error,
                             source_line: Some(content.clone()),
                         });
@@ -901,11 +920,19 @@ impl Parser {
                     return Ok(None);
                 }
                 for file_path in matched_files {
-                    let rel_name = file_path.strip_prefix(&base_dir).unwrap_or(&file_path).to_string_lossy().to_string();
+                    let rel_name = file_path
+                        .strip_prefix(&base_dir)
+                        .unwrap_or(&file_path)
+                        .to_string_lossy()
+                        .to_string();
                     // Synthesize an @import line for each matched file
                     let import_line = match &alias {
                         Some(pfx) => {
-                            let stem = file_path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                            let stem = file_path
+                                .file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
                             format!("@import \"{}\" as {}.{}", rel_name, pfx, stem)
                         }
                         None => format!("@import \"{}\"", rel_name),
@@ -930,7 +957,10 @@ impl Parser {
                 ctx.diagnostics.push(Diagnostic {
                     line: line_num,
                     column: None,
-                    message: format!("circular import '{}' (cycle: {} → {})", filename, cycle_chain, filename),
+                    message: format!(
+                        "circular import '{}' (cycle: {} → {})",
+                        filename, cycle_chain, filename
+                    ),
                     severity: Severity::Error,
                     source_line: Some(content.clone()),
                 });
@@ -987,7 +1017,9 @@ impl Parser {
                 let _discarded_nodes = imported_parser.parse_children(0, ctx);
 
                 // Remove newly added entries and re-insert them under the prefix.
-                let new_fn_keys: Vec<String> = ctx.functions.keys()
+                let new_fn_keys: Vec<String> = ctx
+                    .functions
+                    .keys()
                     .filter(|k| !fn_keys_before.contains(*k))
                     .cloned()
                     .collect();
@@ -996,7 +1028,9 @@ impl Parser {
                         ctx.functions.insert(format!("{}.{}", prefix, name), def);
                     }
                 }
-                let new_define_keys: Vec<String> = ctx.defines.keys()
+                let new_define_keys: Vec<String> = ctx
+                    .defines
+                    .keys()
                     .filter(|k| !define_keys_before.contains(*k))
                     .cloned()
                     .collect();
@@ -1005,7 +1039,9 @@ impl Parser {
                         ctx.defines.insert(format!("{}.{}", prefix, name), attrs);
                     }
                 }
-                let new_mixin_keys: Vec<String> = ctx.mixins.keys()
+                let new_mixin_keys: Vec<String> = ctx
+                    .mixins
+                    .keys()
                     .filter(|k| !mixin_keys_before.contains(*k))
                     .cloned()
                     .collect();
@@ -1014,15 +1050,18 @@ impl Parser {
                         ctx.mixins.insert(format!("{}.{}", prefix, name), attrs);
                     }
                 }
-                let new_var_keys: Vec<String> = ctx.variables.keys()
+                let new_var_keys: Vec<String> = ctx
+                    .variables
+                    .keys()
                     .filter(|k| !var_keys_before.contains(*k))
                     .cloned()
                     .collect();
                 for name in new_var_keys {
                     if let Some(val) = ctx.variables.remove(&name)
-                        && !name.starts_with("__") {
-                            ctx.variables.insert(format!("{}.{}", prefix, name), val);
-                        }
+                        && !name.starts_with("__")
+                    {
+                        ctx.variables.insert(format!("{}.{}", prefix, name), val);
+                    }
                 }
             } else {
                 // Parse the file but discard DOM nodes — only keep definitions
@@ -1056,10 +1095,9 @@ impl Parser {
             } else {
                 (rest, None)
             };
-            let env_val = std::env::var(var_name).ok().or_else(|| default_val.map(|d| {
-                
-                substitute_vars(d, &ctx.variables)
-            }));
+            let env_val = std::env::var(var_name)
+                .ok()
+                .or_else(|| default_val.map(|d| substitute_vars(d, &ctx.variables)));
             match env_val {
                 Some(val) => {
                     // Store as variable with lowercase name
@@ -1070,7 +1108,10 @@ impl Parser {
                     ctx.diagnostics.push(Diagnostic {
                         line: line_num,
                         column: None,
-                        message: format!("environment variable '{}' is not set and no default provided", var_name),
+                        message: format!(
+                            "environment variable '{}' is not set and no default provided",
+                            var_name
+                        ),
                         severity: Severity::Warning,
                         source_line: Some(content.clone()),
                     });
@@ -1086,7 +1127,10 @@ impl Parser {
             // @fetch $prefix https://url  OR  @fetch https://url
             let (prefix, url) = if rest.starts_with('$') {
                 if let Some((p, u)) = rest.split_once(' ') {
-                    (p.strip_prefix('$').unwrap_or(p).to_string(), u.trim().to_string())
+                    (
+                        p.strip_prefix('$').unwrap_or(p).to_string(),
+                        u.trim().to_string(),
+                    )
                 } else {
                     return Err(ParseError {
                         line: line_num,
@@ -1271,11 +1315,15 @@ impl Parser {
             // @data $prefix file.json  OR  @data file.json (no prefix, top-level keys become vars)
             let (prefix, filename) = if rest.starts_with('$') {
                 if let Some((p, f)) = rest.split_once(' ') {
-                    (p.strip_prefix('$').unwrap_or(p).to_string(), f.trim().to_string())
+                    (
+                        p.strip_prefix('$').unwrap_or(p).to_string(),
+                        f.trim().to_string(),
+                    )
                 } else {
                     return Err(ParseError {
                         line: line_num,
-                        message: "@data requires: @data $prefix file.json or @data file.json".to_string(),
+                        message: "@data requires: @data $prefix file.json or @data file.json"
+                            .to_string(),
                     });
                 }
             } else {
@@ -1318,7 +1366,8 @@ impl Parser {
                             ctx.diagnostics.push(Diagnostic {
                                 line: line_num,
                                 column: None,
-                                message: "@data without prefix requires a JSON object at top level".to_string(),
+                                message: "@data without prefix requires a JSON object at top level"
+                                    .to_string(),
                                 severity: Severity::Error,
                                 source_line: Some(content.clone()),
                             });
@@ -1425,7 +1474,10 @@ impl Parser {
             let saved_defines = ctx.defines.clone();
 
             let use_lines = preprocess(&use_text);
-            let mut use_parser = Parser { lines: use_lines, pos: 0 };
+            let mut use_parser = Parser {
+                lines: use_lines,
+                pos: 0,
+            };
             let _discarded = use_parser.parse_children(0, ctx);
 
             // Keep only the wanted functions/defines, restore everything else
@@ -1477,7 +1529,8 @@ impl Parser {
 
             // Simple glob: support * in filename part
             let parent = glob_pattern.parent().unwrap_or(Path::new("."));
-            let file_pattern = glob_pattern.file_name()
+            let file_pattern = glob_pattern
+                .file_name()
                 .map(|f| f.to_string_lossy().to_string())
                 .unwrap_or_default();
 
@@ -1507,7 +1560,8 @@ impl Parser {
                 for path in &paths {
                     if let Ok(text) = std::fs::read_to_string(path) {
                         // Store the file content as a JSON string for each item
-                        let stem = path.file_stem()
+                        let stem = path
+                            .file_stem()
                             .and_then(|s| s.to_str())
                             .unwrap_or("")
                             .to_string();
@@ -1517,19 +1571,21 @@ impl Parser {
             }
 
             // Store item count and serialized data as variables
-            ctx.variables.insert(format!("{}_count", var_name), items.len().to_string());
+            ctx.variables
+                .insert(format!("{}_count", var_name), items.len().to_string());
             // Store as space-separated list of stems for @each
             let stems: Vec<String> = items.iter().map(|(stem, _)| stem.clone()).collect();
             ctx.variables.insert(var_name.clone(), stems.join(" "));
             // Also parse each JSON file and store keys as prefix_stem_key
             for (stem, text) in &items {
                 if let Some(json) = parse_json(text.trim())
-                    && let JsonValue::Object(ref obj) = json {
-                        for (key, val) in obj {
-                            let var_key = format!("{}_{}", stem, key);
-                            ctx.variables.insert(var_key, json_value_to_string(val));
-                        }
+                    && let JsonValue::Object(ref obj) = json
+                {
+                    for (key, val) in obj {
+                        let var_key = format!("{}_{}", stem, key);
+                        ctx.variables.insert(var_key, json_value_to_string(val));
                     }
+                }
             }
 
             return Ok(None);
@@ -1636,13 +1692,19 @@ impl Parser {
                 return Ok(None);
             }
             let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
-            let adjusted: Vec<Line> = body_lines.iter().map(|l| Line {
-                indent: l.indent - min_indent,
-                content: l.content.clone(),
-                line_num: l.line_num,
-            }).collect();
+            let adjusted: Vec<Line> = body_lines
+                .iter()
+                .map(|l| Line {
+                    indent: l.indent - min_indent,
+                    content: l.content.clone(),
+                    line_num: l.line_num,
+                })
+                .collect();
             let saved_vars = ctx.variables.clone();
-            let mut body_parser = Parser { lines: adjusted, pos: 0 };
+            let mut body_parser = Parser {
+                lines: adjusted,
+                pos: 0,
+            };
             let nodes = body_parser.parse_children(0, ctx);
             ctx.variables = saved_vars;
             return Ok(Some(nodes));
@@ -1661,9 +1723,11 @@ impl Parser {
             let rest = rest.trim();
             // Support: @each $var in list  OR  @each $var, $index in list
             // OR  @each $name, $url in Alice /alice, Bob /bob (destructuring)
-            let (var_names, list_str) = if let Some((before_in, after_in)) = rest.split_once(" in ") {
+            let (var_names, list_str) = if let Some((before_in, after_in)) = rest.split_once(" in ")
+            {
                 let before_in = before_in.trim();
-                let vars: Vec<String> = before_in.split(',')
+                let vars: Vec<String> = before_in
+                    .split(',')
                     .map(|v| v.trim().strip_prefix('$').unwrap_or(v.trim()).to_string())
                     .collect();
                 (vars, after_in.trim().to_string())
@@ -1685,23 +1749,38 @@ impl Parser {
                 } else {
                     (rest.trim(), 1i64)
                 };
-                if let (Ok(start), Ok(end)) = (start_s.trim().parse::<i64>(), end_s.parse::<i64>()) {
+                if let (Ok(start), Ok(end)) = (start_s.trim().parse::<i64>(), end_s.parse::<i64>())
+                {
                     if start <= end {
                         let mut items = Vec::new();
                         let mut n = start;
-                        while n <= end { items.push(n.to_string()); n += step; }
+                        while n <= end {
+                            items.push(n.to_string());
+                            n += step;
+                        }
                         items
                     } else {
                         let mut items = Vec::new();
                         let mut n = start;
-                        while n >= end { items.push(n.to_string()); n -= step; }
+                        while n >= end {
+                            items.push(n.to_string());
+                            n -= step;
+                        }
                         items
                     }
                 } else {
-                    list_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                    list_str
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
                 }
             } else {
-                list_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                list_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
             };
 
             // Pagination: check for [page N] or [page N per P] suffix
@@ -1723,7 +1802,9 @@ impl Parser {
                 };
 
                 if let Some(size) = page_size {
-                    let current_page: usize = ctx.variables.get("_page")
+                    let current_page: usize = ctx
+                        .variables
+                        .get("_page")
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(1);
                     let total_items = items.len();
@@ -1735,7 +1816,10 @@ impl Parser {
                     } else {
                         Vec::new()
                     };
-                    (page_items, Some((current_page, total_pages, size, total_items)))
+                    (
+                        page_items,
+                        Some((current_page, total_pages, size, total_items)),
+                    )
                 } else {
                     (items, None)
                 }
@@ -1750,15 +1834,17 @@ impl Parser {
 
             // Check for @else block (empty-state fallback)
             let mut else_lines = Vec::new();
-            if self.pos < self.lines.len() && self.lines[self.pos].indent == current_indent
+            if self.pos < self.lines.len()
+                && self.lines[self.pos].indent == current_indent
                 && let LineContent::Normal(ref s) = self.lines[self.pos].content
-                    && s.trim() == "@else" {
-                        self.pos += 1; // consume @else
-                        while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
-                            else_lines.push(self.lines[self.pos].clone());
-                            self.pos += 1;
-                        }
-                    }
+                && s.trim() == "@else"
+            {
+                self.pos += 1; // consume @else
+                while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                    else_lines.push(self.lines[self.pos].clone());
+                    self.pos += 1;
+                }
+            }
 
             if body_lines.is_empty() {
                 return Ok(None);
@@ -1802,9 +1888,12 @@ impl Parser {
             // Inject pagination variables if pagination is active
             if let Some((page, total_pages, page_size, total_items)) = pagination_info {
                 ctx.variables.insert("_page".to_string(), page.to_string());
-                ctx.variables.insert("_total_pages".to_string(), total_pages.to_string());
-                ctx.variables.insert("_page_size".to_string(), page_size.to_string());
-                ctx.variables.insert("_total_items".to_string(), total_items.to_string());
+                ctx.variables
+                    .insert("_total_pages".to_string(), total_pages.to_string());
+                ctx.variables
+                    .insert("_page_size".to_string(), page_size.to_string());
+                ctx.variables
+                    .insert("_total_items".to_string(), total_items.to_string());
             }
 
             let has_extra_vars = var_names.len() > 2
@@ -1843,8 +1932,12 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@for ") {
             let rest = rest.trim();
             // @for $var in start..end  OR  @for $var in start..end step N
-            let (var_name, range_str) = if let Some((before_in, after_in)) = rest.split_once(" in ") {
-                let var = before_in.trim().strip_prefix('$').unwrap_or(before_in.trim());
+            let (var_name, range_str) = if let Some((before_in, after_in)) = rest.split_once(" in ")
+            {
+                let var = before_in
+                    .trim()
+                    .strip_prefix('$')
+                    .unwrap_or(before_in.trim());
                 (var.to_string(), after_in.trim().to_string())
             } else {
                 return Err(ParseError {
@@ -1855,22 +1948,30 @@ impl Parser {
             let range_str = substitute_vars(&range_str, &ctx.variables);
             track_var_refs(&range_str, &mut ctx.used_variables);
 
-            let items: Vec<String> = if let Some((start_s, rest_range)) = range_str.split_once("..") {
+            let items: Vec<String> = if let Some((start_s, rest_range)) = range_str.split_once("..")
+            {
                 let (end_s, step) = if let Some((e, s)) = rest_range.split_once(" step ") {
                     (e.trim(), s.trim().parse::<i64>().unwrap_or(1).max(1))
                 } else {
                     (rest_range.trim(), 1i64)
                 };
-                if let (Ok(start), Ok(end)) = (start_s.trim().parse::<i64>(), end_s.parse::<i64>()) {
+                if let (Ok(start), Ok(end)) = (start_s.trim().parse::<i64>(), end_s.parse::<i64>())
+                {
                     if start <= end {
                         let mut items = Vec::new();
                         let mut n = start;
-                        while n <= end { items.push(n.to_string()); n += step; }
+                        while n <= end {
+                            items.push(n.to_string());
+                            n += step;
+                        }
                         items
                     } else {
                         let mut items = Vec::new();
                         let mut n = start;
-                        while n >= end { items.push(n.to_string()); n -= step; }
+                        while n >= end {
+                            items.push(n.to_string());
+                            n -= step;
+                        }
                         items
                     }
                 } else {
@@ -1911,7 +2012,10 @@ impl Parser {
             let mut all_nodes = Vec::new();
             for item in &items {
                 ctx.variables.insert(var_name.clone(), item.clone());
-                let mut body_parser = Parser { lines: adjusted.clone(), pos: 0 };
+                let mut body_parser = Parser {
+                    lines: adjusted.clone(),
+                    pos: 0,
+                };
                 let nodes = body_parser.parse_children(0, ctx);
                 all_nodes.extend(nodes);
             }
@@ -1939,18 +2043,25 @@ impl Parser {
             }
 
             let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
-            let adjusted: Vec<Line> = body_lines.iter().map(|l| Line {
-                indent: l.indent - min_indent,
-                content: l.content.clone(),
-                line_num: l.line_num,
-            }).collect();
+            let adjusted: Vec<Line> = body_lines
+                .iter()
+                .map(|l| Line {
+                    indent: l.indent - min_indent,
+                    content: l.content.clone(),
+                    line_num: l.line_num,
+                })
+                .collect();
 
             let mut all_nodes = Vec::new();
             let saved_vars = ctx.variables.clone();
             for i in 0..count {
                 ctx.variables.insert("_index".to_string(), i.to_string());
-                ctx.variables.insert("_count".to_string(), count.to_string());
-                let mut iter_parser = Parser { lines: adjusted.clone(), pos: 0 };
+                ctx.variables
+                    .insert("_count".to_string(), count.to_string());
+                let mut iter_parser = Parser {
+                    lines: adjusted.clone(),
+                    pos: 0,
+                };
                 let nodes = iter_parser.parse_children(0, ctx);
                 all_nodes.extend(nodes);
             }
@@ -1976,14 +2087,20 @@ impl Parser {
 
             // Parse the body to get the actual content nodes
             let min_indent = body_lines.iter().map(|l| l.indent).min().unwrap_or(0);
-            let adjusted: Vec<Line> = body_lines.iter().map(|l| Line {
-                indent: l.indent - min_indent,
-                content: l.content.clone(),
-                line_num: l.line_num,
-            }).collect();
+            let adjusted: Vec<Line> = body_lines
+                .iter()
+                .map(|l| Line {
+                    indent: l.indent - min_indent,
+                    content: l.content.clone(),
+                    line_num: l.line_num,
+                })
+                .collect();
 
             let saved_vars = ctx.variables.clone();
-            let mut body_parser = Parser { lines: adjusted, pos: 0 };
+            let mut body_parser = Parser {
+                lines: adjusted,
+                pos: 0,
+            };
             let inner_nodes = body_parser.parse_children(0, ctx);
             ctx.variables = saved_vars;
 
@@ -1994,11 +2111,20 @@ impl Parser {
                 substitute_vars(placeholder_text, &ctx.variables)
             };
             let mut wrapper_attrs = vec![
-                Attribute { key: "data-hl-defer".to_string(), value: None },
-                Attribute { key: "class".to_string(), value: Some("hl-defer-placeholder".to_string()) },
+                Attribute {
+                    key: "data-hl-defer".to_string(),
+                    value: None,
+                },
+                Attribute {
+                    key: "class".to_string(),
+                    value: Some("hl-defer-placeholder".to_string()),
+                },
             ];
             // Hidden until intersection observer triggers
-            wrapper_attrs.push(Attribute { key: "hidden".to_string(), value: None });
+            wrapper_attrs.push(Attribute {
+                key: "hidden".to_string(),
+                value: None,
+            });
 
             let wrapper = Element {
                 kind: ElementKind::El,
@@ -2135,11 +2261,18 @@ impl Parser {
                         if let Some(case_rest) = trimmed.strip_prefix("@case ") {
                             let case_rest = case_rest.trim();
                             // Extract case value and optional [attrs]
-                            let (case_val, case_attrs_str) = if let Some(bracket_pos) = case_rest.find('[') {
-                                (substitute_vars(case_rest[..bracket_pos].trim(), &ctx.variables), Some(&case_rest[bracket_pos..]))
-                            } else {
-                                (substitute_vars(case_rest, &ctx.variables), None)
-                            };
+                            let (case_val, case_attrs_str) =
+                                if let Some(bracket_pos) = case_rest.find('[') {
+                                    (
+                                        substitute_vars(
+                                            case_rest[..bracket_pos].trim(),
+                                            &ctx.variables,
+                                        ),
+                                        Some(&case_rest[bracket_pos..]),
+                                    )
+                                } else {
+                                    (substitute_vars(case_rest, &ctx.variables), None)
+                                };
                             si += 1;
                             // Collect body lines
                             let mut body = Vec::new();
@@ -2155,7 +2288,8 @@ impl Parser {
                                 matched_body = body;
                             }
                         } else if trimmed == "@default" || trimmed.starts_with("@default ") {
-                            let default_rest = trimmed.strip_prefix("@default").unwrap_or("").trim();
+                            let default_rest =
+                                trimmed.strip_prefix("@default").unwrap_or("").trim();
                             si += 1;
                             let mut body = Vec::new();
                             while si < switch_lines.len() && switch_lines[si].indent > case_indent {
@@ -2164,7 +2298,8 @@ impl Parser {
                             }
                             if matched_attrs.is_none() {
                                 if !default_rest.is_empty() && default_rest.starts_with('[') {
-                                    let (attrs, _) = parse_attr_brackets(default_rest, line_num, ctx)?;
+                                    let (attrs, _) =
+                                        parse_attr_brackets(default_rest, line_num, ctx)?;
                                     matched_attrs = Some(attrs);
                                 }
                                 matched_body = body;
@@ -2188,13 +2323,19 @@ impl Parser {
             // Parse matched body if any
             if !matched_body.is_empty() {
                 let min_indent = matched_body.iter().map(|l| l.indent).min().unwrap_or(0);
-                let adjusted: Vec<Line> = matched_body.iter().map(|l| Line {
-                    indent: l.indent - min_indent,
-                    content: l.content.clone(),
-                    line_num: l.line_num,
-                }).collect();
+                let adjusted: Vec<Line> = matched_body
+                    .iter()
+                    .map(|l| Line {
+                        indent: l.indent - min_indent,
+                        content: l.content.clone(),
+                        line_num: l.line_num,
+                    })
+                    .collect();
                 let saved_vars = ctx.variables.clone();
-                let mut body_parser = Parser { lines: adjusted, pos: 0 };
+                let mut body_parser = Parser {
+                    lines: adjusted,
+                    pos: 0,
+                };
                 let nodes = body_parser.parse_children(0, ctx);
                 ctx.variables = saved_vars;
                 return Ok(Some(nodes));
@@ -2245,17 +2386,30 @@ impl Parser {
                     eprintln!("log: line {}: ${} = \"{}\" ({})", line_num, name, val, kind);
                 } else if ctx.functions.contains_key(name) {
                     let def = &ctx.functions[name];
-                    let params: Vec<String> = def.params.iter().map(|p| format!("${}", p)).collect();
-                    eprintln!("log: line {}: @{} ({}) — {} line(s)", line_num, name, params.join(", "), def.body_lines.len());
+                    let params: Vec<String> =
+                        def.params.iter().map(|p| format!("${}", p)).collect();
+                    eprintln!(
+                        "log: line {}: @{} ({}) — {} line(s)",
+                        line_num,
+                        name,
+                        params.join(", "),
+                        def.body_lines.len()
+                    );
                 } else if ctx.defines.contains_key(name) {
                     let attrs = &ctx.defines[name];
-                    let attr_strs: Vec<String> = attrs.iter().map(|a| {
-                        match &a.value {
+                    let attr_strs: Vec<String> = attrs
+                        .iter()
+                        .map(|a| match &a.value {
                             Some(v) => format!("{} {}", a.key, v),
                             None => a.key.clone(),
-                        }
-                    }).collect();
-                    eprintln!("log: line {}: ${} = [{}]", line_num, name, attr_strs.join(", "));
+                        })
+                        .collect();
+                    eprintln!(
+                        "log: line {}: ${} = [{}]",
+                        line_num,
+                        name,
+                        attr_strs.join(", ")
+                    );
                 } else {
                     eprintln!("log: line {}: ${} is undefined", line_num, name);
                 }
@@ -2388,7 +2542,7 @@ impl Parser {
                     let trimmed = s.trim();
                     // Check for locale sub-header: e.g., "en:" or "fr:" or "es:"
                     if trimmed.ends_with(':') && trimmed.len() <= 10 && !trimmed.contains(' ') {
-                        current_locale = trimmed[..trimmed.len()-1].to_string();
+                        current_locale = trimmed[..trimmed.len() - 1].to_string();
                         first_locale_indent = Some(self.lines[self.pos].indent);
                         self.pos += 1;
                         continue;
@@ -2426,12 +2580,13 @@ impl Parser {
             // Peek at the next line to get the function name
             if self.pos < self.lines.len()
                 && let LineContent::Normal(ref s) = self.lines[self.pos].content
-                    && let Some(fn_rest) = s.trim().strip_prefix("@fn ") {
-                        let parts: Vec<&str> = fn_rest.split_whitespace().collect();
-                        if let Some(&fn_name) = parts.first() {
-                            ctx.deprecated_fns.insert(fn_name.to_string(), message);
-                        }
-                    }
+                && let Some(fn_rest) = s.trim().strip_prefix("@fn ")
+            {
+                let parts: Vec<&str> = fn_rest.split_whitespace().collect();
+                if let Some(&fn_name) = parts.first() {
+                    ctx.deprecated_fns.insert(fn_name.to_string(), message);
+                }
+            }
             return Ok(None);
         }
 
@@ -2489,7 +2644,9 @@ impl Parser {
                         let slot_name = slot_name.trim().to_string();
                         self.pos += 1;
                         let mut slot_lines = Vec::new();
-                        while self.pos < self.lines.len() && self.lines[self.pos].indent > line_indent {
+                        while self.pos < self.lines.len()
+                            && self.lines[self.pos].indent > line_indent
+                        {
                             slot_lines.push(self.lines[self.pos].clone());
                             self.pos += 1;
                         }
@@ -2507,12 +2664,18 @@ impl Parser {
                     continue;
                 }
                 let min_indent = lines.iter().map(|l| l.indent).min().unwrap_or(0);
-                let adjusted: Vec<Line> = lines.iter().map(|l| Line {
-                    indent: l.indent - min_indent,
-                    content: l.content.clone(),
-                    line_num: l.line_num,
-                }).collect();
-                let mut slot_parser = Parser { lines: adjusted, pos: 0 };
+                let adjusted: Vec<Line> = lines
+                    .iter()
+                    .map(|l| Line {
+                        indent: l.indent - min_indent,
+                        content: l.content.clone(),
+                        line_num: l.line_num,
+                    })
+                    .collect();
+                let mut slot_parser = Parser {
+                    lines: adjusted,
+                    pos: 0,
+                };
                 let nodes = slot_parser.parse_children(0, ctx);
                 slot_nodes.insert(name.clone(), nodes);
             }
@@ -2524,7 +2687,10 @@ impl Parser {
             ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
 
             let extends_lines = preprocess(&extends_text);
-            let mut extends_parser = Parser { lines: extends_lines, pos: 0 };
+            let mut extends_parser = Parser {
+                lines: extends_lines,
+                pos: 0,
+            };
             let layout_nodes = extends_parser.parse_children(0, ctx);
 
             ctx.base_path = saved_base;
@@ -2586,7 +2752,10 @@ impl Parser {
             ctx.base_path = resolved.parent().map(|p| p.to_path_buf());
 
             let layout_lines = preprocess(&layout_text);
-            let mut layout_parser = Parser { lines: layout_lines, pos: 0 };
+            let mut layout_parser = Parser {
+                lines: layout_lines,
+                pos: 0,
+            };
             let layout_nodes = layout_parser.parse_children(0, ctx);
 
             ctx.base_path = saved_base;
@@ -2594,7 +2763,8 @@ impl Parser {
 
             // Replace @children in layout with the caller's body content
             let empty_slots: HashMap<String, Vec<Node>> = HashMap::new();
-            let result_nodes = replace_children_and_slots(layout_nodes, &caller_children, &empty_slots);
+            let result_nodes =
+                replace_children_and_slots(layout_nodes, &caller_children, &empty_slots);
             return Ok(Some(result_nodes));
         }
 
@@ -2628,12 +2798,13 @@ impl Parser {
             let mut style_indent = 0;
             while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
                 if let LineContent::Normal(ref s) = self.lines[self.pos].content
-                    && s.trim() == "@style" {
-                        in_style = true;
-                        style_indent = self.lines[self.pos].indent;
-                        self.pos += 1;
-                        continue;
-                    }
+                    && s.trim() == "@style"
+                {
+                    in_style = true;
+                    style_indent = self.lines[self.pos].indent;
+                    self.pos += 1;
+                    continue;
+                }
                 if in_style && self.lines[self.pos].indent > style_indent {
                     style_lines.push(self.lines[self.pos].clone());
                 } else {
@@ -2662,9 +2833,19 @@ impl Parser {
             }
 
             ctx.fn_lines.entry(name.clone()).or_insert(line_num);
-            ctx.functions.insert(name.clone(), FnDef { params, defaults, body_lines });
+            ctx.functions.insert(
+                name.clone(),
+                FnDef {
+                    params,
+                    defaults,
+                    body_lines,
+                },
+            );
             // Mark that this function should wrap output with a scoped class
-            ctx.variables.insert(format!("__component_scope_{}", name), format!("hl-{}", name));
+            ctx.variables.insert(
+                format!("__component_scope_{}", name),
+                format!("hl-{}", name),
+            );
             return Ok(None);
         }
 
@@ -2699,7 +2880,14 @@ impl Parser {
             }
 
             ctx.fn_lines.entry(name.clone()).or_insert(line_num);
-            ctx.functions.insert(name, FnDef { params, defaults, body_lines });
+            ctx.functions.insert(
+                name,
+                FnDef {
+                    params,
+                    defaults,
+                    body_lines,
+                },
+            );
             return Ok(None);
         }
 
@@ -2719,8 +2907,7 @@ impl Parser {
                         source_line: Some(content.clone()),
                     });
                 }
-                let nodes =
-                    self.expand_fn_call(name, &content, current_indent, line_num, ctx)?;
+                let nodes = self.expand_fn_call(name, &content, current_indent, line_num, ctx)?;
                 return Ok(Some(nodes));
             }
         }
@@ -2793,10 +2980,14 @@ impl Parser {
         for child in all_caller_children {
             if let Node::Element(ref elem) = child
                 && let ElementKind::Slot(ref slot_name) = elem.kind
-                    && !slot_name.is_empty() {
-                        slot_contents.entry(slot_name.clone()).or_default().extend(elem.children.clone());
-                        continue;
-                    }
+                && !slot_name.is_empty()
+            {
+                slot_contents
+                    .entry(slot_name.clone())
+                    .or_default()
+                    .extend(elem.children.clone());
+                continue;
+            }
             caller_children.push(child);
         }
 
@@ -2842,14 +3033,18 @@ impl Parser {
         ctx.fn_call_stack.pop();
 
         // Replace @children with caller's children and @slot with slot content
-        let mut result_nodes = replace_children_and_slots(body_nodes, &caller_children, &slot_contents);
+        let mut result_nodes =
+            replace_children_and_slots(body_nodes, &caller_children, &slot_contents);
 
         // If this is a @component, wrap output in a scoped container
         let scope_key = format!("__component_scope_{}", name);
         if let Some(scope_class) = ctx.variables.get(&scope_key).cloned() {
             let wrapper = Element {
                 kind: ElementKind::El,
-                attrs: vec![Attribute { key: "class".to_string(), value: Some(scope_class) }],
+                attrs: vec![Attribute {
+                    key: "class".to_string(),
+                    value: Some(scope_class),
+                }],
                 argument: None,
                 children: result_nodes,
                 line_num,
@@ -2913,7 +3108,8 @@ fn replace_children_and_slots(
                     result.extend(caller_children.iter().cloned());
                 }
             }
-            Node::Element(elem) if matches!(&elem.kind, ElementKind::Slot(name) if !name.is_empty()) => {
+            Node::Element(elem) if matches!(&elem.kind, ElementKind::Slot(name) if !name.is_empty()) =>
+            {
                 if let ElementKind::Slot(ref name) = elem.kind {
                     if let Some(content) = slot_contents.get(name) {
                         result.extend(content.iter().cloned());
@@ -2925,7 +3121,8 @@ fn replace_children_and_slots(
                 }
             }
             Node::Element(mut elem) => {
-                elem.children = replace_children_and_slots(elem.children, caller_children, slot_contents);
+                elem.children =
+                    replace_children_and_slots(elem.children, caller_children, slot_contents);
                 result.push(Node::Element(elem));
             }
             other => result.push(other),
@@ -2968,7 +3165,8 @@ fn parse_single_element(
                     Err(mut e) => {
                         // Also suggest user-defined functions
                         if let Some(fn_suggestion) = suggest_fn_name(kind_str, ctx) {
-                            e.message = format!("{}, or did you mean @{}?", e.message, fn_suggestion);
+                            e.message =
+                                format!("{}, or did you mean @{}?", e.message, fn_suggestion);
                         }
                         return Err(e);
                     }
@@ -3036,35 +3234,138 @@ fn parse_single_element(
 }
 
 const KNOWN_ELEMENTS: &[&str] = &[
-    "row", "column", "col", "el", "text", "paragraph", "p", "image", "img", "link", "children",
-    "input", "button", "select", "textarea", "option", "label", "slot",
-    "nav", "header", "footer", "main", "section", "article", "aside",
-    "list", "item", "li",
-    "table", "thead", "tbody", "tr", "td", "th",
-    "video", "audio",
-    "form", "details", "summary", "blockquote", "cite", "code", "pre", "hr", "divider",
-    "figure", "figcaption", "progress", "meter",
+    "row",
+    "column",
+    "col",
+    "el",
+    "text",
+    "paragraph",
+    "p",
+    "image",
+    "img",
+    "link",
+    "children",
+    "input",
+    "button",
+    "select",
+    "textarea",
+    "option",
+    "label",
+    "slot",
+    "nav",
+    "header",
+    "footer",
+    "main",
+    "section",
+    "article",
+    "aside",
+    "list",
+    "item",
+    "li",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "td",
+    "th",
+    "video",
+    "audio",
+    "form",
+    "details",
+    "summary",
+    "blockquote",
+    "cite",
+    "code",
+    "pre",
+    "hr",
+    "divider",
+    "figure",
+    "figcaption",
+    "progress",
+    "meter",
     "fragment",
-    "btn", "ul", "dialog", "dl", "dt", "dd", "fieldset", "legend",
-    "picture", "source", "time", "mark", "kbd", "abbr", "datalist",
-    "iframe", "output", "canvas",
-    "grid", "stack", "spacer", "badge", "tooltip",
-    "avatar", "carousel", "chip", "tag",
-    "script", "noscript", "address", "search", "breadcrumb",
+    "btn",
+    "ul",
+    "dialog",
+    "dl",
+    "dt",
+    "dd",
+    "fieldset",
+    "legend",
+    "picture",
+    "source",
+    "time",
+    "mark",
+    "kbd",
+    "abbr",
+    "datalist",
+    "iframe",
+    "output",
+    "canvas",
+    "grid",
+    "stack",
+    "spacer",
+    "badge",
+    "tooltip",
+    "avatar",
+    "carousel",
+    "chip",
+    "tag",
+    "script",
+    "noscript",
+    "address",
+    "search",
+    "breadcrumb",
 ];
 
 const KNOWN_DIRECTIVES: &[&str] = &[
-    "page", "let", "define", "fn", "include", "import", "raw", "keyframes",
-    "if", "else", "each", "meta", "head", "style",
-    "match", "case", "default", "warn", "debug",
-    "unless", "og", "breakpoint", "lang", "favicon",
-    "use", "theme", "deprecated", "extends",
-    "canonical", "base", "font-face", "json-ld",
-    "mixin", "assert",
-    "for", "component", "switch",
+    "page",
+    "let",
+    "define",
+    "fn",
+    "include",
+    "import",
+    "raw",
+    "keyframes",
+    "if",
+    "else",
+    "each",
+    "meta",
+    "head",
+    "style",
+    "match",
+    "case",
+    "default",
+    "warn",
+    "debug",
+    "unless",
+    "og",
+    "breakpoint",
+    "lang",
+    "favicon",
+    "use",
+    "theme",
+    "deprecated",
+    "extends",
+    "canonical",
+    "base",
+    "font-face",
+    "json-ld",
+    "mixin",
+    "assert",
+    "for",
+    "component",
+    "switch",
     "log",
-    "markdown", "repeat", "with", "layout", "collection",
-    "manifest", "scope", "starting-style", "translations",
+    "markdown",
+    "repeat",
+    "with",
+    "layout",
+    "collection",
+    "manifest",
+    "scope",
+    "starting-style",
+    "translations",
 ];
 
 fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseError> {
@@ -3168,7 +3469,12 @@ fn parse_element_kind(s: &str, line_num: usize) -> Result<ElementKind, ParseErro
 fn format_include_chain(stack: &[PathBuf]) -> String {
     stack
         .iter()
-        .map(|p| p.file_name().unwrap_or_default().to_string_lossy().to_string())
+        .map(|p| {
+            p.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        })
         .collect::<Vec<_>>()
         .join(" → ")
 }
@@ -3194,9 +3500,7 @@ fn levenshtein_bounded(a: &[char], b: &[char], cutoff: usize) -> usize {
         let mut row_min = curr[0];
         for (i, &ac) in a.iter().enumerate() {
             let cost = if ac == bc { 0 } else { 1 };
-            curr[i + 1] = (prev[i + 1] + 1)
-                .min(curr[i] + 1)
-                .min(prev[i] + cost);
+            curr[i + 1] = (prev[i + 1] + 1).min(curr[i] + 1).min(prev[i] + cost);
             row_min = row_min.min(curr[i + 1]);
         }
         if row_min > cutoff {
@@ -3272,7 +3576,11 @@ fn suggest_var_name(input: &str, vars: &HashMap<String, String>) -> Option<Strin
 }
 
 /// Check for undefined `$var` references and return "did you mean?" diagnostics.
-fn check_undefined_vars(input: &str, vars: &HashMap<String, String>, line_num: usize) -> Vec<Diagnostic> {
+fn check_undefined_vars(
+    input: &str,
+    vars: &HashMap<String, String>,
+    line_num: usize,
+) -> Vec<Diagnostic> {
     let mut warnings = Vec::new();
     if !input.contains('$') {
         return warnings;
@@ -3288,7 +3596,10 @@ fn check_undefined_vars(input: &str, vars: &HashMap<String, String>, line_num: u
             let start = i + 1;
             let mut end = start;
             while end < chars.len()
-                && (chars[end].is_alphanumeric() || chars[end] == '-' || chars[end] == '_' || chars[end] == '.')
+                && (chars[end].is_alphanumeric()
+                    || chars[end] == '-'
+                    || chars[end] == '_'
+                    || chars[end] == '.')
             {
                 end += 1;
             }
@@ -3296,16 +3607,21 @@ fn check_undefined_vars(input: &str, vars: &HashMap<String, String>, line_num: u
                 end -= 1;
             }
             let name: String = chars[start..end].iter().collect();
-            if !name.is_empty() && !vars.contains_key(&name)
-                && let Some(closest) = suggest_var_name(&name, vars) {
-                    warnings.push(Diagnostic {
-                        line: line_num,
-                        column: Some(col),
-                        message: format!("undefined variable '${}', did you mean '${}'?", name, closest),
-                        severity: Severity::Warning,
-                        source_line: Some(input.to_string()),
-                    });
-                }
+            if !name.is_empty()
+                && !vars.contains_key(&name)
+                && let Some(closest) = suggest_var_name(&name, vars)
+            {
+                warnings.push(Diagnostic {
+                    line: line_num,
+                    column: Some(col),
+                    message: format!(
+                        "undefined variable '${}', did you mean '${}'?",
+                        name, closest
+                    ),
+                    severity: Severity::Warning,
+                    source_line: Some(input.to_string()),
+                });
+            }
             i = end;
         } else {
             i += 1;
@@ -3320,126 +3636,306 @@ fn check_undefined_vars(input: &str, vars: &HashMap<String, String>, line_num: u
 
 const KNOWN_ATTRS: &[&str] = &[
     // Layout
-    "spacing", "gap", "padding", "padding-x", "padding-y",
-    "width", "height", "min-width", "max-width", "min-height", "max-height",
-    "center-x", "center-y", "align-left", "align-right", "align-top", "align-bottom",
+    "spacing",
+    "gap",
+    "padding",
+    "padding-x",
+    "padding-y",
+    "width",
+    "height",
+    "min-width",
+    "max-width",
+    "min-height",
+    "max-height",
+    "center-x",
+    "center-y",
+    "align-left",
+    "align-right",
+    "align-top",
+    "align-bottom",
     // Style
-    "background", "color", "border", "border-top", "border-bottom", "border-left", "border-right",
-    "rounded", "bold", "italic", "underline",
-    "size", "font", "transition", "cursor", "opacity",
-    "text-align", "line-height", "letter-spacing", "text-transform", "white-space",
-    "overflow", "position", "top", "right", "bottom", "left", "z-index", "shadow",
-    "wrap", "gap-x", "gap-y",
+    "background",
+    "color",
+    "border",
+    "border-top",
+    "border-bottom",
+    "border-left",
+    "border-right",
+    "rounded",
+    "bold",
+    "italic",
+    "underline",
+    "size",
+    "font",
+    "transition",
+    "cursor",
+    "opacity",
+    "text-align",
+    "line-height",
+    "letter-spacing",
+    "text-transform",
+    "white-space",
+    "overflow",
+    "position",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "z-index",
+    "shadow",
+    "wrap",
+    "gap-x",
+    "gap-y",
     // Display & visibility
-    "display", "visibility",
+    "display",
+    "visibility",
     // Transform & filters
-    "transform", "backdrop-filter",
+    "transform",
+    "backdrop-filter",
     // Grid
-    "grid", "grid-cols", "grid-rows", "col-span", "row-span",
+    "grid",
+    "grid-cols",
+    "grid-rows",
+    "col-span",
+    "row-span",
     // Container queries
-    "container", "container-name", "container-type",
+    "container",
+    "container-name",
+    "container-type",
     // Identity
-    "id", "class",
+    "id",
+    "class",
     // Animation
     "animation",
     // Form
-    "type", "placeholder", "name", "value", "disabled", "required", "checked",
-    "for", "action", "method", "autocomplete",
-    "min", "max", "step", "pattern", "maxlength", "rows", "cols", "multiple",
+    "type",
+    "placeholder",
+    "name",
+    "value",
+    "disabled",
+    "required",
+    "checked",
+    "for",
+    "action",
+    "method",
+    "autocomplete",
+    "min",
+    "max",
+    "step",
+    "pattern",
+    "maxlength",
+    "rows",
+    "cols",
+    "multiple",
     // Accessibility
-    "alt", "role", "tabindex", "title", "autofocus",
+    "alt",
+    "role",
+    "tabindex",
+    "title",
+    "autofocus",
     // CSS: aspect-ratio, outline, logical properties, scroll-snap
-    "aspect-ratio", "outline",
-    "padding-inline", "padding-block", "margin-inline", "margin-block",
-    "padding-inline-start", "padding-inline-end", "padding-block-start", "padding-block-end",
-    "margin-inline-start", "margin-inline-end", "margin-block-start", "margin-block-end",
-    "inset-inline", "inset-block", "inset-inline-start", "inset-inline-end", "inset-block-start", "inset-block-end",
-    "border-inline", "border-block", "border-inline-start", "border-inline-end", "border-block-start", "border-block-end",
-    "border-start-start-radius", "border-start-end-radius", "border-end-start-radius", "border-end-end-radius",
-    "scroll-margin-inline", "scroll-margin-block", "scroll-padding-inline", "scroll-padding-block",
-    "inline-size", "block-size", "min-inline-size", "max-inline-size", "min-block-size", "max-block-size",
-    "scroll-snap-type", "scroll-snap-align",
+    "aspect-ratio",
+    "outline",
+    "padding-inline",
+    "padding-block",
+    "margin-inline",
+    "margin-block",
+    "padding-inline-start",
+    "padding-inline-end",
+    "padding-block-start",
+    "padding-block-end",
+    "margin-inline-start",
+    "margin-inline-end",
+    "margin-block-start",
+    "margin-block-end",
+    "inset-inline",
+    "inset-block",
+    "inset-inline-start",
+    "inset-inline-end",
+    "inset-block-start",
+    "inset-block-end",
+    "border-inline",
+    "border-block",
+    "border-inline-start",
+    "border-inline-end",
+    "border-block-start",
+    "border-block-end",
+    "border-start-start-radius",
+    "border-start-end-radius",
+    "border-end-start-radius",
+    "border-end-end-radius",
+    "scroll-margin-inline",
+    "scroll-margin-block",
+    "scroll-padding-inline",
+    "scroll-padding-block",
+    "inline-size",
+    "block-size",
+    "min-inline-size",
+    "max-inline-size",
+    "min-block-size",
+    "max-block-size",
+    "scroll-snap-type",
+    "scroll-snap-align",
     // Media attributes
-    "controls", "autoplay", "loop", "muted", "poster", "preload",
-    "loading", "decoding",
+    "controls",
+    "autoplay",
+    "loop",
+    "muted",
+    "poster",
+    "preload",
+    "loading",
+    "decoding",
     // List
     "ordered",
     // Media src (explicit attribute form)
     "src",
     // New elements
-    "open", "novalidate", "low", "high", "optimum",
-    "colspan", "rowspan", "scope",
+    "open",
+    "novalidate",
+    "low",
+    "high",
+    "optimum",
+    "colspan",
+    "rowspan",
+    "scope",
     // Margin
-    "margin", "margin-x", "margin-y",
+    "margin",
+    "margin-x",
+    "margin-y",
     // Filter & object
-    "filter", "object-fit", "object-position",
+    "filter",
+    "object-fit",
+    "object-position",
     // Text extras
-    "text-shadow", "text-overflow",
+    "text-shadow",
+    "text-overflow",
     // Interaction
-    "pointer-events", "user-select",
+    "pointer-events",
+    "user-select",
     // Flexbox/grid alignment
-    "justify-content", "align-items",
+    "justify-content",
+    "align-items",
     // Flex item
     "order",
     // Background extras
-    "background-size", "background-position", "background-repeat",
+    "background-size",
+    "background-position",
+    "background-repeat",
     // Text wrapping
-    "word-break", "overflow-wrap",
+    "word-break",
+    "overflow-wrap",
     // Asset inlining
     "inline",
     // Hidden
     "hidden",
     // Overflow directional
-    "overflow-x", "overflow-y",
+    "overflow-x",
+    "overflow-y",
     // Inset shorthand
     "inset",
     // Modern form theming
-    "accent-color", "caret-color",
+    "accent-color",
+    "caret-color",
     // Color scheme & appearance
-    "color-scheme", "appearance",
+    "color-scheme",
+    "appearance",
     // List styling
     "list-style",
     // Table styling
-    "border-collapse", "border-spacing",
+    "border-collapse",
+    "border-spacing",
     // Text decoration variants
-    "text-decoration", "text-decoration-color", "text-decoration-thickness", "text-decoration-style",
+    "text-decoration",
+    "text-decoration-color",
+    "text-decoration-thickness",
+    "text-decoration-style",
     "text-underline-offset",
-    "column-width", "column-rule",
+    "column-width",
+    "column-rule",
     // Grid/flex placement
-    "place-items", "place-self",
+    "place-items",
+    "place-self",
     // Scroll behavior
     "scroll-behavior",
     // Resize
     "resize",
     // New CSS properties
-    "clip-path", "mix-blend-mode", "background-blend-mode", "writing-mode",
-    "column-count", "column-gap", "text-indent", "hyphens",
-    "flex-grow", "flex-shrink", "flex-basis", "isolation",
-    "place-content", "background-image", "datetime", "direction",
+    "clip-path",
+    "mix-blend-mode",
+    "background-blend-mode",
+    "writing-mode",
+    "column-count",
+    "column-gap",
+    "text-indent",
+    "hyphens",
+    "flex-grow",
+    "flex-shrink",
+    "flex-basis",
+    "isolation",
+    "place-content",
+    "background-image",
+    "datetime",
+    "direction",
     // New CSS properties (batch 2)
-    "font-weight", "font-style", "text-wrap", "will-change", "touch-action",
-    "vertical-align", "contain", "content-visibility",
-    "scroll-margin", "scroll-margin-top", "scroll-margin-bottom", "scroll-margin-left", "scroll-margin-right",
-    "scroll-padding", "scroll-padding-top", "scroll-padding-bottom", "scroll-padding-left", "scroll-padding-right",
+    "font-weight",
+    "font-style",
+    "text-wrap",
+    "will-change",
+    "touch-action",
+    "vertical-align",
+    "contain",
+    "content-visibility",
+    "scroll-margin",
+    "scroll-margin-top",
+    "scroll-margin-bottom",
+    "scroll-margin-left",
+    "scroll-margin-right",
+    "scroll-padding",
+    "scroll-padding-top",
+    "scroll-padding-bottom",
+    "scroll-padding-left",
+    "scroll-padding-right",
     // Iframe/output attrs
-    "sandbox", "allow", "allowfullscreen", "referrerpolicy",
-    "formaction", "formmethod", "formtarget", "target",
+    "sandbox",
+    "allow",
+    "allowfullscreen",
+    "referrerpolicy",
+    "formaction",
+    "formmethod",
+    "formtarget",
+    "target",
     // Popover API
-    "popover", "popovertarget", "popovertargetaction",
+    "popover",
+    "popovertarget",
+    "popovertargetaction",
     // Modern form/input hints
-    "inputmode", "enterkeyhint",
+    "inputmode",
+    "enterkeyhint",
     // Performance hints
-    "fetchpriority", "blocking",
+    "fetchpriority",
+    "blocking",
     // Global attrs
-    "translate", "spellcheck",
+    "translate",
+    "spellcheck",
     // Script attributes
-    "defer", "async", "crossorigin", "integrity", "nomodule",
+    "defer",
+    "async",
+    "crossorigin",
+    "integrity",
+    "nomodule",
     // Pseudo-element content
     "content",
     // CSS shorthands
-    "truncate", "line-clamp", "blur", "backdrop-blur", "no-scrollbar", "skeleton", "gradient",
+    "truncate",
+    "line-clamp",
+    "blur",
+    "backdrop-blur",
+    "no-scrollbar",
+    "skeleton",
+    "gradient",
     // Grid areas
-    "grid-template-areas", "grid-area",
+    "grid-template-areas",
+    "grid-area",
     // View transitions
     "view-transition-name",
     // Animate shorthand
@@ -3447,13 +3943,20 @@ const KNOWN_ATTRS: &[&str] = &[
     // Critical CSS hint
     "critical",
     // CSS subgrid
-    "grid-template-columns", "grid-template-rows",
+    "grid-template-columns",
+    "grid-template-rows",
     // Scroll-driven animations
-    "animation-timeline", "animation-range",
-    "view-timeline-name", "view-timeline-axis",
-    "scroll-timeline-name", "scroll-timeline-axis",
+    "animation-timeline",
+    "animation-range",
+    "view-timeline-name",
+    "view-timeline-axis",
+    "scroll-timeline-name",
+    "scroll-timeline-axis",
     // Anchor positioning
-    "anchor-name", "position-anchor", "position-area", "inset-area",
+    "anchor-name",
+    "position-anchor",
+    "position-area",
+    "inset-area",
     // Drop caps
     "initial-letter",
     // Responsive images
@@ -3462,15 +3965,29 @@ const KNOWN_ATTRS: &[&str] = &[
 
 /// Attributes that expect purely numeric values (px-based) or values with CSS units.
 const NUMERIC_ATTRS: &[&str] = &[
-    "spacing", "gap", "padding", "padding-x", "padding-y",
-    "min-width", "max-width", "min-height", "max-height",
-    "rounded", "size", "gap-x", "gap-y",
-    "top", "right", "bottom", "left", "letter-spacing",
+    "spacing",
+    "gap",
+    "padding",
+    "padding-x",
+    "padding-y",
+    "min-width",
+    "max-width",
+    "min-height",
+    "max-height",
+    "rounded",
+    "size",
+    "gap-x",
+    "gap-y",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "letter-spacing",
 ];
 
 const CSS_UNIT_SUFFIXES: &[&str] = &[
-    "%", "rem", "em", "vh", "vw", "vmin", "vmax", "dvh", "svh", "lvh",
-    "ch", "ex", "cm", "mm", "in", "pt", "pc", "fr",
+    "%", "rem", "em", "vh", "vw", "vmin", "vmax", "dvh", "svh", "lvh", "ch", "ex", "cm", "mm",
+    "in", "pt", "pc", "fr",
 ];
 
 fn has_css_unit(value: &str) -> bool {
@@ -3557,9 +4074,20 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
             }
         } else if base_key == "display" {
             const DISPLAY_VALUES: &[&str] = &[
-                "none", "block", "inline", "inline-block", "flex", "inline-flex",
-                "grid", "inline-grid", "table", "table-row", "table-cell",
-                "contents", "flow-root", "list-item",
+                "none",
+                "block",
+                "inline",
+                "inline-block",
+                "flex",
+                "inline-flex",
+                "grid",
+                "inline-grid",
+                "table",
+                "table-row",
+                "table-cell",
+                "contents",
+                "flow-root",
+                "list-item",
             ];
             if !DISPLAY_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
                 let suggestion = suggest_closest(val, DISPLAY_VALUES);
@@ -3568,14 +4096,15 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                     None => format!("unknown display value '{}'", val),
                 };
                 ctx.diagnostics.push(Diagnostic {
-                    line: line_num, column: None, message: msg,
-                    severity: Severity::Warning, source_line: None,
+                    line: line_num,
+                    column: None,
+                    message: msg,
+                    severity: Severity::Warning,
+                    source_line: None,
                 });
             }
         } else if base_key == "position" {
-            const POSITION_VALUES: &[&str] = &[
-                "static", "relative", "absolute", "fixed", "sticky",
-            ];
+            const POSITION_VALUES: &[&str] = &["static", "relative", "absolute", "fixed", "sticky"];
             if !POSITION_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
                 let suggestion = suggest_closest(val, POSITION_VALUES);
                 let msg = match suggestion {
@@ -3583,14 +4112,15 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                     None => format!("unknown position value '{}'", val),
                 };
                 ctx.diagnostics.push(Diagnostic {
-                    line: line_num, column: None, message: msg,
-                    severity: Severity::Warning, source_line: None,
+                    line: line_num,
+                    column: None,
+                    message: msg,
+                    severity: Severity::Warning,
+                    source_line: None,
                 });
             }
         } else if base_key == "overflow" || base_key == "overflow-x" || base_key == "overflow-y" {
-            const OVERFLOW_VALUES: &[&str] = &[
-                "visible", "hidden", "scroll", "auto", "clip",
-            ];
+            const OVERFLOW_VALUES: &[&str] = &["visible", "hidden", "scroll", "auto", "clip"];
             if !OVERFLOW_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
                 let suggestion = suggest_closest(val, OVERFLOW_VALUES);
                 let msg = match suggestion {
@@ -3598,14 +4128,16 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                     None => format!("unknown overflow value '{}'", val),
                 };
                 ctx.diagnostics.push(Diagnostic {
-                    line: line_num, column: None, message: msg,
-                    severity: Severity::Warning, source_line: None,
+                    line: line_num,
+                    column: None,
+                    message: msg,
+                    severity: Severity::Warning,
+                    source_line: None,
                 });
             }
         } else if base_key == "text-align" {
-            const TEXT_ALIGN_VALUES: &[&str] = &[
-                "left", "right", "center", "justify", "start", "end",
-            ];
+            const TEXT_ALIGN_VALUES: &[&str] =
+                &["left", "right", "center", "justify", "start", "end"];
             if !TEXT_ALIGN_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
                 let suggestion = suggest_closest(val, TEXT_ALIGN_VALUES);
                 let msg = match suggestion {
@@ -3613,62 +4145,161 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                     None => format!("unknown text-align value '{}'", val),
                 };
                 ctx.diagnostics.push(Diagnostic {
-                    line: line_num, column: None, message: msg,
-                    severity: Severity::Warning, source_line: None,
+                    line: line_num,
+                    column: None,
+                    message: msg,
+                    severity: Severity::Warning,
+                    source_line: None,
                 });
             }
         } else if base_key == "cursor" {
             const CURSOR_VALUES: &[&str] = &[
-                "auto", "default", "none", "pointer", "wait", "text", "move",
-                "not-allowed", "crosshair", "grab", "grabbing", "help", "progress",
-                "col-resize", "row-resize", "n-resize", "s-resize", "e-resize", "w-resize",
-                "zoom-in", "zoom-out", "context-menu", "cell", "copy", "alias", "no-drop",
+                "auto",
+                "default",
+                "none",
+                "pointer",
+                "wait",
+                "text",
+                "move",
+                "not-allowed",
+                "crosshair",
+                "grab",
+                "grabbing",
+                "help",
+                "progress",
+                "col-resize",
+                "row-resize",
+                "n-resize",
+                "s-resize",
+                "e-resize",
+                "w-resize",
+                "zoom-in",
+                "zoom-out",
+                "context-menu",
+                "cell",
+                "copy",
+                "alias",
+                "no-drop",
             ];
-            if !CURSOR_VALUES.contains(&val.as_str()) && !val.starts_with("url(") && !val.starts_with("var(") {
+            if !CURSOR_VALUES.contains(&val.as_str())
+                && !val.starts_with("url(")
+                && !val.starts_with("var(")
+            {
                 let suggestion = suggest_closest(val, CURSOR_VALUES);
                 let msg = match suggestion {
                     Some(s) => format!("unknown cursor value '{}', did you mean '{}'?", val, s),
                     None => format!("unknown cursor value '{}'", val),
                 };
                 ctx.diagnostics.push(Diagnostic {
-                    line: line_num, column: None, message: msg,
-                    severity: Severity::Warning, source_line: None,
+                    line: line_num,
+                    column: None,
+                    message: msg,
+                    severity: Severity::Warning,
+                    source_line: None,
                 });
             }
         } else if base_key == "font-weight" {
             const WEIGHT_VALUES: &[&str] = &[
-                "normal", "bold", "bolder", "lighter",
-                "100", "200", "300", "400", "500", "600", "700", "800", "900",
+                "normal", "bold", "bolder", "lighter", "100", "200", "300", "400", "500", "600",
+                "700", "800", "900",
             ];
             if !WEIGHT_VALUES.contains(&val.as_str()) && !val.starts_with("var(") {
                 ctx.diagnostics.push(Diagnostic {
-                    line: line_num, column: None,
-                    message: format!("'font-weight' expects a weight keyword or number 100-900, got '{}'", val),
-                    severity: Severity::Warning, source_line: None,
+                    line: line_num,
+                    column: None,
+                    message: format!(
+                        "'font-weight' expects a weight keyword or number 100-900, got '{}'",
+                        val
+                    ),
+                    severity: Severity::Warning,
+                    source_line: None,
                 });
             }
         } else if base_key == "color" || base_key == "background" {
             // Validate named CSS colors (only if not hex, rgb, hsl, var, etc.)
-            if !val.starts_with('#') && !val.starts_with("rgb") && !val.starts_with("hsl")
-                && !val.starts_with("var(") && !val.starts_with("linear-gradient")
-                && !val.starts_with("radial-gradient") && !val.starts_with("conic-gradient")
-                && !val.starts_with("oklch") && !val.starts_with("oklab")
-                && !val.starts_with("color(") && !val.starts_with("light-dark(")
+            if !val.starts_with('#')
+                && !val.starts_with("rgb")
+                && !val.starts_with("hsl")
+                && !val.starts_with("var(")
+                && !val.starts_with("linear-gradient")
+                && !val.starts_with("radial-gradient")
+                && !val.starts_with("conic-gradient")
+                && !val.starts_with("oklch")
+                && !val.starts_with("oklab")
+                && !val.starts_with("color(")
+                && !val.starts_with("light-dark(")
                 && !val.contains("url(")
-                && !val.contains(' ') // skip shorthand multi-value
+                && !val.contains(' ')
+            // skip shorthand multi-value
             {
                 const NAMED_COLORS: &[&str] = &[
-                    "transparent", "currentcolor", "inherit", "initial", "unset",
-                    "black", "white", "red", "green", "blue", "yellow", "orange", "purple",
-                    "pink", "brown", "gray", "grey", "cyan", "magenta", "lime", "olive",
-                    "navy", "teal", "aqua", "fuchsia", "maroon", "silver",
-                    "coral", "salmon", "tomato", "crimson", "firebrick", "darkred",
-                    "indigo", "violet", "plum", "orchid", "thistle", "lavender",
-                    "gold", "khaki", "wheat", "tan", "sienna", "chocolate", "peru",
-                    "beige", "ivory", "linen", "snow", "seashell", "mintcream",
-                    "skyblue", "steelblue", "royalblue", "dodgerblue", "cornflowerblue",
-                    "slategray", "slategrey", "dimgray", "dimgrey", "lightgray", "lightgrey",
-                    "darkgray", "darkgrey", "gainsboro", "whitesmoke",
+                    "transparent",
+                    "currentcolor",
+                    "inherit",
+                    "initial",
+                    "unset",
+                    "black",
+                    "white",
+                    "red",
+                    "green",
+                    "blue",
+                    "yellow",
+                    "orange",
+                    "purple",
+                    "pink",
+                    "brown",
+                    "gray",
+                    "grey",
+                    "cyan",
+                    "magenta",
+                    "lime",
+                    "olive",
+                    "navy",
+                    "teal",
+                    "aqua",
+                    "fuchsia",
+                    "maroon",
+                    "silver",
+                    "coral",
+                    "salmon",
+                    "tomato",
+                    "crimson",
+                    "firebrick",
+                    "darkred",
+                    "indigo",
+                    "violet",
+                    "plum",
+                    "orchid",
+                    "thistle",
+                    "lavender",
+                    "gold",
+                    "khaki",
+                    "wheat",
+                    "tan",
+                    "sienna",
+                    "chocolate",
+                    "peru",
+                    "beige",
+                    "ivory",
+                    "linen",
+                    "snow",
+                    "seashell",
+                    "mintcream",
+                    "skyblue",
+                    "steelblue",
+                    "royalblue",
+                    "dodgerblue",
+                    "cornflowerblue",
+                    "slategray",
+                    "slategrey",
+                    "dimgray",
+                    "dimgrey",
+                    "lightgray",
+                    "lightgrey",
+                    "darkgray",
+                    "darkgrey",
+                    "gainsboro",
+                    "whitesmoke",
                 ];
                 if !NAMED_COLORS.contains(&val.to_lowercase().as_str()) {
                     let lower = val.to_lowercase();
@@ -3678,8 +4309,11 @@ fn validate_attr_value(attr: &Attribute, line_num: usize, ctx: &mut ParseContext
                         None => format!("unknown color '{}'", val),
                     };
                     ctx.diagnostics.push(Diagnostic {
-                        line: line_num, column: None, message: msg,
-                        severity: Severity::Warning, source_line: None,
+                        line: line_num,
+                        column: None,
+                        message: msg,
+                        severity: Severity::Warning,
+                        source_line: None,
                     });
                 }
             }
@@ -3748,7 +4382,12 @@ fn is_valid_hex_color(s: &str) -> bool {
     matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validate: bool) -> Vec<Attribute> {
+fn parse_attr_list(
+    input: &str,
+    line_num: usize,
+    ctx: &mut ParseContext,
+    validate: bool,
+) -> Vec<Attribute> {
     let mut attrs = Vec::new();
     let mut seen_keys: Vec<String> = Vec::new();
 
@@ -3859,15 +4498,17 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
             // Color validation for hex colors
             if matches!(strip_all_prefixes(&attr.key), "background" | "color")
                 && let Some(ref val) = attr.value
-                    && val.starts_with('#') && !is_valid_hex_color(val) {
-                        ctx.diagnostics.push(Diagnostic {
-                            line: line_num,
-                            column: None,
-                            message: format!("invalid hex color '{}'", val),
-                            severity: Severity::Warning,
-                            source_line: None,
-                        });
-                    }
+                && val.starts_with('#')
+                && !is_valid_hex_color(val)
+            {
+                ctx.diagnostics.push(Diagnostic {
+                    line: line_num,
+                    column: None,
+                    message: format!("invalid hex color '{}'", val),
+                    severity: Severity::Warning,
+                    source_line: None,
+                });
+            }
         }
 
         // Warn on unknown attributes
@@ -3880,7 +4521,10 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
                 let suggestion = suggest_closest(base_key, KNOWN_ATTRS);
                 let msg = match suggestion {
                     Some(closest) => {
-                        format!("unknown attribute '{}', did you mean '{}'?", attr.key, closest)
+                        format!(
+                            "unknown attribute '{}', did you mean '{}'?",
+                            attr.key, closest
+                        )
                     }
                     None => format!("unknown attribute '{}'", attr.key),
                 };
@@ -3977,10 +4621,7 @@ fn parse_text_segments(input: &str, ctx: &mut ParseContext) -> Vec<TextSegment> 
     let mut i = 0;
 
     while i < chars.len() {
-        if chars[i] == '{'
-            && i + 1 < chars.len()
-            && chars[i + 1] == '@'
-        {
+        if chars[i] == '{' && i + 1 < chars.len() && chars[i + 1] == '@' {
             // Flush accumulated plain text
             if !current_text.is_empty() {
                 segments.push(TextSegment::Plain(substitute_vars(
@@ -4163,15 +4804,19 @@ fn evaluate_arithmetic(input: &str) -> String {
     if input.contains(" ~ ") {
         let parts: Vec<&str> = input.split(" ~ ").collect();
         if parts.len() >= 2 {
-            return parts.iter().map(|p| {
-                let t = p.trim();
-                // Strip quotes from string literals
-                if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
-                    &t[1..t.len()-1]
-                } else {
-                    t
-                }
-            }).collect::<Vec<_>>().join("");
+            return parts
+                .iter()
+                .map(|p| {
+                    let t = p.trim();
+                    // Strip quotes from string literals
+                    if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
+                        &t[1..t.len() - 1]
+                    } else {
+                        t
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("");
         }
     }
 
@@ -4187,7 +4832,13 @@ fn evaluate_arithmetic(input: &str) -> String {
                     '+' => l + r,
                     '-' => l - r,
                     '*' => l * r,
-                    '/' => if r != 0.0 { l / r } else { return input.to_string() },
+                    '/' => {
+                        if r != 0.0 {
+                            l / r
+                        } else {
+                            return input.to_string();
+                        }
+                    }
                     _ => return input.to_string(),
                 };
                 if result == result.floor() && result.abs() < i64::MAX as f64 {
@@ -4249,23 +4900,26 @@ fn strip_all_prefixes(key: &str) -> &str {
         })
         .unwrap_or(key);
     // Strip responsive prefixes
-    let key = key.strip_prefix("sm:")
+    let key = key
+        .strip_prefix("sm:")
         .or_else(|| key.strip_prefix("md:"))
         .or_else(|| key.strip_prefix("lg:"))
         .or_else(|| key.strip_prefix("xl:"))
         .or_else(|| key.strip_prefix("2xl:"))
         .unwrap_or(key);
     // Strip media prefixes
-    let key = key.strip_prefix("dark:")
+    let key = key
+        .strip_prefix("dark:")
         .or_else(|| key.strip_prefix("print:"))
         .unwrap_or(key);
-    let key = key.strip_prefix("motion-safe:")
+    let key = key
+        .strip_prefix("motion-safe:")
         .or_else(|| key.strip_prefix("motion-reduce:"))
         .or_else(|| key.strip_prefix("landscape:"))
         .or_else(|| key.strip_prefix("portrait:"))
         .unwrap_or(key);
     // Strip container query prefixes (cq-sm:, cq-md:, etc.)
-    
+
     (key.strip_prefix("cq-sm:")
         .or_else(|| key.strip_prefix("cq-md:"))
         .or_else(|| key.strip_prefix("cq-lg:"))
@@ -4276,9 +4930,17 @@ fn strip_all_prefixes(key: &str) -> &str {
 
 /// Attributes that only make sense on container elements (@row, @column, @el).
 const CONTAINER_ONLY_ATTRS: &[&str] = &[
-    "spacing", "gap", "gap-x", "gap-y", "wrap",
-    "grid", "grid-cols", "grid-rows",
-    "container", "container-name", "container-type",
+    "spacing",
+    "gap",
+    "gap-x",
+    "gap-y",
+    "wrap",
+    "grid",
+    "grid-cols",
+    "grid-rows",
+    "container",
+    "container-name",
+    "container-type",
 ];
 
 fn element_kind_name(kind: &ElementKind) -> &'static str {
@@ -4362,18 +5024,39 @@ fn element_kind_name(kind: &ElementKind) -> &'static str {
 }
 
 fn is_container(kind: &ElementKind) -> bool {
-    matches!(kind,
-        ElementKind::Row | ElementKind::Column | ElementKind::El
-        | ElementKind::Nav | ElementKind::Header | ElementKind::Footer
-        | ElementKind::Main | ElementKind::Section | ElementKind::Article
-        | ElementKind::Aside | ElementKind::List | ElementKind::ListItem
-        | ElementKind::Form | ElementKind::Details | ElementKind::Figure
-        | ElementKind::Blockquote
-        | ElementKind::Dialog | ElementKind::DefinitionList | ElementKind::DefinitionTerm
-        | ElementKind::DefinitionDescription | ElementKind::Fieldset | ElementKind::Datalist
-        | ElementKind::Iframe | ElementKind::Canvas
-        | ElementKind::Grid | ElementKind::Stack | ElementKind::Carousel
-        | ElementKind::Noscript | ElementKind::Address | ElementKind::Search | ElementKind::Breadcrumb
+    matches!(
+        kind,
+        ElementKind::Row
+            | ElementKind::Column
+            | ElementKind::El
+            | ElementKind::Nav
+            | ElementKind::Header
+            | ElementKind::Footer
+            | ElementKind::Main
+            | ElementKind::Section
+            | ElementKind::Article
+            | ElementKind::Aside
+            | ElementKind::List
+            | ElementKind::ListItem
+            | ElementKind::Form
+            | ElementKind::Details
+            | ElementKind::Figure
+            | ElementKind::Blockquote
+            | ElementKind::Dialog
+            | ElementKind::DefinitionList
+            | ElementKind::DefinitionTerm
+            | ElementKind::DefinitionDescription
+            | ElementKind::Fieldset
+            | ElementKind::Datalist
+            | ElementKind::Iframe
+            | ElementKind::Canvas
+            | ElementKind::Grid
+            | ElementKind::Stack
+            | ElementKind::Carousel
+            | ElementKind::Noscript
+            | ElementKind::Address
+            | ElementKind::Search
+            | ElementKind::Breadcrumb
     )
 }
 
@@ -4386,29 +5069,32 @@ fn validate_tree(
         if let Node::Element(elem) = node {
             for attr in &elem.attrs {
                 let base = strip_all_prefixes(&attr.key);
-                if base == "width" && attr.value.as_deref() == Some("fill")
-                    && !matches!(parent_kind, Some(ElementKind::Row)) {
-                        diagnostics.push(Diagnostic {
-                            line: elem.line_num,
-                            column: None,
-                            message: "'width fill' works best inside @row; using 100% as fallback"
-                                .to_string(),
-                            severity: Severity::Warning,
-                            source_line: None,
-                        });
-                    }
-                if base == "height" && attr.value.as_deref() == Some("fill")
-                    && !matches!(parent_kind, Some(ElementKind::Column)) {
-                        diagnostics.push(Diagnostic {
-                            line: elem.line_num,
-                            column: None,
-                            message:
-                                "'height fill' works best inside @column; using 100% as fallback"
-                                    .to_string(),
-                            severity: Severity::Warning,
-                            source_line: None,
-                        });
-                    }
+                if base == "width"
+                    && attr.value.as_deref() == Some("fill")
+                    && !matches!(parent_kind, Some(ElementKind::Row))
+                {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        column: None,
+                        message: "'width fill' works best inside @row; using 100% as fallback"
+                            .to_string(),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
+                if base == "height"
+                    && attr.value.as_deref() == Some("fill")
+                    && !matches!(parent_kind, Some(ElementKind::Column))
+                {
+                    diagnostics.push(Diagnostic {
+                        line: elem.line_num,
+                        column: None,
+                        message: "'height fill' works best inside @column; using 100% as fallback"
+                            .to_string(),
+                        severity: Severity::Warning,
+                        source_line: None,
+                    });
+                }
 
                 // Container-only attributes on non-container elements
                 if CONTAINER_ONLY_ATTRS.contains(&base) && !is_container(&elem.kind) {
@@ -4417,7 +5103,8 @@ fn validate_tree(
                         column: None,
                         message: format!(
                             "'{}' has no effect on {} (only works on @row, @column, @el)",
-                            base, element_kind_name(&elem.kind)
+                            base,
+                            element_kind_name(&elem.kind)
                         ),
                         severity: Severity::Warning,
                         source_line: None,
@@ -4455,15 +5142,15 @@ fn validate_tree(
                 }
 
                 // 'rows'/'cols' only on @textarea
-                if (base == "rows" || base == "cols")
-                    && !matches!(elem.kind, ElementKind::Textarea)
+                if (base == "rows" || base == "cols") && !matches!(elem.kind, ElementKind::Textarea)
                 {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
                         column: None,
                         message: format!(
                             "'{}' has no effect on {} (only works on @textarea)",
-                            base, element_kind_name(&elem.kind)
+                            base,
+                            element_kind_name(&elem.kind)
                         ),
                         severity: Severity::Warning,
                         source_line: None,
@@ -4485,15 +5172,18 @@ fn validate_tree(
                 }
 
                 // Media-specific attributes only on @video/@audio
-                if matches!(base, "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload")
-                    && !matches!(elem.kind, ElementKind::Video | ElementKind::Audio)
+                if matches!(
+                    base,
+                    "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload"
+                ) && !matches!(elem.kind, ElementKind::Video | ElementKind::Audio)
                 {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
                         column: None,
                         message: format!(
                             "'{}' has no effect on {} (only works on @video, @audio)",
-                            base, element_kind_name(&elem.kind)
+                            base,
+                            element_kind_name(&elem.kind)
                         ),
                         severity: Severity::Warning,
                         source_line: None,
@@ -4501,34 +5191,41 @@ fn validate_tree(
                 }
             }
             // Missing alt text on @image
-            if matches!(elem.kind, ElementKind::Image)
-                && !elem.attrs.iter().any(|a| a.key == "alt") {
-                    diagnostics.push(Diagnostic {
-                        line: elem.line_num,
-                        column: None,
-                        message: "@image missing 'alt' attribute (accessibility)".to_string(),
-                        severity: Severity::Warning,
-                        source_line: None,
-                    });
-                }
+            if matches!(elem.kind, ElementKind::Image) && !elem.attrs.iter().any(|a| a.key == "alt")
+            {
+                diagnostics.push(Diagnostic {
+                    line: elem.line_num,
+                    column: None,
+                    message: "@image missing 'alt' attribute (accessibility)".to_string(),
+                    severity: Severity::Warning,
+                    source_line: None,
+                });
+            }
             if matches!(elem.kind, ElementKind::Input)
-                && !elem.attrs.iter().any(|a| a.key == "type") {
-                    diagnostics.push(Diagnostic {
-                        line: elem.line_num,
-                        column: None,
-                        message: "@input missing 'type' attribute (defaults to 'text')".to_string(),
-                        severity: Severity::Warning,
-                        source_line: None,
-                    });
-                }
+                && !elem.attrs.iter().any(|a| a.key == "type")
+            {
+                diagnostics.push(Diagnostic {
+                    line: elem.line_num,
+                    column: None,
+                    message: "@input missing 'type' attribute (defaults to 'text')".to_string(),
+                    severity: Severity::Warning,
+                    source_line: None,
+                });
+            }
             if matches!(elem.kind, ElementKind::Link) {
                 // For @link, argument is the URL, not text content
                 let has_text = !elem.children.is_empty();
-                if !has_text && !elem.attrs.iter().any(|a| a.key == "aria-label" || a.key == "title") {
+                if !has_text
+                    && !elem
+                        .attrs
+                        .iter()
+                        .any(|a| a.key == "aria-label" || a.key == "title")
+                {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
                         column: None,
-                        message: "@link has no visible text or aria-label (accessibility)".to_string(),
+                        message: "@link has no visible text or aria-label (accessibility)"
+                            .to_string(),
                         severity: Severity::Warning,
                         source_line: None,
                     });
@@ -4537,17 +5234,22 @@ fn validate_tree(
 
             // Contrast ratio check for hex color pairs
             {
-                let bg_color = elem.attrs.iter()
+                let bg_color = elem
+                    .attrs
+                    .iter()
                     .find(|a| strip_all_prefixes(&a.key) == "background")
                     .and_then(|a| a.value.as_deref());
-                let fg_color = elem.attrs.iter()
+                let fg_color = elem
+                    .attrs
+                    .iter()
                     .find(|a| strip_all_prefixes(&a.key) == "color")
                     .and_then(|a| a.value.as_deref());
                 if let (Some(bg), Some(fg)) = (bg_color, fg_color)
-                    && let (Some(bg_rgb), Some(fg_rgb)) = (parse_hex_rgb(bg), parse_hex_rgb(fg)) {
-                        let ratio = contrast_ratio(bg_rgb, fg_rgb);
-                        if ratio < 4.5 {
-                            diagnostics.push(Diagnostic {
+                    && let (Some(bg_rgb), Some(fg_rgb)) = (parse_hex_rgb(bg), parse_hex_rgb(fg))
+                {
+                    let ratio = contrast_ratio(bg_rgb, fg_rgb);
+                    if ratio < 4.5 {
+                        diagnostics.push(Diagnostic {
                                 line: elem.line_num,
                                 column: None,
                                 message: format!(
@@ -4557,14 +5259,20 @@ fn validate_tree(
                                 severity: Severity::Warning,
                                 source_line: None,
                             });
-                        }
                     }
+                }
             }
 
             // @form inputs should have associated @label
-            if matches!(elem.kind, ElementKind::Input | ElementKind::Select | ElementKind::Textarea) {
+            if matches!(
+                elem.kind,
+                ElementKind::Input | ElementKind::Select | ElementKind::Textarea
+            ) {
                 let has_id = elem.attrs.iter().any(|a| a.key == "id");
-                let has_aria_label = elem.attrs.iter().any(|a| a.key == "aria-label" || a.key == "aria-labelledby");
+                let has_aria_label = elem
+                    .attrs
+                    .iter()
+                    .any(|a| a.key == "aria-label" || a.key == "aria-labelledby");
                 let has_title = elem.attrs.iter().any(|a| a.key == "title");
                 let in_label = matches!(parent_kind, Some(ElementKind::Label));
                 if !has_id && !has_aria_label && !has_title && !in_label {
@@ -4583,15 +5291,16 @@ fn validate_tree(
 
             // @iframe should have title attribute
             if matches!(elem.kind, ElementKind::Iframe)
-                && !elem.attrs.iter().any(|a| a.key == "title") {
-                    diagnostics.push(Diagnostic {
-                        line: elem.line_num,
-                        column: None,
-                        message: "@iframe missing 'title' attribute (accessibility)".to_string(),
-                        severity: Severity::Warning,
-                        source_line: None,
-                    });
-                }
+                && !elem.attrs.iter().any(|a| a.key == "title")
+            {
+                diagnostics.push(Diagnostic {
+                    line: elem.line_num,
+                    column: None,
+                    message: "@iframe missing 'title' attribute (accessibility)".to_string(),
+                    severity: Severity::Warning,
+                    source_line: None,
+                });
+            }
 
             // @button should have accessible text
             if matches!(elem.kind, ElementKind::Button) {
@@ -4601,7 +5310,8 @@ fn validate_tree(
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
                         column: None,
-                        message: "@button has no text content or aria-label (accessibility)".to_string(),
+                        message: "@button has no text content or aria-label (accessibility)"
+                            .to_string(),
                         severity: Severity::Warning,
                         source_line: None,
                     });
@@ -4610,15 +5320,20 @@ fn validate_tree(
 
             // @video should have captions or aria-label
             if matches!(elem.kind, ElementKind::Video) {
-                let has_aria = elem.attrs.iter().any(|a| a.key == "aria-label" || a.key == "aria-describedby");
-                let has_track = elem.children.iter().any(|c| {
-                    matches!(c, Node::Element(e) if e.kind == ElementKind::Source)
-                });
+                let has_aria = elem
+                    .attrs
+                    .iter()
+                    .any(|a| a.key == "aria-label" || a.key == "aria-describedby");
+                let has_track = elem
+                    .children
+                    .iter()
+                    .any(|c| matches!(c, Node::Element(e) if e.kind == ElementKind::Source));
                 if !has_aria && !has_track {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
                         column: None,
-                        message: "@video should have aria-label or captions for accessibility".to_string(),
+                        message: "@video should have aria-label or captions for accessibility"
+                            .to_string(),
                         severity: Severity::Warning,
                         source_line: None,
                     });
@@ -4628,16 +5343,17 @@ fn validate_tree(
             // Tabindex > 0 is an anti-pattern
             if let Some(tabindex_attr) = elem.attrs.iter().find(|a| a.key == "tabindex")
                 && let Some(ref val) = tabindex_attr.value
-                    && let Ok(n) = val.parse::<i32>()
-                        && n > 0 {
-                            diagnostics.push(Diagnostic {
+                && let Ok(n) = val.parse::<i32>()
+                && n > 0
+            {
+                diagnostics.push(Diagnostic {
                                 line: elem.line_num,
                                 column: None,
                                 message: format!("tabindex {} is positive — avoid positive tabindex values as they disrupt natural tab order", n),
                                 severity: Severity::Warning,
                                 source_line: None,
                             });
-                        }
+            }
 
             validate_tree(&elem.children, Some(&elem.kind), diagnostics);
         }
@@ -4666,7 +5382,11 @@ fn parse_hex_rgb(s: &str) -> Option<(u8, u8, u8)> {
 fn relative_luminance(r: u8, g: u8, b: u8) -> f64 {
     fn linearize(c: u8) -> f64 {
         let s = c as f64 / 255.0;
-        if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+        if s <= 0.03928 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
     }
     0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
 }
@@ -4722,7 +5442,10 @@ fn substitute_vars(input: &str, vars: &HashMap<String, String>) -> String {
             let start = i + 1;
             let mut end = start;
             while end < chars.len()
-                && (chars[end].is_alphanumeric() || chars[end] == '-' || chars[end] == '_' || chars[end] == '.')
+                && (chars[end].is_alphanumeric()
+                    || chars[end] == '-'
+                    || chars[end] == '_'
+                    || chars[end] == '.')
             {
                 end += 1;
             }
@@ -4814,14 +5537,12 @@ fn parse_keyframe_line(line: &str) -> Option<String> {
 }
 
 /// Replace @slot placeholders in the base layout with content from @extends
-fn replace_extends_slots(
-    nodes: Vec<Node>,
-    slot_nodes: &HashMap<String, Vec<Node>>,
-) -> Vec<Node> {
+fn replace_extends_slots(nodes: Vec<Node>, slot_nodes: &HashMap<String, Vec<Node>>) -> Vec<Node> {
     let mut result = Vec::new();
     for node in nodes {
         match node {
-            Node::Element(elem) if matches!(&elem.kind, ElementKind::Slot(name) if !name.is_empty()) => {
+            Node::Element(elem) if matches!(&elem.kind, ElementKind::Slot(name) if !name.is_empty()) =>
+            {
                 if let ElementKind::Slot(ref name) = elem.kind {
                     if let Some(content) = slot_nodes.get(name) {
                         result.extend(content.iter().cloned());
@@ -4844,9 +5565,10 @@ fn replace_extends_slots(
 fn apply_filter(value: &str, filter: &str) -> String {
     if let Some(arg) = filter.strip_prefix("truncate:") {
         if let Ok(n) = arg.parse::<usize>()
-            && value.len() > n {
-                return format!("{}...", &value[..n]);
-            }
+            && value.len() > n
+        {
+            return format!("{}...", &value[..n]);
+        }
         return value.to_string();
     }
     if let Some(rest) = filter.strip_prefix("replace:") {
@@ -4864,26 +5586,29 @@ fn apply_filter(value: &str, filter: &str) -> String {
     // Color functions: lighten:N, darken:N, alpha:N, mix:COLOR:N
     if let Some(arg) = filter.strip_prefix("lighten:") {
         if let Ok(amount) = arg.parse::<f64>()
-            && let Some(rgb) = parse_hex_rgb(value) {
-                let (r, g, b) = lighten_color(rgb, amount / 100.0);
-                return format!("#{:02x}{:02x}{:02x}", r, g, b);
-            }
+            && let Some(rgb) = parse_hex_rgb(value)
+        {
+            let (r, g, b) = lighten_color(rgb, amount / 100.0);
+            return format!("#{:02x}{:02x}{:02x}", r, g, b);
+        }
         return value.to_string();
     }
     if let Some(arg) = filter.strip_prefix("darken:") {
         if let Ok(amount) = arg.parse::<f64>()
-            && let Some(rgb) = parse_hex_rgb(value) {
-                let (r, g, b) = darken_color(rgb, amount / 100.0);
-                return format!("#{:02x}{:02x}{:02x}", r, g, b);
-            }
+            && let Some(rgb) = parse_hex_rgb(value)
+        {
+            let (r, g, b) = darken_color(rgb, amount / 100.0);
+            return format!("#{:02x}{:02x}{:02x}", r, g, b);
+        }
         return value.to_string();
     }
     if let Some(arg) = filter.strip_prefix("alpha:") {
         if let Ok(a) = arg.parse::<f64>()
-            && let Some((r, g, b)) = parse_hex_rgb(value) {
-                let a8 = (a.clamp(0.0, 1.0) * 255.0) as u8;
-                return format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a8);
-            }
+            && let Some((r, g, b)) = parse_hex_rgb(value)
+        {
+            let a8 = (a.clamp(0.0, 1.0) * 255.0) as u8;
+            return format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a8);
+        }
         return value.to_string();
     }
     if let Some(arg) = filter.strip_prefix("mix:") {
@@ -4894,10 +5619,11 @@ fn apply_filter(value: &str, filter: &str) -> String {
                 parse_hex_rgb(value),
                 parse_hex_rgb(parts[0]),
                 parts[1].parse::<f64>(),
-            ) {
-                let (r, g, b) = mix_colors(c1, c2, pct / 100.0);
-                return format!("#{:02x}{:02x}{:02x}", r, g, b);
-            }
+            )
+        {
+            let (r, g, b) = mix_colors(c1, c2, pct / 100.0);
+            return format!("#{:02x}{:02x}{:02x}", r, g, b);
+        }
         return value.to_string();
     }
     match filter {
@@ -5046,20 +5772,34 @@ fn parse_json_with_error(input: &str) -> Result<JsonValue, String> {
             fn probe(chars: &[char], pos: usize, deepest: &mut usize) {
                 let mut p = pos;
                 while p < chars.len() {
-                    if p > *deepest { *deepest = p; }
+                    if p > *deepest {
+                        *deepest = p;
+                    }
                     match chars[p] {
-                        '{' | '[' => { p += 1; probe(chars, p, deepest); return; }
+                        '{' | '[' => {
+                            p += 1;
+                            probe(chars, p, deepest);
+                            return;
+                        }
                         '"' => {
                             p += 1;
                             while p < chars.len() && chars[p] != '"' {
-                                if chars[p] == '\\' { p += 1; }
+                                if chars[p] == '\\' {
+                                    p += 1;
+                                }
                                 p += 1;
                             }
-                            if p < chars.len() { p += 1; }
-                            if p > *deepest { *deepest = p; }
+                            if p < chars.len() {
+                                p += 1;
+                            }
+                            if p > *deepest {
+                                *deepest = p;
+                            }
                             return;
                         }
-                        _ => { p += 1; }
+                        _ => {
+                            p += 1;
+                        }
                     }
                 }
             }
@@ -5067,9 +5807,19 @@ fn parse_json_with_error(input: &str) -> Result<JsonValue, String> {
             // Convert char position to line:col
             let prefix: String = chars[..deepest.min(chars.len())].iter().collect();
             let line = prefix.chars().filter(|&c| c == '\n').count() + 1;
-            let col = prefix.rfind('\n').map_or(prefix.len(), |p| prefix.len() - p - 1) + 1;
-            let context: String = chars[deepest.saturating_sub(20)..deepest.min(chars.len())].iter().collect();
-            Err(format!("at line {}:{} near \"{}\"", line, col, context.trim()))
+            let col = prefix
+                .rfind('\n')
+                .map_or(prefix.len(), |p| prefix.len() - p - 1)
+                + 1;
+            let context: String = chars[deepest.saturating_sub(20)..deepest.min(chars.len())]
+                .iter()
+                .collect();
+            Err(format!(
+                "at line {}:{} near \"{}\"",
+                line,
+                col,
+                context.trim()
+            ))
         }
     }
 }
@@ -5112,8 +5862,19 @@ fn parse_json_value(chars: &[char], mut pos: usize) -> Option<(JsonValue, usize)
             if chars[pos] == '-' {
                 pos += 1;
             }
-            while pos < chars.len() && (chars[pos].is_ascii_digit() || chars[pos] == '.' || chars[pos] == 'e' || chars[pos] == 'E' || chars[pos] == '+' || chars[pos] == '-') {
-                if (chars[pos] == '+' || chars[pos] == '-') && pos > start + 1 && chars[pos - 1] != 'e' && chars[pos - 1] != 'E' {
+            while pos < chars.len()
+                && (chars[pos].is_ascii_digit()
+                    || chars[pos] == '.'
+                    || chars[pos] == 'e'
+                    || chars[pos] == 'E'
+                    || chars[pos] == '+'
+                    || chars[pos] == '-')
+            {
+                if (chars[pos] == '+' || chars[pos] == '-')
+                    && pos > start + 1
+                    && chars[pos - 1] != 'e'
+                    && chars[pos - 1] != 'E'
+                {
                     break;
                 }
                 pos += 1;
@@ -5327,8 +6088,7 @@ fn fetch_url_blocking(url: &str) -> Result<String, String> {
     }
 
     let addr = format!("{}:{}", host, port);
-    let mut stream =
-        TcpStream::connect(&addr).map_err(|e| format!("connection failed: {}", e))?;
+    let mut stream = TcpStream::connect(&addr).map_err(|e| format!("connection failed: {}", e))?;
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(10)))
         .ok();
@@ -5354,15 +6114,19 @@ fn fetch_url_blocking(url: &str) -> Result<String, String> {
 
         // Check status code
         if let Some(first_line) = headers.lines().next()
-            && let Some(code_str) = first_line.split_whitespace().nth(1) {
-                let code: u16 = code_str.parse().unwrap_or(0);
-                if code >= 400 {
-                    return Err(format!("HTTP {}", code));
-                }
+            && let Some(code_str) = first_line.split_whitespace().nth(1)
+        {
+            let code: u16 = code_str.parse().unwrap_or(0);
+            if code >= 400 {
+                return Err(format!("HTTP {}", code));
             }
+        }
 
         // Handle chunked transfer encoding
-        if headers.to_lowercase().contains("transfer-encoding: chunked") {
+        if headers
+            .to_lowercase()
+            .contains("transfer-encoding: chunked")
+        {
             return Ok(decode_chunked(body));
         }
 
@@ -5380,9 +6144,7 @@ fn decode_chunked(body: &str) -> String {
         if rest_trimmed.is_empty() {
             break;
         }
-        let size_end = rest_trimmed
-            .find("\r\n")
-            .unwrap_or(rest_trimmed.len());
+        let size_end = rest_trimmed.find("\r\n").unwrap_or(rest_trimmed.len());
         let size_str = &rest_trimmed[..size_end];
         let size = usize::from_str_radix(size_str.trim(), 16).unwrap_or(0);
         if size == 0 {
@@ -5507,11 +6269,20 @@ fn markdown_to_html(lines: &[String]) -> String {
             // skip
         }
         let heading_level = trimmed.bytes().take_while(|&b| b == b'#').count();
-        if (1..=6).contains(&heading_level) && trimmed.as_bytes().get(heading_level) == Some(&b' ') {
+        if (1..=6).contains(&heading_level) && trimmed.as_bytes().get(heading_level) == Some(&b' ')
+        {
             flush_para(&mut para_buf, &mut html);
-            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
             let text = &trimmed[heading_level + 1..];
-            html.push_str(&format!("<h{}>{}</h{}>\n", heading_level, md_inline(text), heading_level));
+            html.push_str(&format!(
+                "<h{}>{}</h{}>\n",
+                heading_level,
+                md_inline(text),
+                heading_level
+            ));
             continue;
         }
 
@@ -5528,18 +6299,29 @@ fn markdown_to_html(lines: &[String]) -> String {
 
         // Ordered list items
         if let Some(dot_pos) = trimmed.find(". ")
-            && dot_pos <= 3 && trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit()) {
-                flush_para(&mut para_buf, &mut html);
-                if in_list { html.push_str("</ul>\n"); in_list = false; }
-                // We use <ol> but just emit <li> for simplicity
-                html.push_str(&format!("<li>{}</li>\n", md_inline(&trimmed[dot_pos + 2..])));
-                continue;
+            && dot_pos <= 3
+            && trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit())
+        {
+            flush_para(&mut para_buf, &mut html);
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
             }
+            // We use <ol> but just emit <li> for simplicity
+            html.push_str(&format!(
+                "<li>{}</li>\n",
+                md_inline(&trimmed[dot_pos + 2..])
+            ));
+            continue;
+        }
 
         // Horizontal rule
         if trimmed == "---" || trimmed == "***" || trimmed == "___" {
             flush_para(&mut para_buf, &mut html);
-            if in_list { html.push_str("</ul>\n"); in_list = false; }
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
             html.push_str("<hr>\n");
             continue;
         }
@@ -5547,7 +6329,10 @@ fn markdown_to_html(lines: &[String]) -> String {
         // Blockquote
         if let Some(quote_content) = trimmed.strip_prefix("> ") {
             flush_para(&mut para_buf, &mut html);
-            html.push_str(&format!("<blockquote><p>{}</p></blockquote>\n", md_inline(quote_content)));
+            html.push_str(&format!(
+                "<blockquote><p>{}</p></blockquote>\n",
+                md_inline(quote_content)
+            ));
             continue;
         }
 
@@ -5559,7 +6344,9 @@ fn markdown_to_html(lines: &[String]) -> String {
     }
 
     // Flush remaining
-    if in_list { html.push_str("</ul>\n"); }
+    if in_list {
+        html.push_str("</ul>\n");
+    }
     flush_para(&mut para_buf, &mut html);
 
     html
@@ -5572,10 +6359,13 @@ fn md_inline(text: &str) -> String {
 
     while i < chars.len() {
         // Bold: **text** or __text__
-        if i + 1 < chars.len() && ((chars[i] == '*' && chars[i+1] == '*') || (chars[i] == '_' && chars[i+1] == '_')) {
+        if i + 1 < chars.len()
+            && ((chars[i] == '*' && chars[i + 1] == '*')
+                || (chars[i] == '_' && chars[i + 1] == '_'))
+        {
             let marker = chars[i];
             if let Some(end) = find_closing_double(&chars, i + 2, marker) {
-                let inner: String = chars[i+2..end].iter().collect();
+                let inner: String = chars[i + 2..end].iter().collect();
                 result.push_str("<strong>");
                 result.push_str(&md_inline(&inner));
                 result.push_str("</strong>");
@@ -5584,10 +6374,10 @@ fn md_inline(text: &str) -> String {
             }
         }
         // Italic: *text* or _text_
-        if (chars[i] == '*' || chars[i] == '_') && i + 1 < chars.len() && chars[i+1] != chars[i] {
+        if (chars[i] == '*' || chars[i] == '_') && i + 1 < chars.len() && chars[i + 1] != chars[i] {
             let marker = chars[i];
             if let Some(end) = find_closing_single(&chars, i + 1, marker) {
-                let inner: String = chars[i+1..end].iter().collect();
+                let inner: String = chars[i + 1..end].iter().collect();
                 result.push_str("<em>");
                 result.push_str(&md_inline(&inner));
                 result.push_str("</em>");
@@ -5597,27 +6387,35 @@ fn md_inline(text: &str) -> String {
         }
         // Inline code: `text`
         if chars[i] == '`'
-            && let Some(end) = chars[i+1..].iter().position(|&c| c == '`') {
-                let inner: String = chars[i+1..i+1+end].iter().collect();
-                result.push_str("<code>");
-                result.push_str(&html_escape_md(&inner));
-                result.push_str("</code>");
-                i = i + 2 + end;
-                continue;
-            }
+            && let Some(end) = chars[i + 1..].iter().position(|&c| c == '`')
+        {
+            let inner: String = chars[i + 1..i + 1 + end].iter().collect();
+            result.push_str("<code>");
+            result.push_str(&html_escape_md(&inner));
+            result.push_str("</code>");
+            i = i + 2 + end;
+            continue;
+        }
         // Links: [text](url)
         if chars[i] == '['
-            && let Some(close_bracket) = chars[i+1..].iter().position(|&c| c == ']') {
-                let after = i + 1 + close_bracket + 1;
-                if after < chars.len() && chars[after] == '('
-                    && let Some(close_paren) = chars[after+1..].iter().position(|&c| c == ')') {
-                        let text: String = chars[i+1..i+1+close_bracket].iter().collect();
-                        let url: String = chars[after+1..after+1+close_paren].iter().collect();
-                        result.push_str(&format!("<a href=\"{}\">{}</a>", html_escape_md(&url), md_inline(&text)));
-                        i = after + 2 + close_paren;
-                        continue;
-                    }
+            && let Some(close_bracket) = chars[i + 1..].iter().position(|&c| c == ']')
+        {
+            let after = i + 1 + close_bracket + 1;
+            if after < chars.len()
+                && chars[after] == '('
+                && let Some(close_paren) = chars[after + 1..].iter().position(|&c| c == ')')
+            {
+                let text: String = chars[i + 1..i + 1 + close_bracket].iter().collect();
+                let url: String = chars[after + 1..after + 1 + close_paren].iter().collect();
+                result.push_str(&format!(
+                    "<a href=\"{}\">{}</a>",
+                    html_escape_md(&url),
+                    md_inline(&text)
+                ));
+                i = after + 2 + close_paren;
+                continue;
             }
+        }
         result.push(chars[i]);
         i += 1;
     }
@@ -5628,7 +6426,7 @@ fn md_inline(text: &str) -> String {
 fn find_closing_double(chars: &[char], start: usize, marker: char) -> Option<usize> {
     let mut i = start;
     while i + 1 < chars.len() {
-        if chars[i] == marker && chars[i+1] == marker {
+        if chars[i] == marker && chars[i + 1] == marker {
             return Some(i);
         }
         i += 1;
@@ -5672,11 +6470,10 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 
 fn html_escape_md(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -5714,7 +6511,10 @@ mod tests {
     #[test]
     fn let_variable_substitution() {
         let r = parse_ok("@let color red\n@text [color $color] hi\n");
-        assert_eq!(r.document.variables.get("color").map(|s| s.as_str()), Some("red"));
+        assert_eq!(
+            r.document.variables.get("color").map(|s| s.as_str()),
+            Some("red")
+        );
     }
 
     #[test]
@@ -5752,7 +6552,12 @@ mod tests {
     #[test]
     fn severity_has_all_variants() {
         // This compiles only if Severity has Error, Warning, Info, Help.
-        let all = [Severity::Error, Severity::Warning, Severity::Info, Severity::Help];
+        let all = [
+            Severity::Error,
+            Severity::Warning,
+            Severity::Info,
+            Severity::Help,
+        ];
         assert_eq!(all.len(), 4);
     }
 

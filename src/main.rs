@@ -90,11 +90,10 @@ fn compile(input_path: &str, cfg: &CompileConfig) -> (bool, Vec<PathBuf>) {
         }
     }
 
-    let has_errors = result
-        .diagnostics
-        .iter()
-        .any(|d| d.severity == htmlang::parser::Severity::Error
-            || (cfg.strict && d.severity == htmlang::parser::Severity::Warning));
+    let has_errors = result.diagnostics.iter().any(|d| {
+        d.severity == htmlang::parser::Severity::Error
+            || (cfg.strict && d.severity == htmlang::parser::Severity::Warning)
+    });
 
     let out_path = match cfg.output_path {
         Some(p) => PathBuf::from(p),
@@ -126,7 +125,10 @@ fn compile(input_path: &str, cfg: &CompileConfig) -> (bool, Vec<PathBuf>) {
                 let map_path = out_path.with_extension("html.map");
                 let source_map = htmlang::codegen::generate_source_map(
                     &result.document,
-                    &Path::new(input_path).file_name().unwrap_or_default().to_string_lossy(),
+                    &Path::new(input_path)
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy(),
                 );
                 let _ = fs::write(&map_path, &source_map);
             }
@@ -137,7 +139,10 @@ fn compile(input_path: &str, cfg: &CompileConfig) -> (bool, Vec<PathBuf>) {
 }
 
 fn json_escape_string(s: &str) -> String {
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+    let escaped = s
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
     format!("\"{}\"", escaped)
 }
 
@@ -147,7 +152,8 @@ fn json_array(items: impl Iterator<Item = String>) -> String {
 }
 
 fn json_object(fields: &[(&str, String)]) -> String {
-    let inner: Vec<String> = fields.iter()
+    let inner: Vec<String> = fields
+        .iter()
         .map(|(k, v)| format!("{}:{}", json_escape_string(k), v))
         .collect();
     format!("{{{}}}", inner.join(","))
@@ -219,33 +225,34 @@ fn bundle_assets(html: &str, base_dir: &Path) -> String {
                 {
                     let asset_path = base_dir.join(path_str);
                     if asset_path.exists()
-                        && let Ok(mut file) = std::fs::File::open(&asset_path) {
-                            let mut buf = Vec::new();
-                            if file.read_to_end(&mut buf).is_ok() {
-                                let mime = match asset_path.extension().and_then(|e| e.to_str()) {
-                                    Some("png") => "image/png",
-                                    Some("jpg") | Some("jpeg") => "image/jpeg",
-                                    Some("gif") => "image/gif",
-                                    Some("svg") => "image/svg+xml",
-                                    Some("webp") => "image/webp",
-                                    Some("ico") => "image/x-icon",
-                                    Some("woff2") => "font/woff2",
-                                    Some("woff") => "font/woff",
-                                    Some("ttf") => "font/ttf",
-                                    Some("otf") => "font/otf",
-                                    Some("avif") => "image/avif",
-                                    _ => "application/octet-stream",
-                                };
-                                use std::fmt::Write as FmtWrite;
-                                let mut b64 = String::new();
-                                // Simple base64 encoding
-                                let encoded = base64_encode(&buf);
-                                let _ = write!(b64, "data:{};base64,{}", mime, encoded);
-                                output.push_str(&b64);
-                                remaining = &remaining[end..];
-                                continue;
-                            }
+                        && let Ok(mut file) = std::fs::File::open(&asset_path)
+                    {
+                        let mut buf = Vec::new();
+                        if file.read_to_end(&mut buf).is_ok() {
+                            let mime = match asset_path.extension().and_then(|e| e.to_str()) {
+                                Some("png") => "image/png",
+                                Some("jpg") | Some("jpeg") => "image/jpeg",
+                                Some("gif") => "image/gif",
+                                Some("svg") => "image/svg+xml",
+                                Some("webp") => "image/webp",
+                                Some("ico") => "image/x-icon",
+                                Some("woff2") => "font/woff2",
+                                Some("woff") => "font/woff",
+                                Some("ttf") => "font/ttf",
+                                Some("otf") => "font/otf",
+                                Some("avif") => "image/avif",
+                                _ => "application/octet-stream",
+                            };
+                            use std::fmt::Write as FmtWrite;
+                            let mut b64 = String::new();
+                            // Simple base64 encoding
+                            let encoded = base64_encode(&buf);
+                            let _ = write!(b64, "data:{};base64,{}", mime, encoded);
+                            output.push_str(&b64);
+                            remaining = &remaining[end..];
+                            continue;
                         }
+                    }
                 }
                 // If we couldn't inline, keep original path
                 output.push_str(&remaining[..end]);
@@ -311,7 +318,8 @@ fn generate_error_overlay(diagnostics: &[htmlang::parser::Diagnostic], file: &st
     let mut errors = String::new();
     for d in diagnostics {
         let prefix = severity_label(d.severity);
-        let escaped = d.message
+        let escaped = d
+            .message
             .replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('>', "&gt;");
@@ -324,7 +332,10 @@ fn generate_error_overlay(diagnostics: &[htmlang::parser::Diagnostic], file: &st
             prefix, prefix, location, escaped
         ));
         if let Some(ref src) = d.source_line {
-            let src_esc = src.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+            let src_esc = src
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
             errors.push_str(&format!("<pre class=\"src\">{}</pre>", src_esc));
             if let Some(col) = d.column {
                 // Render a caret indicator underneath the source line.
@@ -362,10 +373,11 @@ h1{{color:#ff6b6b;margin-bottom:1rem;font-size:1.5rem}}
 fn init_project(dir: &str, template_name: Option<&str>) {
     let dir = Path::new(dir);
     if dir.to_str() != Some(".")
-        && let Err(e) = fs::create_dir_all(dir) {
-            eprintln!("error: cannot create directory '{}': {}", dir.display(), e);
-            process::exit(1);
-        }
+        && let Err(e) = fs::create_dir_all(dir)
+    {
+        eprintln!("error: cannot create directory '{}': {}", dir.display(), e);
+        process::exit(1);
+    }
 
     let index_path = dir.join("index.hl");
     if index_path.exists() {
@@ -374,7 +386,8 @@ fn init_project(dir: &str, template_name: Option<&str>) {
     }
 
     let template = match template_name {
-        Some("blog") => r#"@page My Blog
+        Some("blog") => {
+            r#"@page My Blog
 @let primary #3b82f6
 @let bg-dark #1a1a2e
 
@@ -398,8 +411,10 @@ fn init_project(dir: &str, template_name: Option<&str>) {
 
   @footer [padding-top 20, border-top 1 #eee]
     @text [color #888, size 14, text-align center] Built with htmlang
-"#,
-        Some("docs") => r#"@page Documentation
+"#
+        }
+        Some("docs") => {
+            r#"@page Documentation
 @let primary #3b82f6
 @let sidebar-width 250
 
@@ -424,8 +439,10 @@ fn init_project(dir: &str, template_name: Option<&str>) {
     @text [bold, size 24] Usage
     @paragraph [line-height 1.8]
       Import and use the library in your project.
-"#,
-        Some("portfolio") => r#"@page Portfolio
+"#
+        }
+        Some("portfolio") => {
+            r#"@page Portfolio
 @let primary #3b82f6
 @let accent #8b5cf6
 
@@ -460,8 +477,10 @@ fn init_project(dir: &str, template_name: Option<&str>) {
 
   @footer [padding 30 40, background #1a1a2e, color white, text-align center]
     @text [size 14] Built with htmlang
-"#,
-        _ => r#"@page My Site
+"#
+        }
+        _ => {
+            r#"@page My Site
 @let primary #3b82f6
 
 @column [max-width 800, center-x, padding 40, spacing 20]
@@ -474,7 +493,8 @@ fn init_project(dir: &str, template_name: Option<&str>) {
   @row [spacing 10]
     @el [padding 12 24, background $primary, rounded 8, cursor pointer, hover:background #2563eb, transition all 0.15s ease] > @link https://github.com/nicholasgasior/htmlang
       @text [color white, bold] Documentation
-"#,
+"#
+        }
     };
 
     match fs::write(&index_path, template) {
@@ -532,10 +552,15 @@ fn generate_sitemap(dir: &str, base_url: &str) {
         eprintln!("no .hl files found in {}", dir.display());
         process::exit(1);
     }
-    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+    );
     for file in &hl_files {
         let rel = file.strip_prefix(dir).unwrap_or(file);
-        let url_path = rel.with_extension("html").to_string_lossy().replace('\\', "/");
+        let url_path = rel
+            .with_extension("html")
+            .to_string_lossy()
+            .replace('\\', "/");
         let url = if url_path == "index.html" {
             format!("{}/", base_url.trim_end_matches('/'))
         } else {
@@ -543,10 +568,15 @@ fn generate_sitemap(dir: &str, base_url: &str) {
         };
 
         // Get file modification time for <lastmod>
-        let lastmod = file.metadata().ok()
+        let lastmod = file
+            .metadata()
+            .ok()
             .and_then(|m| m.modified().ok())
             .map(|t| {
-                let secs = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                let secs = t
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
                 let days = secs / 86400;
                 // Simple date calculation from epoch days
                 let (y, m, d) = epoch_days_to_date(days);
@@ -621,14 +651,21 @@ fn lint_nodes(nodes: &[htmlang::ast::Node], path: &str, depth: usize, warnings: 
         if let htmlang::ast::Node::Element(elem) = node {
             // Deeply nested elements (>10 levels)
             if depth > 10 {
-                warnings.push(format!("{}:{}:lint: deeply nested element ({} levels) — consider simplifying", path, elem.line_num, depth));
+                warnings.push(format!(
+                    "{}:{}:lint: deeply nested element ({} levels) — consider simplifying",
+                    path, elem.line_num, depth
+                ));
             }
 
             // @image without alt
             if elem.kind == htmlang::ast::ElementKind::Image
-                && !elem.attrs.iter().any(|a| a.key == "alt") {
-                    warnings.push(format!("{}:{}:lint: @image missing 'alt' attribute (accessibility)", path, elem.line_num));
-                }
+                && !elem.attrs.iter().any(|a| a.key == "alt")
+            {
+                warnings.push(format!(
+                    "{}:{}:lint: @image missing 'alt' attribute (accessibility)",
+                    path, elem.line_num
+                ));
+            }
 
             // @link without content or aria-label
             if elem.kind == htmlang::ast::ElementKind::Link {
@@ -636,21 +673,35 @@ fn lint_nodes(nodes: &[htmlang::ast::Node], path: &str, depth: usize, warnings: 
                 let has_children = !elem.children.is_empty();
                 let has_arg_text = elem.argument.as_ref().is_some_and(|_| false);
                 if !has_aria && !has_children && !has_arg_text {
-                    warnings.push(format!("{}:{}:lint: @link has no visible text or aria-label (accessibility)", path, elem.line_num));
+                    warnings.push(format!(
+                        "{}:{}:lint: @link has no visible text or aria-label (accessibility)",
+                        path, elem.line_num
+                    ));
                 }
             }
 
             // @input without type
             if elem.kind == htmlang::ast::ElementKind::Input
-                && !elem.attrs.iter().any(|a| a.key == "type") {
-                    warnings.push(format!("{}:{}:lint: @input missing 'type' attribute", path, elem.line_num));
-                }
+                && !elem.attrs.iter().any(|a| a.key == "type")
+            {
+                warnings.push(format!(
+                    "{}:{}:lint: @input missing 'type' attribute",
+                    path, elem.line_num
+                ));
+            }
 
             // Empty containers (no children, no text)
-            if matches!(elem.kind,
-                htmlang::ast::ElementKind::Row | htmlang::ast::ElementKind::Column | htmlang::ast::ElementKind::El
-            ) && elem.children.is_empty() {
-                warnings.push(format!("{}:{}:lint: empty container (@{}) has no children", path, elem.line_num,
+            if matches!(
+                elem.kind,
+                htmlang::ast::ElementKind::Row
+                    | htmlang::ast::ElementKind::Column
+                    | htmlang::ast::ElementKind::El
+            ) && elem.children.is_empty()
+            {
+                warnings.push(format!(
+                    "{}:{}:lint: empty container (@{}) has no children",
+                    path,
+                    elem.line_num,
                     match elem.kind {
                         htmlang::ast::ElementKind::Row => "row",
                         htmlang::ast::ElementKind::Column => "column",
@@ -661,9 +712,13 @@ fn lint_nodes(nodes: &[htmlang::ast::Node], path: &str, depth: usize, warnings: 
 
             // @button without type
             if elem.kind == htmlang::ast::ElementKind::Button
-                && !elem.attrs.iter().any(|a| a.key == "type") {
-                    warnings.push(format!("{}:{}:lint: @button missing 'type' attribute (defaults to submit)", path, elem.line_num));
-                }
+                && !elem.attrs.iter().any(|a| a.key == "type")
+            {
+                warnings.push(format!(
+                    "{}:{}:lint: @button missing 'type' attribute (defaults to submit)",
+                    path, elem.line_num
+                ));
+            }
 
             lint_nodes(&elem.children, path, depth + 1, warnings);
         }
@@ -685,7 +740,12 @@ fn stats_file(path: &str) {
     let mut element_count = 0;
     let mut colors = std::collections::HashSet::new();
     let mut fonts = std::collections::HashSet::new();
-    count_elements(&result.document.nodes, &mut element_count, &mut colors, &mut fonts);
+    count_elements(
+        &result.document.nodes,
+        &mut element_count,
+        &mut colors,
+        &mut fonts,
+    );
 
     // Count CSS rules (approximate from generated style block)
     let css_rules = html.matches('{').count().saturating_sub(1); // subtract the html/head/body structure
@@ -694,7 +754,11 @@ fn stats_file(path: &str) {
     let output_bytes = html.len();
 
     eprintln!("--- {} ---", path);
-    eprintln!("  source size:    {} bytes ({} lines)", source_bytes, input.lines().count());
+    eprintln!(
+        "  source size:    {} bytes ({} lines)",
+        source_bytes,
+        input.lines().count()
+    );
     eprintln!("  output size:    {} bytes", output_bytes);
     eprintln!("  elements:       {}", element_count);
     eprintln!("  CSS rules:      ~{}", css_rules);
@@ -702,18 +766,47 @@ fn stats_file(path: &str) {
     if !colors.is_empty() {
         let mut sorted: Vec<_> = colors.iter().collect();
         sorted.sort();
-        eprintln!("    {}", sorted.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+        eprintln!(
+            "    {}",
+            sorted
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
     eprintln!("  unique fonts:   {}", fonts.len());
     if !fonts.is_empty() {
         let mut sorted: Vec<_> = fonts.iter().collect();
         sorted.sort();
-        eprintln!("    {}", sorted.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+        eprintln!(
+            "    {}",
+            sorted
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
-    if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
-        eprintln!("  errors:         {}", result.diagnostics.iter().filter(|d| d.severity == htmlang::parser::Severity::Error).count());
+    if result
+        .diagnostics
+        .iter()
+        .any(|d| d.severity == htmlang::parser::Severity::Error)
+    {
+        eprintln!(
+            "  errors:         {}",
+            result
+                .diagnostics
+                .iter()
+                .filter(|d| d.severity == htmlang::parser::Severity::Error)
+                .count()
+        );
     }
-    let warn_count = result.diagnostics.iter().filter(|d| d.severity == htmlang::parser::Severity::Warning).count();
+    let warn_count = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == htmlang::parser::Severity::Warning)
+        .count();
     if warn_count > 0 {
         eprintln!("  warnings:       {}", warn_count);
     }
@@ -733,13 +826,15 @@ fn count_elements(
                 // Strip pseudo/media prefixes for color/font detection
                 let base_key = key.split(':').next_back().unwrap_or(key);
                 if matches!(base_key, "color" | "background")
-                    && let Some(ref v) = attr.value {
-                        colors.insert(v.clone());
-                    }
+                    && let Some(ref v) = attr.value
+                {
+                    colors.insert(v.clone());
+                }
                 if base_key == "font"
-                    && let Some(ref v) = attr.value {
-                        fonts.insert(v.clone());
-                    }
+                    && let Some(ref v) = attr.value
+                {
+                    fonts.insert(v.clone());
+                }
             }
             count_elements(&elem.children, count, colors, fonts);
         }
@@ -755,40 +850,47 @@ fn extract_shared_css(html_files: &[PathBuf], out_dir: &Path) {
         if let Ok(html) = fs::read_to_string(file) {
             // Extract CSS between <style> and </style>
             if let Some(start) = html.find("<style>")
-                && let Some(end) = html[start..].find("</style>") {
-                    let css = &html[start + 7..start + end];
-                    // Extract individual rules (class-based)
-                    let mut seen_in_file = std::collections::HashSet::new();
-                    let mut i = 0;
-                    let bytes = css.as_bytes();
-                    while i < bytes.len() {
-                        if bytes[i] == b'.' || bytes[i] == b'@' {
-                            // Find end of rule block
-                            let start_pos = i;
-                            let mut depth = 0;
-                            let mut found_open = false;
-                            while i < bytes.len() {
-                                if bytes[i] == b'{' { depth += 1; found_open = true; }
-                                else if bytes[i] == b'}' {
-                                    depth -= 1;
-                                    if found_open && depth == 0 { i += 1; break; }
+                && let Some(end) = html[start..].find("</style>")
+            {
+                let css = &html[start + 7..start + end];
+                // Extract individual rules (class-based)
+                let mut seen_in_file = std::collections::HashSet::new();
+                let mut i = 0;
+                let bytes = css.as_bytes();
+                while i < bytes.len() {
+                    if bytes[i] == b'.' || bytes[i] == b'@' {
+                        // Find end of rule block
+                        let start_pos = i;
+                        let mut depth = 0;
+                        let mut found_open = false;
+                        while i < bytes.len() {
+                            if bytes[i] == b'{' {
+                                depth += 1;
+                                found_open = true;
+                            } else if bytes[i] == b'}' {
+                                depth -= 1;
+                                if found_open && depth == 0 {
+                                    i += 1;
+                                    break;
                                 }
-                                i += 1;
                             }
-                            let rule = &css[start_pos..i];
-                            if !rule.is_empty() && !seen_in_file.contains(rule) {
-                                seen_in_file.insert(rule.to_string());
-                                *rule_counts.entry(rule.to_string()).or_insert(0) += 1;
-                            }
-                        } else {
                             i += 1;
                         }
+                        let rule = &css[start_pos..i];
+                        if !rule.is_empty() && !seen_in_file.contains(rule) {
+                            seen_in_file.insert(rule.to_string());
+                            *rule_counts.entry(rule.to_string()).or_insert(0) += 1;
+                        }
+                    } else {
+                        i += 1;
                     }
                 }
+            }
         }
     }
     // Rules appearing in ALL files are shared
-    let shared_rules: Vec<&String> = rule_counts.iter()
+    let shared_rules: Vec<&String> = rule_counts
+        .iter()
         .filter(|(_, count)| **count == total)
         .map(|(rule, _)| rule)
         .collect();
@@ -797,54 +899,68 @@ fn extract_shared_css(html_files: &[PathBuf], out_dir: &Path) {
     }
     let shared_set: std::collections::HashSet<&String> = shared_rules.iter().copied().collect();
     let shared_css_path = out_dir.join("shared.css");
-    let shared_css: String = shared_rules.iter().map(|r| r.as_str()).collect::<Vec<_>>().join("\n");
+    let shared_css: String = shared_rules
+        .iter()
+        .map(|r| r.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     if fs::write(&shared_css_path, &shared_css).is_err() {
         return;
     }
-    eprintln!("extracted {} shared CSS rules to {}", shared_rules.len(), shared_css_path.display());
+    eprintln!(
+        "extracted {} shared CSS rules to {}",
+        shared_rules.len(),
+        shared_css_path.display()
+    );
 
     // Remove shared rules from individual files and inject <link> tag
     for file in html_files {
         if let Ok(html) = fs::read_to_string(file)
             && let Some(style_start) = html.find("<style>")
-                && let Some(style_end_rel) = html[style_start..].find("</style>") {
-                    let css = &html[style_start + 7..style_start + style_end_rel];
-                    // Rebuild CSS without shared rules
-                    let mut filtered = String::new();
-                    let mut i = 0;
-                    let bytes = css.as_bytes();
+            && let Some(style_end_rel) = html[style_start..].find("</style>")
+        {
+            let css = &html[style_start + 7..style_start + style_end_rel];
+            // Rebuild CSS without shared rules
+            let mut filtered = String::new();
+            let mut i = 0;
+            let bytes = css.as_bytes();
+            while i < bytes.len() {
+                if bytes[i] == b'.' || bytes[i] == b'@' {
+                    let start_pos = i;
+                    let mut depth = 0;
+                    let mut found_open = false;
                     while i < bytes.len() {
-                        if bytes[i] == b'.' || bytes[i] == b'@' {
-                            let start_pos = i;
-                            let mut depth = 0;
-                            let mut found_open = false;
-                            while i < bytes.len() {
-                                if bytes[i] == b'{' { depth += 1; found_open = true; }
-                                else if bytes[i] == b'}' {
-                                    depth -= 1;
-                                    if found_open && depth == 0 { i += 1; break; }
-                                }
+                        if bytes[i] == b'{' {
+                            depth += 1;
+                            found_open = true;
+                        } else if bytes[i] == b'}' {
+                            depth -= 1;
+                            if found_open && depth == 0 {
                                 i += 1;
+                                break;
                             }
-                            let rule = &css[start_pos..i];
-                            if !shared_set.contains(&rule.to_string()) {
-                                filtered.push_str(rule);
-                            }
-                        } else {
-                            filtered.push(css.as_bytes()[i] as char);
-                            i += 1;
                         }
+                        i += 1;
                     }
-                    let link_tag = "<link rel=\"stylesheet\" href=\"shared.css\">";
-                    let new_html = format!(
-                        "{}{}<style>{}</style>{}",
-                        &html[..style_start],
-                        link_tag,
-                        filtered,
-                        &html[style_start + style_end_rel + 8..],
-                    );
-                    let _ = fs::write(file, new_html);
+                    let rule = &css[start_pos..i];
+                    if !shared_set.contains(&rule.to_string()) {
+                        filtered.push_str(rule);
+                    }
+                } else {
+                    filtered.push(css.as_bytes()[i] as char);
+                    i += 1;
                 }
+            }
+            let link_tag = "<link rel=\"stylesheet\" href=\"shared.css\">";
+            let new_html = format!(
+                "{}{}<style>{}</style>{}",
+                &html[..style_start],
+                link_tag,
+                filtered,
+                &html[style_start + style_end_rel + 8..],
+            );
+            let _ = fs::write(file, new_html);
+        }
     }
 }
 
@@ -892,7 +1008,10 @@ fn load_config(target: &Path) -> ProjectConfig {
     let config_path = if target.is_dir() {
         target.join("htmlang.toml")
     } else {
-        target.parent().unwrap_or(Path::new(".")).join("htmlang.toml")
+        target
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("htmlang.toml")
     };
 
     let content = match fs::read_to_string(&config_path) {
@@ -911,7 +1030,9 @@ fn load_config(target: &Path) -> ProjectConfig {
             if !matches!(section, "variables" | "breakpoints" | "build" | "watch") {
                 eprintln!(
                     "warning: {}:{}: unknown section '[{}]' (expected: variables, breakpoints, build, watch)",
-                    config_path.display(), line_num + 1, section
+                    config_path.display(),
+                    line_num + 1,
+                    section
                 );
             }
             continue;
@@ -926,7 +1047,9 @@ fn load_config(target: &Path) -> ProjectConfig {
                     _ => {
                         eprintln!(
                             "warning: {}:{}: unknown key '{}' (expected: output, port)",
-                            config_path.display(), line_num + 1, key
+                            config_path.display(),
+                            line_num + 1,
+                            key
                         );
                     }
                 },
@@ -938,7 +1061,9 @@ fn load_config(target: &Path) -> ProjectConfig {
                     _ => {
                         eprintln!(
                             "warning: {}:{}: unknown build key '{}' (expected: dev, minify, compat, strict)",
-                            config_path.display(), line_num + 1, key
+                            config_path.display(),
+                            line_num + 1,
+                            key
                         );
                     }
                 },
@@ -947,7 +1072,9 @@ fn load_config(target: &Path) -> ProjectConfig {
                     _ => {
                         eprintln!(
                             "warning: {}:{}: unknown watch key '{}' (expected: debounce_ms)",
-                            config_path.display(), line_num + 1, key
+                            config_path.display(),
+                            line_num + 1,
+                            key
                         );
                     }
                 },
@@ -955,7 +1082,9 @@ fn load_config(target: &Path) -> ProjectConfig {
                     config.variables.push((key.to_string(), value.to_string()));
                 }
                 "breakpoints" => {
-                    config.breakpoints.push((key.to_string(), value.to_string()));
+                    config
+                        .breakpoints
+                        .push((key.to_string(), value.to_string()));
                 }
                 _ => {} // already warned about unknown section
             }
@@ -1102,16 +1231,19 @@ fn main() {
             let _ = fs::create_dir_all(out);
         }
         // Pre-create output directories for each file (must be done before parallel compilation)
-        let effective_outs: Vec<Option<String>> = hl_files.iter().map(|file| {
-            out_dir.map(|o| {
-                let rel = file.strip_prefix(dir).unwrap_or(file);
-                let out_path = Path::new(o).join(rel).with_extension("html");
-                if let Some(parent) = out_path.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                out_path.to_string_lossy().to_string()
+        let effective_outs: Vec<Option<String>> = hl_files
+            .iter()
+            .map(|file| {
+                out_dir.map(|o| {
+                    let rel = file.strip_prefix(dir).unwrap_or(file);
+                    let out_path = Path::new(o).join(rel).with_extension("html");
+                    if let Some(parent) = out_path.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    out_path.to_string_lossy().to_string()
+                })
             })
-        }).collect();
+            .collect();
 
         // Build content hash cache for incremental compilation
         let cache_dir = dir.join(".htmlang-cache");
@@ -1128,34 +1260,45 @@ fn main() {
                 let cache_dir = &cache_dir;
                 s.spawn(move || {
                     // Content hash-based caching: skip if file content hasn't changed
-                    let hash_file_name = file.file_name().unwrap_or_default().to_string_lossy().to_string() + ".hash";
+                    let hash_file_name = file
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string()
+                        + ".hash";
                     let hash_path = cache_dir.join(&hash_file_name);
                     if let Ok(content) = fs::read(file) {
                         let mut hasher = std::collections::hash_map::DefaultHasher::new();
                         content.hash(&mut hasher);
                         let current_hash = hasher.finish().to_string();
                         if let Ok(cached_hash) = fs::read_to_string(&hash_path)
-                            && cached_hash.trim() == current_hash {
-                                // Also verify output exists
-                                let out_exists = effective_out.as_ref().map_or(
-                                    file.with_extension("html").exists(),
-                                    |p| Path::new(p.as_str()).exists(),
-                                );
-                                if out_exists {
-                                    skipped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                    return;
-                                }
+                            && cached_hash.trim() == current_hash
+                        {
+                            // Also verify output exists
+                            let out_exists = effective_out
+                                .as_ref()
+                                .map_or(file.with_extension("html").exists(), |p| {
+                                    Path::new(p.as_str()).exists()
+                                });
+                            if out_exists {
+                                skipped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                return;
                             }
+                        }
                         // Update hash cache after compilation
                         let _ = fs::write(&hash_path, &current_hash);
                     }
                     let path_str = file.to_string_lossy().to_string();
-                    let (has_errors, _) = compile(&path_str, &CompileConfig {
-                        output_path: effective_out.as_deref(),
-                        minify: build_minify, compat: build_compat,
-                        strict: build_strict,
-                        ..Default::default()
-                    });
+                    let (has_errors, _) = compile(
+                        &path_str,
+                        &CompileConfig {
+                            output_path: effective_out.as_deref(),
+                            minify: build_minify,
+                            compat: build_compat,
+                            strict: build_strict,
+                            ..Default::default()
+                        },
+                    );
                     if has_errors {
                         any_errors.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
@@ -1167,17 +1310,26 @@ fn main() {
         let compiled_count = hl_files.len() - skipped_count;
 
         // Report build performance
-        let total_output_size: usize = effective_outs.iter()
+        let total_output_size: usize = effective_outs
+            .iter()
             .filter_map(|p| p.as_ref())
             .filter_map(|p| fs::metadata(p).ok())
             .map(|m| m.len() as usize)
             .sum();
         eprintln!(
-            "built {} files in {:.2}s ({}){}", compiled_count,
-            build_elapsed.as_secs_f64(), format_bytes(total_output_size),
-            if skipped_count > 0 { format!(", {} skipped", skipped_count) } else { String::new() },
+            "built {} files in {:.2}s ({}){}",
+            compiled_count,
+            build_elapsed.as_secs_f64(),
+            format_bytes(total_output_size),
+            if skipped_count > 0 {
+                format!(", {} skipped", skipped_count)
+            } else {
+                String::new()
+            },
         );
-        if any_errors.load(std::sync::atomic::Ordering::Relaxed) { process::exit(1); }
+        if any_errors.load(std::sync::atomic::Ordering::Relaxed) {
+            process::exit(1);
+        }
 
         // Copy non-.hl static assets to output directory
         if let Some(out) = out_dir {
@@ -1185,7 +1337,8 @@ fn main() {
 
             // Shared CSS extraction: find duplicate CSS rules across pages
             let out_path = Path::new(out);
-            let html_files: Vec<PathBuf> = hl_files.iter()
+            let html_files: Vec<PathBuf> = hl_files
+                .iter()
                 .map(|f| {
                     let rel = f.strip_prefix(dir).unwrap_or(f);
                     out_path.join(rel).with_extension("html")
@@ -1202,7 +1355,9 @@ fn main() {
     // Handle "sitemap" subcommand
     if args.len() >= 2 && args[1] == "sitemap" {
         let dir = if args.len() >= 3 { &args[2] } else { "." };
-        let base_url = args.iter().position(|a| a == "--base-url" || a == "-b")
+        let base_url = args
+            .iter()
+            .position(|a| a == "--base-url" || a == "-b")
             .and_then(|i| args.get(i + 1))
             .map(|s| s.as_str())
             .unwrap_or("https://example.com");
@@ -1303,7 +1458,11 @@ fn main() {
             ci += 1;
         }
         let target = check_target.unwrap_or(".");
-        let json_collector = if check_format_json { Some(Mutex::new(Vec::new())) } else { None };
+        let json_collector = if check_format_json {
+            Some(Mutex::new(Vec::new()))
+        } else {
+            None
+        };
         let path = Path::new(target);
         let mut any_errors = false;
         if path.is_dir() {
@@ -1314,26 +1473,39 @@ fn main() {
             }
             for file in &hl_files {
                 let path_str = file.to_string_lossy().to_string();
-                let (has_errors, _) = compile(&path_str, &CompileConfig {
-                    check_only: true, format_json: check_format_json,
-                    json_collector: json_collector.as_ref(),
-                    ..Default::default()
-                });
-                if has_errors { any_errors = true; }
+                let (has_errors, _) = compile(
+                    &path_str,
+                    &CompileConfig {
+                        check_only: true,
+                        format_json: check_format_json,
+                        json_collector: json_collector.as_ref(),
+                        ..Default::default()
+                    },
+                );
+                if has_errors {
+                    any_errors = true;
+                }
             }
         } else {
-            let (has_errors, _) = compile(target, &CompileConfig {
-                check_only: true, format_json: check_format_json,
-                json_collector: json_collector.as_ref(),
-                ..Default::default()
-            });
-            if has_errors { any_errors = true; }
-        }
-        if check_format_json
-            && let Some(collector) = json_collector {
-                print_json_diagnostics(&collector.lock().unwrap());
+            let (has_errors, _) = compile(
+                target,
+                &CompileConfig {
+                    check_only: true,
+                    format_json: check_format_json,
+                    json_collector: json_collector.as_ref(),
+                    ..Default::default()
+                },
+            );
+            if has_errors {
+                any_errors = true;
             }
-        if any_errors { process::exit(1); }
+        }
+        if check_format_json && let Some(collector) = json_collector {
+            print_json_diagnostics(&collector.lock().unwrap());
+        }
+        if any_errors {
+            process::exit(1);
+        }
         return;
     }
 
@@ -1364,15 +1536,21 @@ fn main() {
             };
             let base = file.parent();
             let result = htmlang::parser::parse_with_base(&input, base);
-            let file_errors: Vec<_> = result.diagnostics.iter()
+            let file_errors: Vec<_> = result
+                .diagnostics
+                .iter()
                 .filter(|d| d.severity == htmlang::parser::Severity::Error)
                 .collect();
-            let assert_failures: Vec<_> = file_errors.iter()
+            let assert_failures: Vec<_> = file_errors
+                .iter()
                 .filter(|d| d.message.starts_with("assertion failed:"))
                 .collect();
             total_asserts += assert_failures.len();
             // Count @assert lines (passes + failures)
-            let assert_count = input.lines().filter(|l| l.trim().starts_with("@assert ")).count();
+            let assert_count = input
+                .lines()
+                .filter(|l| l.trim().starts_with("@assert "))
+                .count();
             total_asserts += assert_count.saturating_sub(assert_failures.len());
             if !assert_failures.is_empty() {
                 files_with_errors += 1;
@@ -1383,7 +1561,13 @@ fn main() {
             }
         }
         let passed = total_asserts.saturating_sub(failed_asserts);
-        eprintln!("\n{} assertions: {} passed, {} failed ({} files)", total_asserts, passed, failed_asserts, hl_files.len());
+        eprintln!(
+            "\n{} assertions: {} passed, {} failed ({} files)",
+            total_asserts,
+            passed,
+            failed_asserts,
+            hl_files.len()
+        );
         if failed_asserts > 0 || files_with_errors > 0 {
             process::exit(1);
         }
@@ -1434,15 +1618,23 @@ fn main() {
         let tmp_dir = env::temp_dir().join("htmlang-preview");
         let _ = fs::create_dir_all(&tmp_dir);
         let out_path = tmp_dir.join("preview.html");
-        let (has_errors, _) = compile(file, &CompileConfig {
-            dev: true, output_path: Some(&out_path.to_string_lossy()),
-            ..Default::default()
-        });
+        let (has_errors, _) = compile(
+            file,
+            &CompileConfig {
+                dev: true,
+                output_path: Some(&out_path.to_string_lossy()),
+                ..Default::default()
+            },
+        );
         if has_errors {
             process::exit(1);
         }
         let url = format!("file://{}", out_path.display());
-        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        let cmd = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
         let _ = std::process::Command::new(cmd).arg(&url).spawn();
         eprintln!("opened {}", out_path.display());
         return;
@@ -1460,18 +1652,28 @@ fn main() {
             let input = fs::read_to_string(path).map_err(|e| format!("error: {}: {}", path, e))?;
             let base = Path::new(path).parent();
             let result = htmlang::parser::parse_with_base(&input, base);
-            if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+            if result
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == htmlang::parser::Severity::Error)
+            {
                 return Err(format!("error: {} has parse errors", path));
             }
             Ok(htmlang::codegen::generate_dev(&result.document))
         };
         let html1 = match compile_to_string(file1) {
             Ok(h) => h,
-            Err(e) => { eprintln!("{}", e); process::exit(1); }
+            Err(e) => {
+                eprintln!("{}", e);
+                process::exit(1);
+            }
         };
         let html2 = match compile_to_string(file2) {
             Ok(h) => h,
-            Err(e) => { eprintln!("{}", e); process::exit(1); }
+            Err(e) => {
+                eprintln!("{}", e);
+                process::exit(1);
+            }
         };
         let lines1: Vec<&str> = html1.lines().collect();
         let lines2: Vec<&str> = html2.lines().collect();
@@ -1539,11 +1741,16 @@ fn main() {
                 let _ = fs::create_dir_all(parent);
             }
             let path_str = file.to_string_lossy().to_string();
-            let (has_errors, _) = compile(&path_str, &CompileConfig {
-                output_path: Some(&out_path.to_string_lossy()),
-                ..Default::default()
-            });
-            if has_errors { any_errors = true; }
+            let (has_errors, _) = compile(
+                &path_str,
+                &CompileConfig {
+                    output_path: Some(&out_path.to_string_lossy()),
+                    ..Default::default()
+                },
+            );
+            if has_errors {
+                any_errors = true;
+            }
         }
         // Copy non-.hl assets
         copy_non_hl_files(dir, &tmp_dir);
@@ -1610,7 +1817,11 @@ fn main() {
                     let target_url = args.get(si).cloned().unwrap_or_default();
                     if !prefix.is_empty() && !target_url.is_empty() {
                         _proxy_routes.push((prefix, target_url));
-                        eprintln!("proxy: {} -> {}", _proxy_routes.last().unwrap().0, _proxy_routes.last().unwrap().1);
+                        eprintln!(
+                            "proxy: {} -> {}",
+                            _proxy_routes.last().unwrap().0,
+                            _proxy_routes.last().unwrap().1
+                        );
                     }
                 }
                 _ if serve_target.is_none() => serve_target = Some(args[si].clone()),
@@ -1625,7 +1836,11 @@ fn main() {
         let target_path = Path::new(&target);
         // Load config
         let config = load_config(target_path);
-        let effective_port = if serve_port != 3000 { serve_port } else { config.port };
+        let effective_port = if serve_port != 3000 {
+            serve_port
+        } else {
+            config.port
+        };
 
         // Resolve optional TLS config. Without both --cert and --key, --https is
         // an error — we intentionally do not generate self-signed certificates
@@ -1650,7 +1865,11 @@ fn main() {
         } else {
             None
         };
-        let scheme = if tls_config.is_some() { "https" } else { "http" };
+        let scheme = if tls_config.is_some() {
+            "https"
+        } else {
+            "http"
+        };
         let _ = scheme; // announced by watch_loop / open_in_browser downstream
 
         // Do initial compile
@@ -1661,34 +1880,64 @@ fn main() {
                 let effective_out = config.output.as_ref().map(|o| {
                     let rel = file.strip_prefix(target_path).unwrap_or(file);
                     let out_p = Path::new(o).join(rel).with_extension("html");
-                    if let Some(parent) = out_p.parent() { let _ = fs::create_dir_all(parent); }
+                    if let Some(parent) = out_p.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
                     out_p.to_string_lossy().to_string()
                 });
-                compile(&path_str, &CompileConfig {
-                    dev: true, error_overlay: true,
-                    output_path: effective_out.as_deref(),
-                    ..Default::default()
-                });
+                compile(
+                    &path_str,
+                    &CompileConfig {
+                        dev: true,
+                        error_overlay: true,
+                        output_path: effective_out.as_deref(),
+                        ..Default::default()
+                    },
+                );
             }
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
-            let serve_dir = config.output.as_ref().map(PathBuf::from).unwrap_or_else(|| target_path.to_path_buf());
+            let serve_dir = config
+                .output
+                .as_ref()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| target_path.to_path_buf());
             let index_path = serve_dir.join("index.html");
             let server_tx = tx.clone();
             let tls_for_thread = tls_config;
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
                 match tls_for_thread {
-                    Some(tls) => rt.block_on(htmlang::serve::run_https(effective_port, index_path, server_tx, tls)),
+                    Some(tls) => rt.block_on(htmlang::serve::run_https(
+                        effective_port,
+                        index_path,
+                        server_tx,
+                        tls,
+                    )),
                     None => rt.block_on(htmlang::serve::run(effective_port, index_path, server_tx)),
                 }
             });
-            if serve_open { open_in_browser(effective_port); }
-            watch_loop(target_path, &hl_files, &[], true, true, Some(tx), effective_port, config.debounce_ms);
+            if serve_open {
+                open_in_browser(effective_port);
+            }
+            watch_loop(
+                target_path,
+                &hl_files,
+                &[],
+                true,
+                true,
+                Some(tx),
+                effective_port,
+                config.debounce_ms,
+            );
         } else {
-            let (_, included) = compile(&target, &CompileConfig {
-                dev: true, error_overlay: true,
-                ..Default::default()
-            });
+            let (_, included) = compile(
+                &target,
+                &CompileConfig {
+                    dev: true,
+                    error_overlay: true,
+                    ..Default::default()
+                },
+            );
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
             let out_path = Path::new(&target).with_extension("html");
             let server_tx = tx.clone();
@@ -1696,13 +1945,29 @@ fn main() {
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
                 match tls_for_thread {
-                    Some(tls) => rt.block_on(htmlang::serve::run_https(effective_port, out_path, server_tx, tls)),
+                    Some(tls) => rt.block_on(htmlang::serve::run_https(
+                        effective_port,
+                        out_path,
+                        server_tx,
+                        tls,
+                    )),
                     None => rt.block_on(htmlang::serve::run(effective_port, out_path, server_tx)),
                 }
             });
-            if serve_open { open_in_browser(effective_port); }
+            if serve_open {
+                open_in_browser(effective_port);
+            }
             let files = vec![PathBuf::from(&target)];
-            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, true, true, Some(tx), effective_port, config.debounce_ms);
+            watch_loop(
+                Path::new(&target).parent().unwrap_or(Path::new(".")),
+                &files,
+                &included,
+                true,
+                true,
+                Some(tx),
+                effective_port,
+                config.debounce_ms,
+            );
         }
         return;
     }
@@ -1733,30 +1998,58 @@ fn main() {
 
         if target_path.is_dir() {
             let hl_files = collect_hl_files_recursive(target_path);
-            if let Some(ref out) = effective_output { let _ = fs::create_dir_all(out); }
+            if let Some(ref out) = effective_output {
+                let _ = fs::create_dir_all(out);
+            }
             let mut all_included = Vec::new();
             for file in &hl_files {
                 let path_str = file.to_string_lossy().to_string();
                 let effective_out = effective_output.as_ref().map(|o| {
                     let rel = file.strip_prefix(target_path).unwrap_or(file);
                     let out_p = Path::new(o).join(rel).with_extension("html");
-                    if let Some(parent) = out_p.parent() { let _ = fs::create_dir_all(parent); }
+                    if let Some(parent) = out_p.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
                     out_p.to_string_lossy().to_string()
                 });
-                let (_, included) = compile(&path_str, &CompileConfig {
-                    output_path: effective_out.as_deref(),
-                    ..Default::default()
-                });
+                let (_, included) = compile(
+                    &path_str,
+                    &CompileConfig {
+                        output_path: effective_out.as_deref(),
+                        ..Default::default()
+                    },
+                );
                 all_included.extend(included);
             }
-            watch_loop(target_path, &hl_files, &all_included, false, false, None, 0, config.debounce_ms);
+            watch_loop(
+                target_path,
+                &hl_files,
+                &all_included,
+                false,
+                false,
+                None,
+                0,
+                config.debounce_ms,
+            );
         } else {
-            let (_, included) = compile(&target, &CompileConfig {
-                output_path: effective_output.as_deref(),
-                ..Default::default()
-            });
+            let (_, included) = compile(
+                &target,
+                &CompileConfig {
+                    output_path: effective_output.as_deref(),
+                    ..Default::default()
+                },
+            );
             let files = vec![PathBuf::from(&target)];
-            watch_loop(Path::new(&target).parent().unwrap_or(Path::new(".")), &files, &included, false, false, None, 0, config.debounce_ms);
+            watch_loop(
+                Path::new(&target).parent().unwrap_or(Path::new(".")),
+                &files,
+                &included,
+                false,
+                false,
+                None,
+                0,
+                config.debounce_ms,
+            );
         }
         return;
     }
@@ -1797,7 +2090,11 @@ fn main() {
                 let prefix = severity_label(d.severity);
                 eprintln!("{}: line {}: {}", prefix, d.line, d.message);
             }
-            if !result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+            if !result
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == htmlang::parser::Severity::Error)
+            {
                 let html = htmlang::codegen::generate_dev(&result.document);
                 let _ = stdout.lock().write_all(html.as_bytes());
                 let _ = stdout.lock().write_all(b"\n");
@@ -1807,8 +2104,14 @@ fn main() {
 
     // Handle "feed" subcommand
     if args.len() >= 2 && args[1] == "feed" {
-        let dir = if args.len() >= 3 && !args[2].starts_with('-') { &args[2] } else { "." };
-        let base_url = args.iter().position(|a| a == "--base-url" || a == "-b")
+        let dir = if args.len() >= 3 && !args[2].starts_with('-') {
+            &args[2]
+        } else {
+            "."
+        };
+        let base_url = args
+            .iter()
+            .position(|a| a == "--base-url" || a == "-b")
             .and_then(|i| args.get(i + 1))
             .map(|s| s.as_str())
             .unwrap_or("https://example.com");
@@ -1828,14 +2131,20 @@ fn main() {
             let result = htmlang::parser::parse_with_base(&input, base);
             if let Some(ref title) = result.document.page_title {
                 let rel = file.strip_prefix(dir_path).unwrap_or(file);
-                let url_path = rel.with_extension("html").to_string_lossy().replace('\\', "/");
+                let url_path = rel
+                    .with_extension("html")
+                    .to_string_lossy()
+                    .replace('\\', "/");
                 let url = if url_path == "index.html" {
                     format!("{}/", base_url.trim_end_matches('/'))
                 } else {
                     format!("{}/{}", base_url.trim_end_matches('/'), url_path)
                 };
                 // Get description from meta tags if available
-                let description = result.document.meta_tags.iter()
+                let description = result
+                    .document
+                    .meta_tags
+                    .iter()
                     .find(|(k, _)| k == "description")
                     .map(|(_, v)| v.clone())
                     .unwrap_or_default();
@@ -1843,7 +2152,10 @@ fn main() {
             }
         }
         // Generate RSS 2.0 feed
-        let site_title = items.first().map(|(t, _, _)| t.clone()).unwrap_or_else(|| "My Site".to_string());
+        let site_title = items
+            .first()
+            .map(|(t, _, _)| t.clone())
+            .unwrap_or_else(|| "My Site".to_string());
         let mut rss = format!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
              <rss version=\"2.0\">\n\
@@ -1896,7 +2208,8 @@ fn main() {
                 if let Some(rest) = trimmed.strip_prefix("@fn ") {
                     let parts: Vec<&str> = rest.split_whitespace().collect();
                     if let Some(&name) = parts.first() {
-                        let params: Vec<&str> = parts[1..].iter()
+                        let params: Vec<&str> = parts[1..]
+                            .iter()
                             .map(|p| p.strip_prefix('$').unwrap_or(p))
                             .collect();
                         let param_str = if params.is_empty() {
@@ -1965,7 +2278,11 @@ fn main() {
             } else {
                 println!("{}", file);
                 for (i, dep) in deps.iter().enumerate() {
-                    let prefix = if i == deps.len() - 1 { "└── " } else { "├── " };
+                    let prefix = if i == deps.len() - 1 {
+                        "└── "
+                    } else {
+                        "├── "
+                    };
                     println!("  {}{}", prefix, dep);
                 }
             }
@@ -2003,7 +2320,7 @@ fn main() {
             process::exit(1);
         }
         // Pass 1: collect all definitions and usages across all files
-        let mut all_fn_defs: Vec<(String, String, usize)> = Vec::new();   // (name, file, line)
+        let mut all_fn_defs: Vec<(String, String, usize)> = Vec::new(); // (name, file, line)
         let mut all_def_defs: Vec<(String, String, usize)> = Vec::new();
         let mut all_let_defs: Vec<(String, String, usize)> = Vec::new();
         let mut all_refs: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -2012,7 +2329,11 @@ fn main() {
                 Ok(s) => s,
                 Err(_) => continue,
             };
-            let rel = file.strip_prefix(path).unwrap_or(file).display().to_string();
+            let rel = file
+                .strip_prefix(path)
+                .unwrap_or(file)
+                .display()
+                .to_string();
             for (line_num, line) in input.lines().enumerate() {
                 let trimmed = line.trim();
                 if let Some(rest) = trimmed.strip_prefix("@fn ") {
@@ -2025,29 +2346,43 @@ fn main() {
                         all_def_defs.push((name.to_string(), rel.clone(), line_num + 1));
                     }
                 } else if let Some(rest) = trimmed.strip_prefix("@let ")
-                    && let Some(name) = rest.split_whitespace().next() {
-                        all_let_defs.push((name.to_string(), rel.clone(), line_num + 1));
-                    }
+                    && let Some(name) = rest.split_whitespace().next()
+                {
+                    all_let_defs.push((name.to_string(), rel.clone(), line_num + 1));
+                }
                 // Collect references: @name calls and $name usages
-                if trimmed.starts_with('@') && !trimmed.starts_with("@fn ")
-                    && !trimmed.starts_with("@let ") && !trimmed.starts_with("@define ")
-                    && !trimmed.starts_with("@include ") && !trimmed.starts_with("@import ")
-                    && !trimmed.starts_with("@extends ") && !trimmed.starts_with("@page")
-                    && !trimmed.starts_with("@meta ") && !trimmed.starts_with("@og ")
-                    && !trimmed.starts_with("@head") && !trimmed.starts_with("@style")
-                    && !trimmed.starts_with("@keyframes ") && !trimmed.starts_with("@theme")
-                    && !trimmed.starts_with("@deprecated ") && !trimmed.starts_with("@breakpoint ")
-                    && !trimmed.starts_with("@use ") && !trimmed.starts_with("@slot ")
-                    && !trimmed.starts_with("@lang ") && !trimmed.starts_with("@favicon ")
+                if trimmed.starts_with('@')
+                    && !trimmed.starts_with("@fn ")
+                    && !trimmed.starts_with("@let ")
+                    && !trimmed.starts_with("@define ")
+                    && !trimmed.starts_with("@include ")
+                    && !trimmed.starts_with("@import ")
+                    && !trimmed.starts_with("@extends ")
+                    && !trimmed.starts_with("@page")
+                    && !trimmed.starts_with("@meta ")
+                    && !trimmed.starts_with("@og ")
+                    && !trimmed.starts_with("@head")
+                    && !trimmed.starts_with("@style")
+                    && !trimmed.starts_with("@keyframes ")
+                    && !trimmed.starts_with("@theme")
+                    && !trimmed.starts_with("@deprecated ")
+                    && !trimmed.starts_with("@breakpoint ")
+                    && !trimmed.starts_with("@use ")
+                    && !trimmed.starts_with("@slot ")
+                    && !trimmed.starts_with("@lang ")
+                    && !trimmed.starts_with("@favicon ")
                     && !trimmed.starts_with("--")
-                    && let Some(name) = trimmed[1..].split([' ', '[']).next() {
-                        all_refs.insert(name.to_string());
-                    }
+                    && let Some(name) = trimmed[1..].split([' ', '[']).next()
+                {
+                    all_refs.insert(name.to_string());
+                }
                 // Collect $var references
                 let mut rest = trimmed;
                 while let Some(pos) = rest.find('$') {
                     let after = &rest[pos + 1..];
-                    let end = after.find(|c: char| !c.is_alphanumeric() && c != '-' && c != '_').unwrap_or(after.len());
+                    let end = after
+                        .find(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+                        .unwrap_or(after.len());
                     if end > 0 {
                         all_refs.insert(after[..end].to_string());
                     }
@@ -2109,7 +2444,10 @@ fn main() {
                                 args[di].as_str()
                             }
                             _ => {
-                                eprintln!("unknown provider: {} (supported: github-pages, netlify, vercel, cloudflare)", p);
+                                eprintln!(
+                                    "unknown provider: {} (supported: github-pages, netlify, vercel, cloudflare)",
+                                    p
+                                );
                                 process::exit(1);
                             }
                         };
@@ -2147,10 +2485,13 @@ fn main() {
                     }
                     let out_str = out_path.to_string_lossy().to_string();
                     let path_str = file.to_string_lossy().to_string();
-                    let (has_errors, _) = compile(&path_str, &CompileConfig {
-                        output_path: Some(&out_str),
-                        ..Default::default()
-                    });
+                    let (has_errors, _) = compile(
+                        &path_str,
+                        &CompileConfig {
+                            output_path: Some(&out_str),
+                            ..Default::default()
+                        },
+                    );
                     if has_errors {
                         any_errors.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
@@ -2169,12 +2510,21 @@ fn main() {
             "netlify" => {
                 eprintln!("deploying to Netlify...");
                 let status = process::Command::new("npx")
-                    .args(["netlify-cli", "deploy", "--prod", "--dir", &deploy_dir.to_string_lossy()])
+                    .args([
+                        "netlify-cli",
+                        "deploy",
+                        "--prod",
+                        "--dir",
+                        &deploy_dir.to_string_lossy(),
+                    ])
                     .status();
                 match status {
                     Ok(s) if s.success() => eprintln!("deployed to Netlify!"),
                     _ => {
-                        eprintln!("netlify deploy failed — ensure netlify-cli is installed (npx netlify-cli deploy --prod --dir {})", deploy_dir.display());
+                        eprintln!(
+                            "netlify deploy failed — ensure netlify-cli is installed (npx netlify-cli deploy --prod --dir {})",
+                            deploy_dir.display()
+                        );
                         process::exit(1);
                     }
                 }
@@ -2188,7 +2538,10 @@ fn main() {
                 match status {
                     Ok(s) if s.success() => eprintln!("deployed to Vercel!"),
                     _ => {
-                        eprintln!("vercel deploy failed — ensure vercel CLI is installed (npx vercel --prod {})", deploy_dir.display());
+                        eprintln!(
+                            "vercel deploy failed — ensure vercel CLI is installed (npx vercel --prod {})",
+                            deploy_dir.display()
+                        );
                         process::exit(1);
                     }
                 }
@@ -2197,12 +2550,20 @@ fn main() {
             "cloudflare" => {
                 eprintln!("deploying to Cloudflare Pages...");
                 let status = process::Command::new("npx")
-                    .args(["wrangler", "pages", "deploy", deploy_dir.to_string_lossy().as_ref()])
+                    .args([
+                        "wrangler",
+                        "pages",
+                        "deploy",
+                        deploy_dir.to_string_lossy().as_ref(),
+                    ])
                     .status();
                 match status {
                     Ok(s) if s.success() => eprintln!("deployed to Cloudflare Pages!"),
                     _ => {
-                        eprintln!("cloudflare deploy failed — ensure wrangler is installed (npx wrangler pages deploy {})", deploy_dir.display());
+                        eprintln!(
+                            "cloudflare deploy failed — ensure wrangler is installed (npx wrangler pages deploy {})",
+                            deploy_dir.display()
+                        );
                         process::exit(1);
                     }
                 }
@@ -2262,13 +2623,22 @@ fn main() {
                     Ok(s) if s.success()
                 );
                 if !push_ok {
-                    eprintln!("error: push failed — run 'git push -f origin gh-pages' manually from {}", deploy_dir.display());
+                    eprintln!(
+                        "error: push failed — run 'git push -f origin gh-pages' manually from {}",
+                        deploy_dir.display()
+                    );
                     process::exit(1);
                 }
                 eprintln!("deployed to GitHub Pages!");
             } else {
-                eprintln!("no git remote found — deploy directory ready at {}", deploy_dir.display());
-                eprintln!("push manually: cd {} && git remote add origin <url> && git push -f origin gh-pages", deploy_dir.display());
+                eprintln!(
+                    "no git remote found — deploy directory ready at {}",
+                    deploy_dir.display()
+                );
+                eprintln!(
+                    "push manually: cd {} && git remote add origin <url> && git push -f origin gh-pages",
+                    deploy_dir.display()
+                );
             }
         }
         return;
@@ -2276,15 +2646,23 @@ fn main() {
 
     // Handle "playground" subcommand — generate self-contained HTML playground
     if args.len() >= 2 && args[1] == "playground" {
-        let out = if args.len() >= 3 { &args[2] } else { "playground.html" };
+        let out = if args.len() >= 3 {
+            &args[2]
+        } else {
+            "playground.html"
+        };
 
         // Load pre-built WASM binary and JS glue
         let (wasm_bytes, js_glue) = match find_wasm_pkg() {
             Some(pkg) => pkg,
             None => {
                 eprintln!("error: WASM module not found. Build it first:");
-                eprintln!("  cargo build --release --target wasm32-unknown-unknown -p htmlang-wasm");
-                eprintln!("  wasm-bindgen --target no-modules --no-typescript --out-dir target/wasm-pkg \\");
+                eprintln!(
+                    "  cargo build --release --target wasm32-unknown-unknown -p htmlang-wasm"
+                );
+                eprintln!(
+                    "  wasm-bindgen --target no-modules --no-typescript --out-dir target/wasm-pkg \\"
+                );
                 eprintln!("    target/wasm32-unknown-unknown/release/htmlang_wasm.wasm");
                 process::exit(1);
             }
@@ -2305,7 +2683,8 @@ fn main() {
         );
         let compile_fn = "function compileSource(src){return window._wasmCompile(src);}";
 
-        let playground_html = format!(r##"<!DOCTYPE html>
+        let playground_html = format!(
+            r##"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -2564,7 +2943,10 @@ loadFromHash();
 compile();
 </script>
 </body>
-</html>"##, wasm_section = wasm_section, compile_fn = compile_fn);
+</html>"##,
+            wasm_section = wasm_section,
+            compile_fn = compile_fn
+        );
         if let Err(e) = fs::write(out, playground_html) {
             eprintln!("error writing {}: {}", out, e);
             process::exit(1);
@@ -2598,11 +2980,16 @@ compile();
         // Also remove sitemap.xml if present
         let sitemap = dir.join("sitemap.xml");
         if sitemap.exists()
-            && let Ok(()) = fs::remove_file(&sitemap) {
-                eprintln!("removed {}", sitemap.display());
-                removed += 1;
-            }
-        eprintln!("cleaned {} file{}", removed, if removed == 1 { "" } else { "s" });
+            && let Ok(()) = fs::remove_file(&sitemap)
+        {
+            eprintln!("removed {}", sitemap.display());
+            removed += 1;
+        }
+        eprintln!(
+            "cleaned {} file{}",
+            removed,
+            if removed == 1 { "" } else { "s" }
+        );
         return;
     }
 
@@ -2641,10 +3028,13 @@ compile();
                         print_outline(&elem.children, depth + 1);
                     }
                     htmlang::ast::Node::Text(segs) => {
-                        let text: String = segs.iter().filter_map(|s| match s {
-                            htmlang::ast::TextSegment::Plain(t) => Some(t.as_str()),
-                            _ => None,
-                        }).collect();
+                        let text: String = segs
+                            .iter()
+                            .filter_map(|s| match s {
+                                htmlang::ast::TextSegment::Plain(t) => Some(t.as_str()),
+                                _ => None,
+                            })
+                            .collect();
                         if !text.trim().is_empty() {
                             let display = if text.len() > 40 {
                                 format!("{}...", &text[..37])
@@ -2687,9 +3077,7 @@ compile();
         }
 
         // Check if cargo is available (for building from source)
-        let cargo_status = process::Command::new("cargo")
-            .arg("--version")
-            .output();
+        let cargo_status = process::Command::new("cargo").arg("--version").output();
         match cargo_status {
             Ok(output) if output.status.success() => {
                 let ver = String::from_utf8_lossy(&output.stdout);
@@ -2702,9 +3090,7 @@ compile();
         }
 
         // Check if git is available (for deploy)
-        let git_status = process::Command::new("git")
-            .arg("--version")
-            .output();
+        let git_status = process::Command::new("git").arg("--version").output();
         match git_status {
             Ok(output) if output.status.success() => {
                 let ver = String::from_utf8_lossy(&output.stdout);
@@ -2784,7 +3170,12 @@ compile();
             if changes > 0 {
                 match fs::write(file, &output) {
                     Ok(()) => {
-                        eprintln!("migrated {} ({} change{})", file.display(), changes, if changes == 1 { "" } else { "s" });
+                        eprintln!(
+                            "migrated {} ({} change{})",
+                            file.display(),
+                            changes,
+                            if changes == 1 { "" } else { "s" }
+                        );
                         total_changes += changes;
                     }
                     Err(e) => eprintln!("error: {}: {}", file.display(), e),
@@ -2794,7 +3185,11 @@ compile();
         if total_changes == 0 {
             eprintln!("no migrations needed");
         } else {
-            eprintln!("\n{} total change(s) across {} file(s)", total_changes, hl_files.len());
+            eprintln!(
+                "\n{} total change(s) across {} file(s)",
+                total_changes,
+                hl_files.len()
+            );
         }
         return;
     }
@@ -2843,7 +3238,11 @@ compile();
             };
             let base = file.parent();
             let result = htmlang::parser::parse_with_base(&input, base);
-            if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+            if result
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == htmlang::parser::Severity::Error)
+            {
                 for d in &result.diagnostics {
                     if d.severity == htmlang::parser::Severity::Error {
                         eprintln!("error: line {}: {}", d.line, d.message);
@@ -2899,7 +3298,11 @@ compile();
             total_source += input.len();
             let base = file.parent();
             let result = htmlang::parser::parse_with_base(&input, base);
-            if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+            if result
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == htmlang::parser::Severity::Error)
+            {
                 continue;
             }
             let html = htmlang::codegen::generate(&result.document);
@@ -2951,55 +3354,70 @@ compile();
             let prefix = severity_label(d.severity);
             eprintln!("{}: line {}: {}", prefix, d.line, d.message);
         }
-        if result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error) {
+        if result
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error)
+        {
             process::exit(1);
         }
         let html = htmlang::codegen::generate_dev(&result.document);
         // Extract CSS class mappings from <style> block
         let mut class_css: HashMap<String, String> = HashMap::new();
         if let Some(style_start) = html.find("<style>")
-            && let Some(style_end) = html[style_start..].find("</style>") {
-                let css_block = &html[style_start + 7..style_start + style_end];
-                // Parse each CSS rule: .className { rules }
-                let mut pos = 0;
-                let css_bytes = css_block.as_bytes();
-                while pos < css_bytes.len() {
-                    if css_bytes[pos] == b'.' {
-                        let rule_start = pos;
-                        // Find class name end
-                        pos += 1;
-                        while pos < css_bytes.len() && css_bytes[pos] != b' ' && css_bytes[pos] != b'{' && css_bytes[pos] != b':' && css_bytes[pos] != b',' {
-                            pos += 1;
-                        }
-                        let class_name = &css_block[rule_start + 1..pos];
-                        // Find rule body
-                        while pos < css_bytes.len() && css_bytes[pos] != b'{' {
-                            pos += 1;
-                        }
-                        if pos < css_bytes.len() {
-                            pos += 1; // skip '{'
-                            let body_start = pos;
-                            let mut depth = 1;
-                            while pos < css_bytes.len() && depth > 0 {
-                                if css_bytes[pos] == b'{' { depth += 1; }
-                                if css_bytes[pos] == b'}' { depth -= 1; }
-                                pos += 1;
-                            }
-                            let body = css_block[body_start..pos.saturating_sub(1)].trim();
-                            if !body.is_empty() {
-                                class_css.entry(class_name.to_string())
-                                    .and_modify(|existing| {
-                                        existing.push_str("; ");
-                                        existing.push_str(body);
-                                    })
-                                    .or_insert_with(|| body.to_string());
-                            }
-                        }
-                    } else {
+            && let Some(style_end) = html[style_start..].find("</style>")
+        {
+            let css_block = &html[style_start + 7..style_start + style_end];
+            // Parse each CSS rule: .className { rules }
+            let mut pos = 0;
+            let css_bytes = css_block.as_bytes();
+            while pos < css_bytes.len() {
+                if css_bytes[pos] == b'.' {
+                    let rule_start = pos;
+                    // Find class name end
+                    pos += 1;
+                    while pos < css_bytes.len()
+                        && css_bytes[pos] != b' '
+                        && css_bytes[pos] != b'{'
+                        && css_bytes[pos] != b':'
+                        && css_bytes[pos] != b','
+                    {
                         pos += 1;
                     }
+                    let class_name = &css_block[rule_start + 1..pos];
+                    // Find rule body
+                    while pos < css_bytes.len() && css_bytes[pos] != b'{' {
+                        pos += 1;
+                    }
+                    if pos < css_bytes.len() {
+                        pos += 1; // skip '{'
+                        let body_start = pos;
+                        let mut depth = 1;
+                        while pos < css_bytes.len() && depth > 0 {
+                            if css_bytes[pos] == b'{' {
+                                depth += 1;
+                            }
+                            if css_bytes[pos] == b'}' {
+                                depth -= 1;
+                            }
+                            pos += 1;
+                        }
+                        let body = css_block[body_start..pos.saturating_sub(1)].trim();
+                        if !body.is_empty() {
+                            class_css
+                                .entry(class_name.to_string())
+                                .and_modify(|existing| {
+                                    existing.push_str("; ");
+                                    existing.push_str(body);
+                                })
+                                .or_insert_with(|| body.to_string());
+                        }
+                    }
+                } else {
+                    pos += 1;
                 }
             }
+        }
         // Extract data-hl-line attributes from dev HTML to map classes to source lines
         let mut line_classes: HashMap<usize, Vec<String>> = HashMap::new();
         let html_body = if let Some(body_start) = html.find("<body") {
@@ -3012,25 +3430,32 @@ compile();
         let mut scan_pos = 0;
         while scan_pos < html_body.len() {
             // Find each opening tag
-            if html_body.as_bytes()[scan_pos] == b'<' && scan_pos + 1 < html_body.len() && html_body.as_bytes()[scan_pos + 1].is_ascii_alphabetic() {
+            if html_body.as_bytes()[scan_pos] == b'<'
+                && scan_pos + 1 < html_body.len()
+                && html_body.as_bytes()[scan_pos + 1].is_ascii_alphabetic()
+            {
                 // Find end of tag
-                let tag_end = html_body[scan_pos..].find('>').map(|p| scan_pos + p).unwrap_or(html_body.len());
+                let tag_end = html_body[scan_pos..]
+                    .find('>')
+                    .map(|p| scan_pos + p)
+                    .unwrap_or(html_body.len());
                 let tag = &html_body[scan_pos..tag_end];
                 // Extract data-hl-line
                 if let Some(hl_pos) = tag.find("data-hl-line=\"") {
                     let after = &tag[hl_pos + 14..];
                     if let Some(end) = after.find('"')
-                        && let Ok(ln) = after[..end].parse::<usize>() {
-                            // Extract class
-                            if let Some(cls_pos) = tag.find("class=\"") {
-                                let cls_after = &tag[cls_pos + 7..];
-                                if let Some(cls_end) = cls_after.find('"') {
-                                    for cls in cls_after[..cls_end].split_whitespace() {
-                                        line_classes.entry(ln).or_default().push(cls.to_string());
-                                    }
+                        && let Ok(ln) = after[..end].parse::<usize>()
+                    {
+                        // Extract class
+                        if let Some(cls_pos) = tag.find("class=\"") {
+                            let cls_after = &tag[cls_pos + 7..];
+                            if let Some(cls_end) = cls_after.find('"') {
+                                for cls in cls_after[..cls_end].split_whitespace() {
+                                    line_classes.entry(ln).or_default().push(cls.to_string());
                                 }
                             }
                         }
+                    }
                 }
                 scan_pos = tag_end;
             } else {
@@ -3098,7 +3523,10 @@ compile();
             total_source += input.len();
             let base = file.parent();
             let result = htmlang::parser::parse_with_base(&input, base);
-            let has_errors = result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error);
+            let has_errors = result
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == htmlang::parser::Severity::Error);
             if has_errors {
                 total_errors += 1;
                 continue;
@@ -3120,7 +3548,10 @@ compile();
         eprintln!("  source size:    {} bytes", total_source);
         eprintln!("  output size:    {} bytes", total_output);
         if total_source > 0 {
-            eprintln!("  ratio:          {:.1}x", total_output as f64 / total_source as f64);
+            eprintln!(
+                "  ratio:          {:.1}x",
+                total_output as f64 / total_source as f64
+            );
         }
         eprintln!("  elements:       {}", total_elements);
         eprintln!("  CSS rules:      ~{}", total_css_rules);
@@ -3211,7 +3642,12 @@ compile();
             if changes > 0 {
                 match fs::write(file, &output) {
                     Ok(()) => {
-                        eprintln!("upgraded {} ({} change{})", file.display(), changes, if changes == 1 { "" } else { "s" });
+                        eprintln!(
+                            "upgraded {} ({} change{})",
+                            file.display(),
+                            changes,
+                            if changes == 1 { "" } else { "s" }
+                        );
                         total_changes += changes;
                     }
                     Err(e) => eprintln!("error: {}: {}", file.display(), e),
@@ -3248,7 +3684,9 @@ compile();
         if !params.is_empty() {
             template.push_str(" [");
             for (i, p) in params.iter().enumerate() {
-                if i > 0 { template.push_str(", "); }
+                if i > 0 {
+                    template.push_str(", ");
+                }
                 template.push_str(p);
                 template.push_str(" value");
             }
@@ -3400,7 +3838,11 @@ compile();
             let _ = fs::create_dir_all(out);
         }
 
-        let json_collector = if format_json { Some(Mutex::new(Vec::new())) } else { None };
+        let json_collector = if format_json {
+            Some(Mutex::new(Vec::new()))
+        } else {
+            None
+        };
         let mut any_errors = false;
         let mut all_included: Vec<PathBuf> = Vec::new();
         for file in &hl_files {
@@ -3413,23 +3855,30 @@ compile();
                 }
                 out_p.to_string_lossy().to_string()
             });
-            let (has_errors, included) = compile(&path_str, &CompileConfig {
-                dev, error_overlay: serve, check_only: check,
-                output_path: effective_out.as_deref(), format_json,
-                json_collector: json_collector.as_ref(),
-                compat, strict, partial,
-                ..Default::default()
-            });
+            let (has_errors, included) = compile(
+                &path_str,
+                &CompileConfig {
+                    dev,
+                    error_overlay: serve,
+                    check_only: check,
+                    output_path: effective_out.as_deref(),
+                    format_json,
+                    json_collector: json_collector.as_ref(),
+                    compat,
+                    strict,
+                    partial,
+                    ..Default::default()
+                },
+            );
             if has_errors {
                 any_errors = true;
             }
             all_included.extend(included);
         }
 
-        if format_json
-            && let Some(collector) = json_collector {
-                print_json_diagnostics(&collector.lock().unwrap());
-            }
+        if format_json && let Some(collector) = json_collector {
+            print_json_diagnostics(&collector.lock().unwrap());
+        }
 
         if !watch {
             if any_errors {
@@ -3455,23 +3904,43 @@ compile();
             None
         };
 
-        watch_loop(dir, &hl_files, &all_included, dev, serve, reload_tx, port, 50);
+        watch_loop(
+            dir,
+            &hl_files,
+            &all_included,
+            dev,
+            serve,
+            reload_tx,
+            port,
+            50,
+        );
         return;
     }
 
     // --- Single file mode ---
-    let json_collector_single = if format_json { Some(Mutex::new(Vec::new())) } else { None };
-    let (has_errors, included_files) = compile(&input_path, &CompileConfig {
-        dev, error_overlay: serve, check_only: check,
-        output_path: output_path.as_deref(), format_json,
-        json_collector: json_collector_single.as_ref(),
-        compat, strict, partial,
-        ..Default::default()
-    });
-    if format_json
-        && let Some(ref collector) = json_collector_single {
-            print_json_diagnostics(&collector.lock().unwrap());
-        }
+    let json_collector_single = if format_json {
+        Some(Mutex::new(Vec::new()))
+    } else {
+        None
+    };
+    let (has_errors, included_files) = compile(
+        &input_path,
+        &CompileConfig {
+            dev,
+            error_overlay: serve,
+            check_only: check,
+            output_path: output_path.as_deref(),
+            format_json,
+            json_collector: json_collector_single.as_ref(),
+            compat,
+            strict,
+            partial,
+            ..Default::default()
+        },
+    );
+    if format_json && let Some(ref collector) = json_collector_single {
+        print_json_diagnostics(&collector.lock().unwrap());
+    }
 
     if !watch {
         if has_errors {
@@ -3625,138 +4094,140 @@ fn watch_loop(
         std::thread::sleep(std::time::Duration::from_millis(debounce_ms));
         while rx.try_recv().is_ok() {}
 
-                // Collect which files actually changed (HashSet for O(1) lookups)
-                let mut changed_files: HashSet<PathBuf> = HashSet::new();
-                let check_path = |path: &Path,
-                                   hashes: &mut HashMap<PathBuf, u64>|
-                 -> bool {
-                    if let Some(h) = hash_file(path)
-                        && hashes.get(path) != Some(&h) {
-                            hashes.insert(path.to_path_buf(), h);
-                            return true;
-                        }
-                    false
-                };
+        // Collect which files actually changed (HashSet for O(1) lookups)
+        let mut changed_files: HashSet<PathBuf> = HashSet::new();
+        let check_path = |path: &Path, hashes: &mut HashMap<PathBuf, u64>| -> bool {
+            if let Some(h) = hash_file(path)
+                && hashes.get(path) != Some(&h)
+            {
+                hashes.insert(path.to_path_buf(), h);
+                return true;
+            }
+            false
+        };
 
-                for file in source_files {
-                    let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
-                    if check_path(&canonical, &mut content_hashes) {
-                        changed_files.insert(canonical);
+        for file in source_files {
+            let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+            if check_path(&canonical, &mut content_hashes) {
+                changed_files.insert(canonical);
+            }
+        }
+
+        // Check included files for changes
+        for deps in dep_map.values() {
+            for dep in deps {
+                if check_path(dep, &mut content_hashes) {
+                    changed_files.insert(dep.clone());
+                }
+            }
+        }
+
+        // Check for new .hl files in directory
+        if watch_dir.is_dir() {
+            let current_files = collect_hl_files(watch_dir);
+            for file in &current_files {
+                let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+                if check_path(&canonical, &mut content_hashes) {
+                    changed_files.insert(canonical.clone());
+                    let _ = watcher.watch(&canonical, RecursiveMode::NonRecursive);
+                }
+            }
+        }
+
+        if changed_files.is_empty() {
+            continue;
+        }
+
+        eprintln!("\nrecompiling...");
+
+        // Determine which source files need recompilation:
+        // 1. Source files that changed directly
+        // 2. Source files whose dependencies changed
+        let mut files_to_compile: Vec<PathBuf> = Vec::new();
+        let all_sources: Vec<PathBuf> = {
+            let mut s: Vec<PathBuf> = source_files
+                .iter()
+                .map(|f| fs::canonicalize(f).unwrap_or_else(|_| f.clone()))
+                .collect();
+            if watch_dir.is_dir() {
+                for file in &collect_hl_files(watch_dir) {
+                    let c = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+                    if !s.contains(&c) {
+                        s.push(c);
                     }
                 }
+            }
+            s
+        };
 
-                // Check included files for changes
-                for deps in dep_map.values() {
-                    for dep in deps {
-                        if check_path(dep, &mut content_hashes) {
-                            changed_files.insert(dep.clone());
-                        }
-                    }
+        for source in &all_sources {
+            // Recompile if the source itself changed
+            if changed_files.contains(source) {
+                if !files_to_compile.contains(source) {
+                    files_to_compile.push(source.clone());
                 }
+                continue;
+            }
+            // Recompile if any of its dependencies changed
+            if let Some(deps) = dep_map.get(source)
+                && deps.iter().any(|d| changed_files.contains(d))
+                && !files_to_compile.contains(source)
+            {
+                files_to_compile.push(source.clone());
+            }
+        }
 
-                // Check for new .hl files in directory
-                if watch_dir.is_dir() {
-                    let current_files = collect_hl_files(watch_dir);
-                    for file in &current_files {
-                        let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
-                        if check_path(&canonical, &mut content_hashes) {
-                            changed_files.insert(canonical.clone());
-                            let _ = watcher.watch(&canonical, RecursiveMode::NonRecursive);
-                        }
-                    }
+        // If no specific files identified (e.g., first run), compile all
+        if files_to_compile.is_empty() {
+            files_to_compile = all_sources;
+        }
+
+        let mut recompiled = 0usize;
+        for file in &files_to_compile {
+            let path_str = file.to_string_lossy().to_string();
+            let (_, new_includes) = compile(
+                &path_str,
+                &CompileConfig {
+                    dev,
+                    error_overlay: serve,
+                    ..Default::default()
+                },
+            );
+            recompiled += 1;
+            // Update dependency map
+            let canonical_deps: Vec<PathBuf> = new_includes
+                .iter()
+                .map(|p| fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
+                .collect();
+            for inc in &canonical_deps {
+                if watched_includes.insert(inc.clone()) {
+                    let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
                 }
-
-                if changed_files.is_empty() {
-                    continue;
+                if let Some(h) = hash_file(inc) {
+                    content_hashes.insert(inc.clone(), h);
                 }
+            }
+            dep_map.insert(file.clone(), canonical_deps);
+        }
 
-                eprintln!("\nrecompiling...");
+        // Unwatch include files that are no longer referenced by any
+        // source. Prevents file-descriptor leaks when @include edges
+        // are removed mid-session.
+        let still_needed: HashSet<PathBuf> = dep_map.values().flatten().cloned().collect();
+        let to_drop: Vec<PathBuf> = watched_includes
+            .difference(&still_needed)
+            .cloned()
+            .collect();
+        for path in to_drop {
+            let _ = watcher.unwatch(&path);
+            watched_includes.remove(&path);
+            content_hashes.remove(&path);
+        }
 
-                // Determine which source files need recompilation:
-                // 1. Source files that changed directly
-                // 2. Source files whose dependencies changed
-                let mut files_to_compile: Vec<PathBuf> = Vec::new();
-                let all_sources: Vec<PathBuf> = {
-                    let mut s: Vec<PathBuf> = source_files.iter()
-                        .map(|f| fs::canonicalize(f).unwrap_or_else(|_| f.clone()))
-                        .collect();
-                    if watch_dir.is_dir() {
-                        for file in &collect_hl_files(watch_dir) {
-                            let c = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
-                            if !s.contains(&c) {
-                                s.push(c);
-                            }
-                        }
-                    }
-                    s
-                };
+        eprintln!("recompiled {} file(s)", recompiled);
 
-                for source in &all_sources {
-                    // Recompile if the source itself changed
-                    if changed_files.contains(source) {
-                        if !files_to_compile.contains(source) {
-                            files_to_compile.push(source.clone());
-                        }
-                        continue;
-                    }
-                    // Recompile if any of its dependencies changed
-                    if let Some(deps) = dep_map.get(source)
-                        && deps.iter().any(|d| changed_files.contains(d))
-                            && !files_to_compile.contains(source) {
-                                files_to_compile.push(source.clone());
-                            }
-                }
-
-                // If no specific files identified (e.g., first run), compile all
-                if files_to_compile.is_empty() {
-                    files_to_compile = all_sources;
-                }
-
-                let mut recompiled = 0usize;
-                for file in &files_to_compile {
-                    let path_str = file.to_string_lossy().to_string();
-                    let (_, new_includes) = compile(&path_str, &CompileConfig {
-                        dev, error_overlay: serve,
-                        ..Default::default()
-                    });
-                    recompiled += 1;
-                    // Update dependency map
-                    let canonical_deps: Vec<PathBuf> = new_includes.iter()
-                        .map(|p| fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
-                        .collect();
-                    for inc in &canonical_deps {
-                        if watched_includes.insert(inc.clone()) {
-                            let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
-                        }
-                        if let Some(h) = hash_file(inc) {
-                            content_hashes.insert(inc.clone(), h);
-                        }
-                    }
-                    dep_map.insert(file.clone(), canonical_deps);
-                }
-
-                // Unwatch include files that are no longer referenced by any
-                // source. Prevents file-descriptor leaks when @include edges
-                // are removed mid-session.
-                let still_needed: HashSet<PathBuf> = dep_map
-                    .values()
-                    .flatten()
-                    .cloned()
-                    .collect();
-                let to_drop: Vec<PathBuf> = watched_includes
-                    .difference(&still_needed)
-                    .cloned()
-                    .collect();
-                for path in to_drop {
-                    let _ = watcher.unwatch(&path);
-                    watched_includes.remove(&path);
-                    content_hashes.remove(&path);
-                }
-
-                eprintln!("recompiled {} file(s)", recompiled);
-
-                if let Some(ref tx) = reload_tx {
-                    let _ = tx.send(());
-                }
+        if let Some(ref tx) = reload_tx {
+            let _ = tx.send(());
+        }
     }
 }

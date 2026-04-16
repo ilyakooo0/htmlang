@@ -8,7 +8,11 @@ use crate::hover::{is_word_byte, word_at};
 // Go to definition
 // ---------------------------------------------------------------------------
 
-pub(crate) fn definition_at(text: &str, position: Position, uri: &Url) -> Option<GotoDefinitionResponse> {
+pub(crate) fn definition_at(
+    text: &str,
+    position: Position,
+    uri: &Url,
+) -> Option<GotoDefinitionResponse> {
     let lines: Vec<&str> = text.lines().collect();
     let line = lines.get(position.line as usize)?;
 
@@ -62,10 +66,11 @@ pub(crate) fn find_definition(text: &str, name: &str) -> Option<(u32, u32, u32)>
 
         if let Some(rest) = trimmed.strip_prefix("@let ")
             && let Some((n, _)) = rest.trim().split_once(' ')
-                && n == name {
-                    let col = offset + "@let ".len() as u32;
-                    return Some((i as u32, col, n.len() as u32));
-                }
+            && n == name
+        {
+            let col = offset + "@let ".len() as u32;
+            return Some((i as u32, col, n.len() as u32));
+        }
 
         if let Some(rest) = trimmed.strip_prefix("@define ") {
             let rest = rest.trim();
@@ -152,7 +157,12 @@ pub(crate) fn prepare_rename_at(text: &str, position: Position) -> Option<Prepar
     )))
 }
 
-pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Url) -> Option<WorkspaceEdit> {
+pub(crate) fn rename_at(
+    text: &str,
+    position: Position,
+    new_name: &str,
+    uri: &Url,
+) -> Option<WorkspaceEdit> {
     let lines: Vec<&str> = text.lines().collect();
     let line = lines.get(position.line as usize)?;
     let col = (position.character as usize).min(line.len());
@@ -177,16 +187,17 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
             // Rename @let definition
             if let Some(rest) = trimmed.strip_prefix("@let ")
                 && let Some((n, _)) = rest.trim().split_once(' ')
-                    && n == name
-                        && let Some(pos) = line.find(n) {
-                            edits.push(TextEdit {
-                                range: Range::new(
-                                    Position::new(line_num, pos as u32),
-                                    Position::new(line_num, (pos + n.len()) as u32),
-                                ),
-                                new_text: new_base.to_string(),
-                            });
-                        }
+                && n == name
+                && let Some(pos) = line.find(n)
+            {
+                edits.push(TextEdit {
+                    range: Range::new(
+                        Position::new(line_num, pos as u32),
+                        Position::new(line_num, (pos + n.len()) as u32),
+                    ),
+                    new_text: new_base.to_string(),
+                });
+            }
 
             // Rename @define definition
             if let Some(rest) = trimmed.strip_prefix("@define ") {
@@ -194,16 +205,17 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
                 if let Some(bracket) = rest_trimmed.find('[') {
                     let n = rest_trimmed[..bracket].trim();
                     if n == name
-                        && let Some(pos) = line.find(n) {
-                            edits.push(TextEdit {
-                                range: Range::new(
-                                    Position::new(line_num, pos as u32),
-                                    Position::new(line_num, (pos + n.len()) as u32),
-                                ),
-                                new_text: new_base.to_string(),
-                            });
-                            continue; // Don't also match $ references on this line
-                        }
+                        && let Some(pos) = line.find(n)
+                    {
+                        edits.push(TextEdit {
+                            range: Range::new(
+                                Position::new(line_num, pos as u32),
+                                Position::new(line_num, (pos + n.len()) as u32),
+                            ),
+                            new_text: new_base.to_string(),
+                        });
+                        continue; // Don't also match $ references on this line
+                    }
                 }
             }
 
@@ -213,16 +225,17 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
                 for param in &parts[1..] {
                     let p = param.strip_prefix('$').unwrap_or(param);
                     if p == name
-                        && let Some(pos) = line.find(param) {
-                            let prefix = if param.starts_with('$') { "$" } else { "" };
-                            edits.push(TextEdit {
-                                range: Range::new(
-                                    Position::new(line_num, pos as u32),
-                                    Position::new(line_num, (pos + param.len()) as u32),
-                                ),
-                                new_text: format!("{}{}", prefix, new_base),
-                            });
-                        }
+                        && let Some(pos) = line.find(param)
+                    {
+                        let prefix = if param.starts_with('$') { "$" } else { "" };
+                        edits.push(TextEdit {
+                            range: Range::new(
+                                Position::new(line_num, pos as u32),
+                                Position::new(line_num, (pos + param.len()) as u32),
+                            ),
+                            new_text: format!("{}{}", prefix, new_base),
+                        });
+                    }
                 }
             }
 
@@ -254,16 +267,17 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
             if let Some(rest) = trimmed.strip_prefix("@fn ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if parts.first() == Some(&name)
-                    && let Some(pos) = line.find(&format!("@fn {}", name)) {
-                        let start = pos + 4; // skip "@fn "
-                        edits.push(TextEdit {
-                            range: Range::new(
-                                Position::new(line_num, start as u32),
-                                Position::new(line_num, (start + name.len()) as u32),
-                            ),
-                            new_text: new_base.to_string(),
-                        });
-                    }
+                    && let Some(pos) = line.find(&format!("@fn {}", name))
+                {
+                    let start = pos + 4; // skip "@fn "
+                    edits.push(TextEdit {
+                        range: Range::new(
+                            Position::new(line_num, start as u32),
+                            Position::new(line_num, (start + name.len()) as u32),
+                        ),
+                        new_text: new_base.to_string(),
+                    });
+                }
             }
 
             // Rename @name function calls
@@ -322,11 +336,21 @@ pub(crate) fn linked_editing_ranges(text: &str, position: Position) -> Option<Li
     // Find the $variable at the cursor
     let bytes = line.as_bytes();
     let mut start = col;
-    while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'$' || bytes[start - 1] == b'-' || bytes[start - 1] == b'_') {
+    while start > 0
+        && (bytes[start - 1].is_ascii_alphanumeric()
+            || bytes[start - 1] == b'$'
+            || bytes[start - 1] == b'-'
+            || bytes[start - 1] == b'_')
+    {
         start -= 1;
     }
     let mut end = col;
-    while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'$' || bytes[end] == b'-' || bytes[end] == b'_') {
+    while end < bytes.len()
+        && (bytes[end].is_ascii_alphanumeric()
+            || bytes[end] == b'$'
+            || bytes[end] == b'-'
+            || bytes[end] == b'_')
+    {
         end += 1;
     }
     if start == end {

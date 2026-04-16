@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::parser::parse;
     use crate::codegen::{generate, generate_dev, generate_partial, short_class_name};
+    use crate::parser::parse;
 
     fn compile(src: &str) -> String {
         let r = parse(src);
@@ -17,15 +17,24 @@ mod tests {
 
     #[test]
     fn non_empty_document_emits_doctype() {
-        let out = compile("@text hello\n");
-        assert!(out.to_lowercase().contains("<!doctype html>"), "missing doctype: {out}");
+        let out = compile("@page Hello\n@text hello\n");
+        assert!(
+            out.to_lowercase().contains("<!doctype html>"),
+            "missing doctype: {out}"
+        );
     }
 
     #[test]
     fn text_content_is_html_escaped() {
         let out = compile("@text <script>alert(1)</script>\n");
-        assert!(!out.contains("<script>alert(1)</script>"), "raw script should be escaped: {out}");
-        assert!(out.contains("&lt;script&gt;"), "escaped entities missing: {out}");
+        assert!(
+            !out.contains("<script>alert(1)</script>"),
+            "raw script should be escaped: {out}"
+        );
+        assert!(
+            out.contains("&lt;script&gt;"),
+            "escaped entities missing: {out}"
+        );
     }
 
     #[test]
@@ -49,22 +58,25 @@ mod tests {
         assert_eq!(short_class_name(0), "a");
         assert_eq!(short_class_name(25), "z");
         // Higher indexes must produce unique, stable names.
-        let names: std::collections::HashSet<_> =
-            (0..200).map(short_class_name).collect();
+        let names: std::collections::HashSet<_> = (0..200).map(short_class_name).collect();
         assert_eq!(names.len(), 200, "short_class_name collisions");
     }
 
     #[test]
     fn page_title_appears_in_head() {
         let out = compile("@page Welcome\n");
-        assert!(out.contains("<title>Welcome</title>"), "title missing in:\n{out}");
+        assert!(
+            out.contains("<title>Welcome</title>"),
+            "title missing in:\n{out}"
+        );
     }
 
     #[test]
     fn same_styles_share_one_class() {
         // Both elements request padding:10 + background red. The collector must
         // dedupe them into a single generated class rather than emitting two.
-        let src = "@row\n  @el [padding 10, background red] a\n  @el [padding 10, background red] b\n";
+        let src =
+            "@row\n  @el [padding 10, background red] a\n  @el [padding 10, background red] b\n";
         let out = compile(src);
         // Count occurrences of a `.X{` CSS class declaration that contains both
         // padding and the red color. With dedup, the rule body should appear at
@@ -76,6 +88,9 @@ mod tests {
             count += 1;
             rest = &rest[pos + needle.len()..];
         }
-        assert!(count <= 1, "duplicate CSS rule emitted ({count} times) in:\n{out}");
+        assert!(
+            count <= 1,
+            "duplicate CSS rule emitted ({count} times) in:\n{out}"
+        );
     }
 }

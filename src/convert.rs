@@ -29,8 +29,8 @@ struct HtmlParser<'a> {
 
 /// Tags that are self-closing in HTML (void elements).
 const VOID_TAGS: &[&str] = &[
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
-    "meta", "param", "source", "track", "wbr",
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
 ];
 
 impl<'a> HtmlParser<'a> {
@@ -87,21 +87,22 @@ impl<'a> HtmlParser<'a> {
             }
             // Check for closing tag
             if let Some(stop) = stop_tag
-                && self.starts_with("</") {
-                    let saved = self.pos;
-                    self.pos += 2;
-                    let tag = self.parse_tag_name();
-                    if tag.eq_ignore_ascii_case(stop) {
-                        // Consume the rest of the closing tag
-                        self.consume_until(">");
-                        break;
-                    }
-                    // Not our closing tag, restore and let it be handled
-                    self.pos = saved;
-                    // This closing tag doesn't match; break out to let the
-                    // parent handle it.
+                && self.starts_with("</")
+            {
+                let saved = self.pos;
+                self.pos += 2;
+                let tag = self.parse_tag_name();
+                if tag.eq_ignore_ascii_case(stop) {
+                    // Consume the rest of the closing tag
+                    self.consume_until(">");
                     break;
                 }
+                // Not our closing tag, restore and let it be handled
+                self.pos = saved;
+                // This closing tag doesn't match; break out to let the
+                // parent handle it.
+                break;
+            }
 
             if self.starts_with("<!--") {
                 self.pos += 4;
@@ -391,28 +392,28 @@ fn css_to_hl_attrs(styles: &[CssDecl]) -> (Vec<HlAttr>, Vec<CssDecl>) {
                 // Check for padding-x pattern
                 if key == "padding-left"
                     && let Some(&pr) = style_map.get("padding-right")
-                        && pr == val {
-                            attrs.push(("padding-x".into(), Some(strip_px(val).into())));
-                            continue;
-                        }
-                if key == "padding-right"
-                    && style_map.get("padding-left") == Some(&val.as_str()) {
-                        // Already emitted as padding-x
-                        continue;
-                    }
+                    && pr == val
+                {
+                    attrs.push(("padding-x".into(), Some(strip_px(val).into())));
+                    continue;
+                }
+                if key == "padding-right" && style_map.get("padding-left") == Some(&val.as_str()) {
+                    // Already emitted as padding-x
+                    continue;
+                }
                 leftover.push((key.clone(), val.clone()));
             }
             "padding-top" | "padding-bottom" => {
                 if key == "padding-top"
                     && let Some(&pb) = style_map.get("padding-bottom")
-                        && pb == val {
-                            attrs.push(("padding-y".into(), Some(strip_px(val).into())));
-                            continue;
-                        }
-                if key == "padding-bottom"
-                    && style_map.get("padding-top") == Some(&val.as_str()) {
-                        continue;
-                    }
+                    && pb == val
+                {
+                    attrs.push(("padding-y".into(), Some(strip_px(val).into())));
+                    continue;
+                }
+                if key == "padding-bottom" && style_map.get("padding-top") == Some(&val.as_str()) {
+                    continue;
+                }
                 leftover.push((key.clone(), val.clone()));
             }
             "padding-inline" => {
@@ -428,27 +429,27 @@ fn css_to_hl_attrs(styles: &[CssDecl]) -> (Vec<HlAttr>, Vec<CssDecl>) {
             "margin-left" | "margin-right" => {
                 if key == "margin-left"
                     && let Some(&mr) = style_map.get("margin-right")
-                        && mr == val {
-                            attrs.push(("margin-x".into(), Some(strip_px(val).into())));
-                            continue;
-                        }
-                if key == "margin-right"
-                    && style_map.get("margin-left") == Some(&val.as_str()) {
-                        continue;
-                    }
+                    && mr == val
+                {
+                    attrs.push(("margin-x".into(), Some(strip_px(val).into())));
+                    continue;
+                }
+                if key == "margin-right" && style_map.get("margin-left") == Some(&val.as_str()) {
+                    continue;
+                }
                 leftover.push((key.clone(), val.clone()));
             }
             "margin-top" | "margin-bottom" => {
                 if key == "margin-top"
                     && let Some(&mb) = style_map.get("margin-bottom")
-                        && mb == val {
-                            attrs.push(("margin-y".into(), Some(strip_px(val).into())));
-                            continue;
-                        }
-                if key == "margin-bottom"
-                    && style_map.get("margin-top") == Some(&val.as_str()) {
-                        continue;
-                    }
+                    && mb == val
+                {
+                    attrs.push(("margin-y".into(), Some(strip_px(val).into())));
+                    continue;
+                }
+                if key == "margin-bottom" && style_map.get("margin-top") == Some(&val.as_str()) {
+                    continue;
+                }
                 leftover.push((key.clone(), val.clone()));
             }
             "margin-inline" => {
@@ -668,12 +669,11 @@ fn unwrap_boilerplate(nodes: &[HtmlNode]) -> Vec<&HtmlNode> {
 
     // If there's a single <html> element, unwrap it
     if meaningful.len() == 1
-        && let HtmlNode::Element {
-            tag, children, ..
-        } = meaningful[0]
-            && tag == "html" {
-                return unwrap_html_children(children);
-            }
+        && let HtmlNode::Element { tag, children, .. } = meaningful[0]
+        && tag == "html"
+    {
+        return unwrap_html_children(children);
+    }
 
     // Otherwise, check if there are any html/head/body tags mixed in
     let mut result = Vec::new();
@@ -719,9 +719,7 @@ fn unwrap_html_children(children: &[HtmlNode]) -> Vec<&HtmlNode> {
                 // Skip <head> entirely
                 let _ = children;
             }
-            HtmlNode::Element {
-                tag, children, ..
-            } if tag == "body" => {
+            HtmlNode::Element { tag, children, .. } if tag == "body" => {
                 for body_child in children {
                     match body_child {
                         HtmlNode::Text(t) if t.trim().is_empty() => {}
@@ -939,21 +937,21 @@ fn emit_element(
     // Alt text for images
     if tag == "img"
         && let Some(alt_text) = &alt
-            && !alt_text.is_empty() {
-                hl_attrs.push(("alt".into(), Some(alt_text.clone())));
-            }
+        && !alt_text.is_empty()
+    {
+        hl_attrs.push(("alt".into(), Some(alt_text.clone())));
+    }
 
     // Passthrough HTML attributes that htmlang supports
     for (key, val) in attrs {
         match key.as_str() {
             "style" | "class" | "id" | "href" | "src" | "alt" => {}
-            "type" | "name" | "value" | "placeholder" | "disabled" | "required"
-            | "checked" | "readonly" | "maxlength" | "min" | "max" | "step"
-            | "action" | "method" | "target" | "rel" | "title" | "role"
-            | "aria-label" | "aria-hidden" | "tabindex" | "for" | "open"
-            | "autoplay" | "controls" | "loop" | "muted" | "preload"
-            | "width" | "height" | "loading" | "decoding" | "srcset" | "sizes"
-            | "media" | "datetime" | "cite" | "download" => {
+            "type" | "name" | "value" | "placeholder" | "disabled" | "required" | "checked"
+            | "readonly" | "maxlength" | "min" | "max" | "step" | "action" | "method"
+            | "target" | "rel" | "title" | "role" | "aria-label" | "aria-hidden" | "tabindex"
+            | "for" | "open" | "autoplay" | "controls" | "loop" | "muted" | "preload" | "width"
+            | "height" | "loading" | "decoding" | "srcset" | "sizes" | "media" | "datetime"
+            | "cite" | "download" => {
                 if val.is_empty() {
                     hl_attrs.push((key.clone(), None));
                 } else {
@@ -982,10 +980,11 @@ fn emit_element(
             out.push_str(url);
         }
     } else if tag == "img"
-        && let Some(src_val) = &src {
-            out.push(' ');
-            out.push_str(src_val);
-        }
+        && let Some(src_val) = &src
+    {
+        out.push(' ');
+        out.push_str(src_val);
+    }
 
     // Attributes block
     if !hl_attrs.is_empty() {
@@ -1027,13 +1026,14 @@ fn emit_element(
     // Alt text for images
     if tag == "img"
         && let Some(alt_text) = &alt
-            && !alt_text.is_empty() {
-                // Alt is emitted as an attribute already? No -- let's add it.
-                // Actually we should add it to hl_attrs above. But since we
-                // already flushed the line, add a comment.
-                // Re-check: the image alt is typically an attribute.
-                // We'll add it inline. Let's fix this by checking above.
-            }
+        && !alt_text.is_empty()
+    {
+        // Alt is emitted as an attribute already? No -- let's add it.
+        // Actually we should add it to hl_attrs above. But since we
+        // already flushed the line, add a comment.
+        // Re-check: the image alt is typically an attribute.
+        // We'll add it inline. Let's fix this by checking above.
+    }
 
     // Emit children
     for child in children {
@@ -1154,7 +1154,8 @@ mod tests {
 
     #[test]
     fn simple_div() {
-        let html = r#"<div style="padding: 20px; background-color: #fff; border-radius: 8px">Hello</div>"#;
+        let html =
+            r#"<div style="padding: 20px; background-color: #fff; border-radius: 8px">Hello</div>"#;
         let result = convert(html);
         assert!(result.contains("@el [padding 20, background #fff, rounded 8]"));
         assert!(result.contains("Hello"));

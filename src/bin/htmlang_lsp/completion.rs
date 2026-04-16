@@ -11,10 +11,7 @@ pub(crate) fn completions(text: &str, position: Position) -> Vec<CompletionItem>
     let before = &line[..col];
 
     let word_start = find_word_start(before);
-    let edit_range = Range::new(
-        Position::new(position.line, word_start as u32),
-        position,
-    );
+    let edit_range = Range::new(Position::new(position.line, word_start as u32), position);
 
     // Inside attribute brackets?
     if in_brackets(before) {
@@ -28,7 +25,34 @@ pub(crate) fn completions(text: &str, position: Position) -> Vec<CompletionItem>
         // State prefix (hover:, active:, focus:) or media prefix (dark:, print:)
         if let Some(colon) = current_word.find(':') {
             let prefix = &current_word[..colon];
-            if matches!(prefix, "hover" | "active" | "focus" | "focus-visible" | "focus-within" | "disabled" | "checked" | "placeholder" | "first" | "last" | "odd" | "even" | "before" | "after" | "dark" | "print" | "sm" | "md" | "lg" | "xl" | "2xl" | "motion-safe" | "motion-reduce" | "landscape" | "portrait") {
+            if matches!(
+                prefix,
+                "hover"
+                    | "active"
+                    | "focus"
+                    | "focus-visible"
+                    | "focus-within"
+                    | "disabled"
+                    | "checked"
+                    | "placeholder"
+                    | "first"
+                    | "last"
+                    | "odd"
+                    | "even"
+                    | "before"
+                    | "after"
+                    | "dark"
+                    | "print"
+                    | "sm"
+                    | "md"
+                    | "lg"
+                    | "xl"
+                    | "2xl"
+                    | "motion-safe"
+                    | "motion-reduce"
+                    | "landscape"
+                    | "portrait"
+            ) {
                 return state_attr_completions(prefix, edit_range);
             }
         }
@@ -182,7 +206,10 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         ("@legend", "Legend for @fieldset (legend)"),
         // Picture/responsive images
         ("@picture", "Responsive image container (picture)"),
-        ("@source", "Media source for @picture/@video/@audio (source)"),
+        (
+            "@source",
+            "Media source for @picture/@video/@audio (source)",
+        ),
         // Inline semantics
         ("@time", "Date/time element (time)"),
         ("@mark", "Highlighted/marked text (mark)"),
@@ -195,7 +222,10 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         ("@output", "Form calculation result (output)"),
         ("@canvas", "Drawing surface for scripts (canvas)"),
         ("@script", "Inline script element (script)"),
-        ("@noscript", "Fallback content when scripts disabled (noscript)"),
+        (
+            "@noscript",
+            "Fallback content when scripts disabled (noscript)",
+        ),
         ("@address", "Contact information (address)"),
         ("@search", "Search section (search)"),
         ("@breadcrumb", "Breadcrumb navigation (nav with aria)"),
@@ -210,14 +240,30 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@page", "Set HTML page title", "@page "),
         ("@let", "Define a variable", "@let "),
         ("@define", "Define an attribute bundle", "@define "),
-        ("@fn", "Define a reusable function (supports $param=default)", "@fn "),
+        (
+            "@fn",
+            "Define a reusable function (supports $param=default)",
+            "@fn ",
+        ),
         ("@keyframes", "Define a CSS animation", "@keyframes "),
         ("@if", "Conditional rendering", "@if "),
         ("@else if", "Else-if branch", "@else if "),
         ("@else", "Else branch", "@else"),
-        ("@each", "Loop over values (@each $var, $i in list)", "@each "),
-        ("@include", "Include another .hl file (DOM + definitions)", "@include "),
-        ("@import", "Import definitions only (no DOM nodes)", "@import "),
+        (
+            "@each",
+            "Loop over values (@each $var, $i in list)",
+            "@each ",
+        ),
+        (
+            "@include",
+            "Include another .hl file (DOM + definitions)",
+            "@include ",
+        ),
+        (
+            "@import",
+            "Import definitions only (no DOM nodes)",
+            "@import ",
+        ),
         ("@meta", "Add a <meta> tag to <head>", "@meta "),
         ("@head", "Add raw content to <head>", "@head"),
         ("@style", "Add raw CSS to stylesheet", "@style"),
@@ -226,32 +272,86 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@case", "Match case (inside @match)", "@case "),
         ("@default", "Default case (inside @match)", "@default"),
         ("@warn", "Emit a compile-time warning", "@warn "),
-        ("@debug", "Print debug message during compilation", "@debug "),
-        ("@lang", "Set document language (html lang attribute)", "@lang "),
-        ("@favicon", "Set favicon (inlined as base64 data URI)", "@favicon "),
-        ("@unless", "Inverse conditional (renders when false)", "@unless "),
+        (
+            "@debug",
+            "Print debug message during compilation",
+            "@debug ",
+        ),
+        (
+            "@lang",
+            "Set document language (html lang attribute)",
+            "@lang ",
+        ),
+        (
+            "@favicon",
+            "Set favicon (inlined as base64 data URI)",
+            "@favicon ",
+        ),
+        (
+            "@unless",
+            "Inverse conditional (renders when false)",
+            "@unless ",
+        ),
         ("@og", "Add Open Graph meta tag", "@og "),
-        ("@breakpoint", "Define custom responsive breakpoint", "@breakpoint "),
-        ("@theme", "Define design tokens (colors, spacing, fonts)", "@theme"),
+        (
+            "@breakpoint",
+            "Define custom responsive breakpoint",
+            "@breakpoint ",
+        ),
+        (
+            "@theme",
+            "Define design tokens (colors, spacing, fonts)",
+            "@theme",
+        ),
         ("@deprecated", "Mark next @fn as deprecated", "@deprecated "),
-        ("@extends", "Inherit a layout template and fill @slot blocks", "@extends "),
-        ("@use", "Selective import of definitions from a file", "@use "),
-        ("@canonical", "Set canonical URL for the page", "@canonical "),
+        (
+            "@extends",
+            "Inherit a layout template and fill @slot blocks",
+            "@extends ",
+        ),
+        (
+            "@use",
+            "Selective import of definitions from a file",
+            "@use ",
+        ),
+        (
+            "@canonical",
+            "Set canonical URL for the page",
+            "@canonical ",
+        ),
         ("@base", "Set base URL for relative links", "@base "),
         ("@font-face", "Define a custom font face", "@font-face"),
-        ("@json-ld", "Add JSON-LD structured data to head", "@json-ld"),
-        ("@mixin", "Define a composable style group (use with ...$name)", "@mixin "),
-        ("@assert", "Compile-time assertion for variable values", "@assert "),
-        ("@data", "Load JSON data file into template variables", "@data "),
+        (
+            "@json-ld",
+            "Add JSON-LD structured data to head",
+            "@json-ld",
+        ),
+        (
+            "@mixin",
+            "Define a composable style group (use with ...$name)",
+            "@mixin ",
+        ),
+        (
+            "@assert",
+            "Compile-time assertion for variable values",
+            "@assert ",
+        ),
+        (
+            "@data",
+            "Load JSON data file into template variables",
+            "@data ",
+        ),
         ("@env", "Access compile-time environment variable", "@env "),
         ("@fetch", "Fetch data from URL at compile time", "@fetch "),
         ("@svg", "Inline SVG file with optional attributes", "@svg "),
-        ("@css-property", "Define typed CSS custom property (@property)", "@css-property "),
+        (
+            "@css-property",
+            "Define typed CSS custom property (@property)",
+            "@css-property ",
+        ),
     ]
     .iter()
-    .map(|(name, detail, insert)| {
-        item(name, CompletionItemKind::SNIPPET, detail, insert, range)
-    })
+    .map(|(name, detail, insert)| item(name, CompletionItemKind::SNIPPET, detail, insert, range))
     .collect()
 }
 
@@ -387,7 +487,10 @@ pub(crate) fn path_completions(uri: &Url, position: Position) -> Vec<CompletionI
     };
 
     let col = position.character;
-    let edit_range = Range::new(Position::new(position.line, col), Position::new(position.line, col));
+    let edit_range = Range::new(
+        Position::new(position.line, col),
+        Position::new(position.line, col),
+    );
 
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -398,28 +501,33 @@ pub(crate) fn path_completions(uri: &Url, position: Position) -> Vec<CompletionI
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("hl")
-            && let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                // Skip the current file itself
-                if Some(name) == file_path.file_name().and_then(|n| n.to_str()) {
-                    continue;
-                }
-                items.push(CompletionItem {
-                    label: name.to_string(),
-                    kind: Some(CompletionItemKind::FILE),
-                    detail: Some("htmlang file".to_string()),
-                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                        range: edit_range,
-                        new_text: name.to_string(),
-                    })),
-                    ..Default::default()
-                });
+            && let Some(name) = path.file_name().and_then(|n| n.to_str())
+        {
+            // Skip the current file itself
+            if Some(name) == file_path.file_name().and_then(|n| n.to_str()) {
+                continue;
             }
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::FILE),
+                detail: Some("htmlang file".to_string()),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: edit_range,
+                    new_text: name.to_string(),
+                })),
+                ..Default::default()
+            });
+        }
     }
     items
 }
 
 /// Suggest exported @fn and @define names from a file referenced in @use
-pub(crate) fn use_symbol_completions(uri: &Url, line: &str, position: Position) -> Vec<CompletionItem> {
+pub(crate) fn use_symbol_completions(
+    uri: &Url,
+    line: &str,
+    position: Position,
+) -> Vec<CompletionItem> {
     let file_path = match uri.to_file_path() {
         Ok(p) => p,
         Err(_) => return vec![],
@@ -449,7 +557,10 @@ pub(crate) fn use_symbol_completions(uri: &Url, line: &str, position: Position) 
     };
 
     let col = position.character;
-    let edit_range = Range::new(Position::new(position.line, col), Position::new(position.line, col));
+    let edit_range = Range::new(
+        Position::new(position.line, col),
+        Position::new(position.line, col),
+    );
 
     let mut items = Vec::new();
 
@@ -489,18 +600,19 @@ pub(crate) fn use_symbol_completions(uri: &Url, line: &str, position: Position) 
                 });
             }
         } else if let Some(rest) = trimmed.strip_prefix("@component ")
-            && let Some(name) = rest.split_whitespace().next() {
-                items.push(CompletionItem {
-                    label: name.to_string(),
-                    kind: Some(CompletionItemKind::CLASS),
-                    detail: Some(format!("@component {} (from {})", name, filename)),
-                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                        range: edit_range,
-                        new_text: name.to_string(),
-                    })),
-                    ..Default::default()
-                });
-            }
+            && let Some(name) = rest.split_whitespace().next()
+        {
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::CLASS),
+                detail: Some(format!("@component {} (from {})", name, filename)),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: edit_range,
+                    new_text: name.to_string(),
+                })),
+                ..Default::default()
+            });
+        }
     }
 
     items
@@ -511,7 +623,11 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         // Layout
         ("spacing", "Gap between children (supports CSS units)", true),
         ("gap", "Gap between children (alias for spacing)", true),
-        ("padding", "Inner padding (1/2/3/4 values, supports CSS units)", true),
+        (
+            "padding",
+            "Inner padding (1/2/3/4 values, supports CSS units)",
+            true,
+        ),
         ("padding-x", "Horizontal padding", true),
         ("padding-y", "Vertical padding", true),
         // Sizing
@@ -546,25 +662,49 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("cursor", "CSS cursor type", true),
         ("opacity", "Opacity (0-1)", true),
         // Typography
-        ("text-align", "Text alignment (left/center/right/justify)", true),
+        (
+            "text-align",
+            "Text alignment (left/center/right/justify)",
+            true,
+        ),
         ("line-height", "Line height (unitless or px)", true),
         ("letter-spacing", "Letter spacing", true),
-        ("text-transform", "Text transform (uppercase/lowercase/capitalize)", true),
-        ("white-space", "White-space behavior (nowrap/pre/normal)", true),
+        (
+            "text-transform",
+            "Text transform (uppercase/lowercase/capitalize)",
+            true,
+        ),
+        (
+            "white-space",
+            "White-space behavior (nowrap/pre/normal)",
+            true,
+        ),
         // Overflow & positioning
         ("overflow", "Overflow behavior (hidden/scroll/auto)", true),
-        ("position", "Position type (relative/absolute/fixed/sticky)", true),
+        (
+            "position",
+            "Position type (relative/absolute/fixed/sticky)",
+            true,
+        ),
         ("top", "Top offset (for positioned elements)", true),
         ("right", "Right offset (for positioned elements)", true),
         ("bottom", "Bottom offset (for positioned elements)", true),
         ("left", "Left offset (for positioned elements)", true),
         ("z-index", "Stack order (integer)", true),
         // Display & visibility
-        ("display", "Display mode (none/block/inline/flex/grid)", true),
+        (
+            "display",
+            "Display mode (none/block/inline/flex/grid)",
+            true,
+        ),
         ("visibility", "Visibility (visible/hidden)", true),
         // Transform & filters
         ("transform", "CSS transform (e.g., rotate(45deg))", true),
-        ("backdrop-filter", "Backdrop filter (e.g., blur(10px))", true),
+        (
+            "backdrop-filter",
+            "Backdrop filter (e.g., blur(10px))",
+            true,
+        ),
         // Effects
         ("shadow", "Box shadow (CSS value)", true),
         // Flow
@@ -579,8 +719,16 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("row-span", "Span rows in grid", true),
         // Container queries
         ("container", "Enable container queries (inline-size)", false),
-        ("container-name", "Container name for @container queries", true),
-        ("container-type", "Container type (inline-size/size/normal)", true),
+        (
+            "container-name",
+            "Container name for @container queries",
+            true,
+        ),
+        (
+            "container-type",
+            "Container type (inline-size/size/normal)",
+            true,
+        ),
         // Identity
         ("id", "HTML id attribute", true),
         ("class", "HTML class attribute", true),
@@ -612,14 +760,30 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         // CSS: aspect-ratio, outline, logical properties, scroll-snap
         ("aspect-ratio", "CSS aspect ratio (e.g., 16/9, 1)", true),
         ("outline", "Outline (width [color])", true),
-        ("padding-inline", "Inline (horizontal) padding for i18n", true),
+        (
+            "padding-inline",
+            "Inline (horizontal) padding for i18n",
+            true,
+        ),
         ("padding-block", "Block (vertical) padding for i18n", true),
         ("margin-inline", "Inline (horizontal) margin for i18n", true),
         ("margin-block", "Block (vertical) margin for i18n", true),
-        ("scroll-snap-type", "Scroll snap behavior (x/y mandatory/proximity)", true),
-        ("scroll-snap-align", "Snap alignment (start/center/end)", true),
+        (
+            "scroll-snap-type",
+            "Scroll snap behavior (x/y mandatory/proximity)",
+            true,
+        ),
+        (
+            "scroll-snap-align",
+            "Snap alignment (start/center/end)",
+            true,
+        ),
         // Media attributes
-        ("controls", "Show media controls (for @video, @audio)", false),
+        (
+            "controls",
+            "Show media controls (for @video, @audio)",
+            false,
+        ),
         ("autoplay", "Auto-play media", false),
         ("loop", "Loop media playback", false),
         ("muted", "Mute media", false),
@@ -636,8 +800,16 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("margin-x", "Horizontal margin", true),
         ("margin-y", "Vertical margin", true),
         // Filter & object
-        ("filter", "CSS filter (blur, brightness, grayscale, etc.)", true),
-        ("object-fit", "Object fit for images (cover/contain/fill)", true),
+        (
+            "filter",
+            "CSS filter (blur, brightness, grayscale, etc.)",
+            true,
+        ),
+        (
+            "object-fit",
+            "Object fit for images (cover/contain/fill)",
+            true,
+        ),
         ("object-position", "Object position within container", true),
         // Text extras
         ("text-shadow", "Text shadow (CSS value)", true),
@@ -646,16 +818,40 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("pointer-events", "Pointer events (none/auto)", true),
         ("user-select", "User selection (none/text/all)", true),
         // Flexbox/grid alignment
-        ("justify-content", "Main axis alignment (center/space-between/etc.)", true),
-        ("align-items", "Cross axis alignment (center/baseline/etc.)", true),
+        (
+            "justify-content",
+            "Main axis alignment (center/space-between/etc.)",
+            true,
+        ),
+        (
+            "align-items",
+            "Cross axis alignment (center/baseline/etc.)",
+            true,
+        ),
         // Flex item
         ("order", "Flex/grid item order", true),
         // Background extras
-        ("background-size", "Background size (cover/contain/auto)", true),
-        ("background-position", "Background position (center/top/etc.)", true),
-        ("background-repeat", "Background repeat (no-repeat/repeat/etc.)", true),
+        (
+            "background-size",
+            "Background size (cover/contain/auto)",
+            true,
+        ),
+        (
+            "background-position",
+            "Background position (center/top/etc.)",
+            true,
+        ),
+        (
+            "background-repeat",
+            "Background repeat (no-repeat/repeat/etc.)",
+            true,
+        ),
         // Text wrapping
-        ("word-break", "Word break behavior (break-all/keep-all)", true),
+        (
+            "word-break",
+            "Word break behavior (break-all/keep-all)",
+            true,
+        ),
         ("overflow-wrap", "Overflow wrap (break-word/anywhere)", true),
         // New element attrs
         ("open", "Details initially open", false),
@@ -665,47 +861,119 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("optimum", "Meter optimum value", true),
         ("colspan", "Table cell column span", true),
         ("rowspan", "Table cell row span", true),
-        ("scope", "Table header scope (col/row/colgroup/rowgroup)", true),
+        (
+            "scope",
+            "Table header scope (col/row/colgroup/rowgroup)",
+            true,
+        ),
         ("inline", "Inline SVG images into output", false),
         // Hidden
         ("hidden", "Hide element (display:none)", false),
         // Overflow directional
-        ("overflow-x", "Horizontal overflow (hidden/scroll/auto)", true),
+        (
+            "overflow-x",
+            "Horizontal overflow (hidden/scroll/auto)",
+            true,
+        ),
         ("overflow-y", "Vertical overflow (hidden/scroll/auto)", true),
         // Inset
         ("inset", "Shorthand for top/right/bottom/left", true),
         // Modern form theming
         ("accent-color", "Accent color for form controls", true),
         ("caret-color", "Text cursor color", true),
-        ("color-scheme", "Color scheme preference (light/dark/light dark)", true),
-        ("appearance", "Form element appearance (none to reset)", true),
+        (
+            "color-scheme",
+            "Color scheme preference (light/dark/light dark)",
+            true,
+        ),
+        (
+            "appearance",
+            "Form element appearance (none to reset)",
+            true,
+        ),
         // Popover API
-        ("popover", "Make element a popover (HTML Popover API)", false),
+        (
+            "popover",
+            "Make element a popover (HTML Popover API)",
+            false,
+        ),
         ("popovertarget", "ID of popover to toggle", true),
-        ("popovertargetaction", "Popover action (toggle/show/hide)", true),
+        (
+            "popovertargetaction",
+            "Popover action (toggle/show/hide)",
+            true,
+        ),
         // Input hints
-        ("inputmode", "Virtual keyboard type (numeric/email/search/tel/url)", true),
-        ("enterkeyhint", "Enter key label (done/go/next/search/send)", true),
-        ("fetchpriority", "Resource fetch priority (high/low/auto)", true),
-        ("translate", "Whether element should be translated (yes/no)", true),
+        (
+            "inputmode",
+            "Virtual keyboard type (numeric/email/search/tel/url)",
+            true,
+        ),
+        (
+            "enterkeyhint",
+            "Enter key label (done/go/next/search/send)",
+            true,
+        ),
+        (
+            "fetchpriority",
+            "Resource fetch priority (high/low/auto)",
+            true,
+        ),
+        (
+            "translate",
+            "Whether element should be translated (yes/no)",
+            true,
+        ),
         ("spellcheck", "Spell check mode (true/false)", true),
         // List styling
-        ("list-style", "List style type (disc/circle/square/none)", true),
+        (
+            "list-style",
+            "List style type (disc/circle/square/none)",
+            true,
+        ),
         // Table styling
-        ("border-collapse", "Border collapse mode (collapse/separate)", true),
+        (
+            "border-collapse",
+            "Border collapse mode (collapse/separate)",
+            true,
+        ),
         ("border-spacing", "Spacing between table cell borders", true),
         // Text decoration
-        ("text-decoration", "Text decoration (underline/overline/line-through)", true),
+        (
+            "text-decoration",
+            "Text decoration (underline/overline/line-through)",
+            true,
+        ),
         ("text-decoration-color", "Text decoration color", true),
-        ("text-decoration-thickness", "Text decoration thickness", true),
-        ("text-decoration-style", "Text decoration style (solid/dashed/dotted/wavy)", true),
+        (
+            "text-decoration-thickness",
+            "Text decoration thickness",
+            true,
+        ),
+        (
+            "text-decoration-style",
+            "Text decoration style (solid/dashed/dotted/wavy)",
+            true,
+        ),
         // Grid/flex placement
-        ("place-items", "Shorthand for align-items + justify-items", true),
-        ("place-self", "Shorthand for align-self + justify-self", true),
+        (
+            "place-items",
+            "Shorthand for align-items + justify-items",
+            true,
+        ),
+        (
+            "place-self",
+            "Shorthand for align-self + justify-self",
+            true,
+        ),
         // Scroll behavior
         ("scroll-behavior", "Scroll behavior (smooth/auto)", true),
         // Resize
-        ("resize", "Resize behavior (none/both/horizontal/vertical)", true),
+        (
+            "resize",
+            "Resize behavior (none/both/horizontal/vertical)",
+            true,
+        ),
         // State prefixes
         ("hover:", "Style on hover", false),
         ("active:", "Style on active/click", false),
@@ -730,7 +998,11 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("2xl:", "Style at 1536px+ (2x extra large)", false),
         // Motion prefixes
         ("motion-safe:", "Style when motion is allowed", false),
-        ("motion-reduce:", "Style when reduced motion preferred", false),
+        (
+            "motion-reduce:",
+            "Style when reduced motion preferred",
+            false,
+        ),
         // Orientation prefixes
         ("landscape:", "Style in landscape orientation", false),
         ("portrait:", "Style in portrait orientation", false),
@@ -739,12 +1011,24 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("print:", "Style for print media", false),
         // Clipping & blending
         ("clip-path", "Clip path (circle, polygon, etc.)", true),
-        ("mix-blend-mode", "Blend mode (multiply, screen, overlay, etc.)", true),
+        (
+            "mix-blend-mode",
+            "Blend mode (multiply, screen, overlay, etc.)",
+            true,
+        ),
         ("background-blend-mode", "Background blend mode", true),
         // Writing mode
-        ("writing-mode", "Writing mode (horizontal-tb, vertical-rl, etc.)", true),
+        (
+            "writing-mode",
+            "Writing mode (horizontal-tb, vertical-rl, etc.)",
+            true,
+        ),
         // Multi-column layout
-        ("column-count", "Number of columns in multi-column layout", true),
+        (
+            "column-count",
+            "Number of columns in multi-column layout",
+            true,
+        ),
         ("column-gap", "Gap between columns", true),
         // Text
         ("text-indent", "First-line text indentation", true),
@@ -756,35 +1040,91 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         // Stacking context
         ("isolation", "Create stacking context (isolate/auto)", true),
         // Grid/flex placement
-        ("place-content", "Shorthand for align-content + justify-content", true),
+        (
+            "place-content",
+            "Shorthand for align-content + justify-content",
+            true,
+        ),
         // Background image
-        ("background-image", "Background image (url or gradient)", true),
+        (
+            "background-image",
+            "Background image (url or gradient)",
+            true,
+        ),
         // New CSS properties
-        ("font-weight", "Font weight (100-900, bold, lighter, bolder)", true),
+        (
+            "font-weight",
+            "Font weight (100-900, bold, lighter, bolder)",
+            true,
+        ),
         ("font-style", "Font style (normal/italic/oblique)", true),
         ("text-wrap", "Text wrapping (balance/pretty/nowrap)", true),
-        ("will-change", "Performance hint for animations (transform, opacity)", true),
-        ("touch-action", "Touch behavior (none/pan-x/pan-y/manipulation)", true),
-        ("vertical-align", "Vertical alignment (middle/top/bottom/baseline)", true),
-        ("contain", "CSS containment (layout/paint/content/strict)", true),
-        ("content-visibility", "Content visibility (auto/visible/hidden)", true),
-        ("scroll-margin", "Scroll margin (for scroll-snap and anchor offsets)", true),
+        (
+            "will-change",
+            "Performance hint for animations (transform, opacity)",
+            true,
+        ),
+        (
+            "touch-action",
+            "Touch behavior (none/pan-x/pan-y/manipulation)",
+            true,
+        ),
+        (
+            "vertical-align",
+            "Vertical alignment (middle/top/bottom/baseline)",
+            true,
+        ),
+        (
+            "contain",
+            "CSS containment (layout/paint/content/strict)",
+            true,
+        ),
+        (
+            "content-visibility",
+            "Content visibility (auto/visible/hidden)",
+            true,
+        ),
+        (
+            "scroll-margin",
+            "Scroll margin (for scroll-snap and anchor offsets)",
+            true,
+        ),
         ("scroll-margin-top", "Scroll margin top", true),
-        ("scroll-padding", "Scroll padding (for scroll-snap containers)", true),
+        (
+            "scroll-padding",
+            "Scroll padding (for scroll-snap containers)",
+            true,
+        ),
         ("scroll-padding-top", "Scroll padding top", true),
         // Pseudo-element content
-        ("content", "Content for ::before/::after (use with before:/after: prefix)", true),
+        (
+            "content",
+            "Content for ::before/::after (use with before:/after: prefix)",
+            true,
+        ),
         // Iframe/form/link attributes
         ("sandbox", "Iframe sandbox restrictions", true),
         ("allow", "Iframe permissions policy", true),
         ("allowfullscreen", "Allow iframe fullscreen", false),
-        ("target", "Link/form target (_blank/_self/_parent/_top)", true),
+        (
+            "target",
+            "Link/form target (_blank/_self/_parent/_top)",
+            true,
+        ),
         // CSS shorthands
-        ("truncate", "Truncate text with ellipsis (single line)", false),
+        (
+            "truncate",
+            "Truncate text with ellipsis (single line)",
+            false,
+        ),
         ("line-clamp", "Clamp text to N lines with ellipsis", true),
         ("blur", "Apply blur filter (px)", true),
         ("backdrop-blur", "Apply backdrop blur filter (px)", true),
-        ("no-scrollbar", "Hide scrollbar while keeping overflow", false),
+        (
+            "no-scrollbar",
+            "Hide scrollbar while keeping overflow",
+            false,
+        ),
         ("skeleton", "Add shimmer loading skeleton animation", false),
         ("gradient", "Linear gradient (color1 color2 [angle])", true),
         // Direction
@@ -798,26 +1138,58 @@ fn attr_completions(range: Range) -> Vec<CompletionItem> {
         ("after:", "Style ::after pseudo-element", false),
         ("selection:", "Style text selection", false),
         // Grid areas
-        ("grid-template-areas", "Define named grid areas (quoted string)", true),
+        (
+            "grid-template-areas",
+            "Define named grid areas (quoted string)",
+            true,
+        ),
         ("grid-area", "Place element in a named grid area", true),
         // View transitions
-        ("view-transition-name", "Assign a view transition name", true),
+        (
+            "view-transition-name",
+            "Assign a view transition name",
+            true,
+        ),
         // Animate shorthand
-        ("animate", "Animation shorthand (name duration [timing])", true),
+        (
+            "animate",
+            "Animation shorthand (name duration [timing])",
+            true,
+        ),
         // Has pseudo-selector
-        ("has(", "Style when element has matching children :has()", false),
+        (
+            "has(",
+            "Style when element has matching children :has()",
+            false,
+        ),
         // Critical CSS hint
         ("critical", "Mark as above-fold critical CSS", false),
         // New pseudo-state prefixes
         ("visited:", "Style visited links", false),
         ("empty:", "Style when element has no children", false),
-        ("target:", "Style when element is the URL fragment target", false),
+        (
+            "target:",
+            "Style when element is the URL fragment target",
+            false,
+        ),
         ("valid:", "Style when form element is valid", false),
         ("invalid:", "Style when form element is invalid", false),
         // New CSS properties
-        ("text-underline-offset", "Offset of text underline from its default position", true),
-        ("column-width", "Ideal width of columns in multi-column layout", true),
-        ("column-rule", "Rule between columns (width style color)", true),
+        (
+            "text-underline-offset",
+            "Offset of text underline from its default position",
+            true,
+        ),
+        (
+            "column-width",
+            "Ideal width of columns in multi-column layout",
+            true,
+        ),
+        (
+            "column-rule",
+            "Rule between columns (width style color)",
+            true,
+        ),
     ]
     .iter()
     .map(|(name, detail, takes_value)| {
@@ -901,9 +1273,17 @@ fn color_value_completions(before: &str, range: Range) -> Option<Vec<CompletionI
 
     if !matches!(
         base_attr,
-        "background" | "color" | "border" | "border-top" | "border-bottom"
-        | "border-left" | "border-right" | "accent-color" | "caret-color"
-        | "text-decoration-color" | "outline"
+        "background"
+            | "color"
+            | "border"
+            | "border-top"
+            | "border-bottom"
+            | "border-left"
+            | "border-right"
+            | "accent-color"
+            | "caret-color"
+            | "text-decoration-color"
+            | "outline"
     ) {
         return None;
     }
@@ -915,56 +1295,63 @@ fn color_value_completions(before: &str, range: Range) -> Option<Vec<CompletionI
     }
 
     let colors: &[(&str, &str, &str)] = &[
-        ("white",     "#ffffff", "White"),
-        ("black",     "#000000", "Black"),
-        ("red",       "#ef4444", "Red"),
-        ("orange",    "#f97316", "Orange"),
-        ("yellow",    "#eab308", "Yellow"),
-        ("green",     "#22c55e", "Green"),
-        ("blue",      "#3b82f6", "Blue"),
-        ("indigo",    "#6366f1", "Indigo"),
-        ("purple",    "#a855f7", "Purple"),
-        ("pink",      "#ec4899", "Pink"),
-        ("gray",      "#6b7280", "Gray"),
-        ("slate",     "#64748b", "Slate"),
-        ("zinc",      "#71717a", "Zinc"),
-        ("neutral",   "#737373", "Neutral"),
-        ("stone",     "#78716c", "Stone"),
-        ("amber",     "#f59e0b", "Amber"),
-        ("lime",      "#84cc16", "Lime"),
-        ("emerald",   "#10b981", "Emerald"),
-        ("teal",      "#14b8a6", "Teal"),
-        ("cyan",      "#06b6d4", "Cyan"),
-        ("sky",       "#0ea5e9", "Sky"),
-        ("violet",    "#8b5cf6", "Violet"),
-        ("fuchsia",   "#d946ef", "Fuchsia"),
-        ("rose",      "#f43f5e", "Rose"),
+        ("white", "#ffffff", "White"),
+        ("black", "#000000", "Black"),
+        ("red", "#ef4444", "Red"),
+        ("orange", "#f97316", "Orange"),
+        ("yellow", "#eab308", "Yellow"),
+        ("green", "#22c55e", "Green"),
+        ("blue", "#3b82f6", "Blue"),
+        ("indigo", "#6366f1", "Indigo"),
+        ("purple", "#a855f7", "Purple"),
+        ("pink", "#ec4899", "Pink"),
+        ("gray", "#6b7280", "Gray"),
+        ("slate", "#64748b", "Slate"),
+        ("zinc", "#71717a", "Zinc"),
+        ("neutral", "#737373", "Neutral"),
+        ("stone", "#78716c", "Stone"),
+        ("amber", "#f59e0b", "Amber"),
+        ("lime", "#84cc16", "Lime"),
+        ("emerald", "#10b981", "Emerald"),
+        ("teal", "#14b8a6", "Teal"),
+        ("cyan", "#06b6d4", "Cyan"),
+        ("sky", "#0ea5e9", "Sky"),
+        ("violet", "#8b5cf6", "Violet"),
+        ("fuchsia", "#d946ef", "Fuchsia"),
+        ("rose", "#f43f5e", "Rose"),
         ("transparent", "transparent", "Transparent"),
-        ("currentColor", "currentColor", "Inherit from parent text color"),
+        (
+            "currentColor",
+            "currentColor",
+            "Inherit from parent text color",
+        ),
     ];
 
-    let items: Vec<CompletionItem> = colors.iter().map(|(label, value, detail)| {
-        let doc = if value.starts_with('#') {
-            format!("{} (`{}`)", detail, value)
-        } else {
-            detail.to_string()
-        };
-        CompletionItem {
-            label: label.to_string(),
-            kind: Some(CompletionItemKind::COLOR),
-            detail: Some(doc),
-            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                range,
-                new_text: value.to_string(),
-            })),
-            documentation: if value.starts_with('#') {
-                Some(Documentation::String(value.to_string()))
+    let items: Vec<CompletionItem> = colors
+        .iter()
+        .map(|(label, value, detail)| {
+            let doc = if value.starts_with('#') {
+                format!("{} (`{}`)", detail, value)
             } else {
-                None
-            },
-            ..Default::default()
-        }
-    }).collect();
+                detail.to_string()
+            };
+            CompletionItem {
+                label: label.to_string(),
+                kind: Some(CompletionItemKind::COLOR),
+                detail: Some(doc),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range,
+                    new_text: value.to_string(),
+                })),
+                documentation: if value.starts_with('#') {
+                    Some(Documentation::String(value.to_string()))
+                } else {
+                    None
+                },
+                ..Default::default()
+            }
+        })
+        .collect();
 
     Some(items)
 }
@@ -985,16 +1372,17 @@ fn variable_completions(text: &str, range: Range) -> Vec<CompletionItem> {
                 ));
             }
         } else if let Some(rest) = trimmed.strip_prefix("@define ")
-            && let Some(bracket) = rest.find('[') {
-                let name = rest[..bracket].trim();
-                items.push(item(
-                    &format!("${}", name),
-                    CompletionItemKind::CONSTANT,
-                    "Attribute bundle",
-                    &format!("${}", name),
-                    range,
-                ));
-            }
+            && let Some(bracket) = rest.find('[')
+        {
+            let name = rest[..bracket].trim();
+            items.push(item(
+                &format!("${}", name),
+                CompletionItemKind::CONSTANT,
+                "Attribute bundle",
+                &format!("${}", name),
+                range,
+            ));
+        }
     }
 
     items
@@ -1008,7 +1396,8 @@ fn function_completions(text: &str, range: Range) -> Vec<CompletionItem> {
         if let Some(rest) = trimmed.strip_prefix("@fn ") {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if let Some(name) = parts.first() {
-                let params: Vec<&str> = parts[1..].iter()
+                let params: Vec<&str> = parts[1..]
+                    .iter()
                     .map(|p| p.strip_prefix('$').unwrap_or(p))
                     .collect();
                 let detail = if params.is_empty() {
@@ -1020,11 +1409,15 @@ fn function_completions(text: &str, range: Range) -> Vec<CompletionItem> {
                 let insert_text = if params.is_empty() {
                     format!("@{}", name)
                 } else {
-                    let param_snippets: Vec<String> = params.iter().enumerate().map(|(i, p)| {
-                        let p_name = p.split('=').next().unwrap_or(p);
-                        let default = p.split('=').nth(1).unwrap_or(p_name);
-                        format!("{} ${{{}:{}}}", p_name, i + 1, default)
-                    }).collect();
+                    let param_snippets: Vec<String> = params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            let p_name = p.split('=').next().unwrap_or(p);
+                            let default = p.split('=').nth(1).unwrap_or(p_name);
+                            format!("{} ${{{}:{}}}", p_name, i + 1, default)
+                        })
+                        .collect();
                     format!("@{} [{}]", name, param_snippets.join(", "))
                 };
                 let mut ci = CompletionItem {

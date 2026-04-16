@@ -21,7 +21,11 @@ pub(crate) fn document_symbols(text: &str) -> Vec<SymbolInformation> {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if let Some(name) = parts.first() {
                 let params = parts[1..].join(" ");
-                let detail = if params.is_empty() { None } else { Some(format!("({})", params)) };
+                let detail = if params.is_empty() {
+                    None
+                } else {
+                    Some(format!("({})", params))
+                };
                 symbols.push(SymbolInformation {
                     name: format!("@{}", name),
                     kind: SymbolKind::FUNCTION,
@@ -29,7 +33,10 @@ pub(crate) fn document_symbols(text: &str) -> Vec<SymbolInformation> {
                     deprecated: None,
                     location: Location {
                         uri: Url::parse("file:///").unwrap(), // replaced by caller
-                        range: Range::new(Position::new(line_num, 0), Position::new(line_num, line.len() as u32)),
+                        range: Range::new(
+                            Position::new(line_num, 0),
+                            Position::new(line_num, line.len() as u32),
+                        ),
                     },
                     container_name: detail,
                 });
@@ -38,36 +45,44 @@ pub(crate) fn document_symbols(text: &str) -> Vec<SymbolInformation> {
 
         // @let definitions
         if let Some(rest) = trimmed.strip_prefix("@let ")
-            && let Some((name, value)) = rest.trim().split_once(' ') {
-                symbols.push(SymbolInformation {
-                    name: format!("${}", name),
-                    kind: SymbolKind::VARIABLE,
-                    tags: None,
-                    deprecated: None,
-                    location: Location {
-                        uri: Url::parse("file:///").unwrap(),
-                        range: Range::new(Position::new(line_num, 0), Position::new(line_num, line.len() as u32)),
-                    },
-                    container_name: Some(format!("= {}", value.trim())),
-                });
-            }
+            && let Some((name, value)) = rest.trim().split_once(' ')
+        {
+            symbols.push(SymbolInformation {
+                name: format!("${}", name),
+                kind: SymbolKind::VARIABLE,
+                tags: None,
+                deprecated: None,
+                location: Location {
+                    uri: Url::parse("file:///").unwrap(),
+                    range: Range::new(
+                        Position::new(line_num, 0),
+                        Position::new(line_num, line.len() as u32),
+                    ),
+                },
+                container_name: Some(format!("= {}", value.trim())),
+            });
+        }
 
         // @define definitions
         if let Some(rest) = trimmed.strip_prefix("@define ")
-            && let Some(bracket) = rest.find('[') {
-                let name = rest[..bracket].trim();
-                symbols.push(SymbolInformation {
-                    name: format!("${}", name),
-                    kind: SymbolKind::CONSTANT,
-                    tags: None,
-                    deprecated: None,
-                    location: Location {
-                        uri: Url::parse("file:///").unwrap(),
-                        range: Range::new(Position::new(line_num, 0), Position::new(line_num, line.len() as u32)),
-                    },
-                    container_name: Some("attribute bundle".to_string()),
-                });
-            }
+            && let Some(bracket) = rest.find('[')
+        {
+            let name = rest[..bracket].trim();
+            symbols.push(SymbolInformation {
+                name: format!("${}", name),
+                kind: SymbolKind::CONSTANT,
+                tags: None,
+                deprecated: None,
+                location: Location {
+                    uri: Url::parse("file:///").unwrap(),
+                    range: Range::new(
+                        Position::new(line_num, 0),
+                        Position::new(line_num, line.len() as u32),
+                    ),
+                },
+                container_name: Some("attribute bundle".to_string()),
+            });
+        }
 
         // @keyframes definitions
         if let Some(rest) = trimmed.strip_prefix("@keyframes ") {
@@ -80,7 +95,10 @@ pub(crate) fn document_symbols(text: &str) -> Vec<SymbolInformation> {
                     deprecated: None,
                     location: Location {
                         uri: Url::parse("file:///").unwrap(),
-                        range: Range::new(Position::new(line_num, 0), Position::new(line_num, line.len() as u32)),
+                        range: Range::new(
+                            Position::new(line_num, 0),
+                            Position::new(line_num, line.len() as u32),
+                        ),
                     },
                     container_name: Some("animation".to_string()),
                 });
@@ -166,7 +184,8 @@ pub(crate) fn code_actions(
             if let Some(source_line) = lines.get(line) {
                 let trimmed = source_line.trim_start();
                 if trimmed.starts_with("@let ") {
-                    let var_name = trimmed.strip_prefix("@let ")
+                    let var_name = trimmed
+                        .strip_prefix("@let ")
                         .and_then(|r| r.split_whitespace().next())
                         .unwrap_or("?");
                     let edit = TextEdit {
@@ -199,10 +218,13 @@ pub(crate) fn code_actions(
             if let Some(source_line) = lines.get(line) {
                 let trimmed = source_line.trim_start();
                 if trimmed.starts_with("@define ") {
-                    let def_name = trimmed.strip_prefix("@define ")
+                    let def_name = trimmed
+                        .strip_prefix("@define ")
                         .and_then(|r| {
                             let r = r.trim();
-                            r.find('[').map(|b| r[..b].trim()).or_else(|| r.split_whitespace().next())
+                            r.find('[')
+                                .map(|b| r[..b].trim())
+                                .or_else(|| r.split_whitespace().next())
                         })
                         .unwrap_or("?");
                     let edit = TextEdit {
@@ -235,7 +257,8 @@ pub(crate) fn code_actions(
             if let Some(source_line) = lines.get(line) {
                 let trimmed = source_line.trim_start();
                 if trimmed.starts_with("@fn ") {
-                    let fn_name = trimmed.strip_prefix("@fn ")
+                    let fn_name = trimmed
+                        .strip_prefix("@fn ")
                         .and_then(|r| r.split_whitespace().next())
                         .unwrap_or("?");
                     // Find the end of the function body (indented lines below)
@@ -285,10 +308,13 @@ pub(crate) fn code_actions(
             if let Some(source_line) = lines.get(line) {
                 let trimmed = source_line.trim_start();
                 if trimmed.starts_with("@mixin ") {
-                    let mixin_name = trimmed.strip_prefix("@mixin ")
+                    let mixin_name = trimmed
+                        .strip_prefix("@mixin ")
                         .and_then(|r| {
                             let r = r.trim();
-                            r.find('[').map(|b| r[..b].trim()).or_else(|| r.split_whitespace().next())
+                            r.find('[')
+                                .map(|b| r[..b].trim())
+                                .or_else(|| r.split_whitespace().next())
                         })
                         .unwrap_or("?");
                     let edit = TextEdit {
@@ -395,28 +421,29 @@ pub(crate) fn code_actions(
                         ..Default::default()
                     }));
                 } else if source_line.contains("@input")
-                    && let Some(pos) = source_line.find("@input") {
-                        let after = pos + "@input".len();
-                        let edit = TextEdit {
-                            range: Range::new(
-                                Position::new(diag.range.start.line, after as u32),
-                                Position::new(diag.range.start.line, after as u32),
-                            ),
-                            new_text: " [type text]".into(),
-                        };
-                        let mut changes = HashMap::new();
-                        changes.insert(uri.clone(), vec![edit]);
-                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                            title: "Add type=\"text\" attribute".into(),
-                            kind: Some(CodeActionKind::QUICKFIX),
-                            diagnostics: Some(vec![diag.clone()]),
-                            edit: Some(WorkspaceEdit {
-                                changes: Some(changes),
-                                ..Default::default()
-                            }),
+                    && let Some(pos) = source_line.find("@input")
+                {
+                    let after = pos + "@input".len();
+                    let edit = TextEdit {
+                        range: Range::new(
+                            Position::new(diag.range.start.line, after as u32),
+                            Position::new(diag.range.start.line, after as u32),
+                        ),
+                        new_text: " [type text]".into(),
+                    };
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![edit]);
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Add type=\"text\" attribute".into(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
                             ..Default::default()
-                        }));
-                    }
+                        }),
+                        ..Default::default()
+                    }));
+                }
             }
         }
 
@@ -436,106 +463,118 @@ pub(crate) fn code_actions(
         if msg.contains("unknown element @")
             && let Some(fn_name) = extract_between(msg, "unknown element @", ",")
                 .or_else(|| extract_between(msg, "unknown element @", ""))
+        {
+            let fn_name = fn_name.trim();
+            if !fn_name.is_empty()
+                && let Ok(file_path) = uri.to_file_path()
+                && let Some(dir) = file_path.parent()
             {
-                let fn_name = fn_name.trim();
-                if !fn_name.is_empty()
-                    && let Ok(file_path) = uri.to_file_path()
-                        && let Some(dir) = file_path.parent() {
-                            // Search current dir and subdirs for .hl files defining this function
-                            let mut search_dirs = vec![dir.to_path_buf()];
-                            // Also search parent dir's subdirs (for project-wide imports)
-                            if let Some(parent) = dir.parent()
-                                && let Ok(entries) = std::fs::read_dir(parent) {
-                                    for entry in entries.flatten() {
-                                        let p = entry.path();
-                                        if p.is_dir() && p != dir {
-                                            search_dirs.push(p);
-                                        }
+                // Search current dir and subdirs for .hl files defining this function
+                let mut search_dirs = vec![dir.to_path_buf()];
+                // Also search parent dir's subdirs (for project-wide imports)
+                if let Some(parent) = dir.parent()
+                    && let Ok(entries) = std::fs::read_dir(parent)
+                {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p.is_dir() && p != dir {
+                            search_dirs.push(p);
+                        }
+                    }
+                }
+                for search_dir in &search_dirs {
+                    if let Ok(entries) = std::fs::read_dir(search_dir) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.extension().and_then(|e| e.to_str()) != Some("hl") {
+                                continue;
+                            }
+                            if path == file_path {
+                                continue;
+                            }
+                            if let Ok(content) = std::fs::read_to_string(&path) {
+                                let defines_fn = content.lines().any(|l| {
+                                    let t = l.trim();
+                                    if let Some(rest) = t.strip_prefix("@fn ") {
+                                        rest.split_whitespace().next() == Some(fn_name)
+                                    } else {
+                                        false
                                     }
-                                }
-                            for search_dir in &search_dirs {
-                                if let Ok(entries) = std::fs::read_dir(search_dir) {
-                                    for entry in entries.flatten() {
-                                        let path = entry.path();
-                                        if path.extension().and_then(|e| e.to_str()) != Some("hl") {
-                                            continue;
-                                        }
-                                        if path == file_path {
-                                            continue;
-                                        }
-                                        if let Ok(content) = std::fs::read_to_string(&path) {
-                                            let defines_fn = content.lines().any(|l| {
-                                                let t = l.trim();
-                                                if let Some(rest) = t.strip_prefix("@fn ") {
-                                                    rest.split_whitespace().next() == Some(fn_name)
-                                                } else {
-                                                    false
-                                                }
-                                            });
-                                            if defines_fn {
-                                                // Compute relative path from current file's dir
-                                                let rel = path.strip_prefix(dir)
-                                                    .map(|p| p.display().to_string())
-                                                    .unwrap_or_else(|_| {
-                                                        path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string()
-                                                    });
-                                                let already_imported = text.lines().any(|l| {
-                                                    let t = l.trim();
-                                                    t == format!("@import {}", rel)
-                                                        || t == format!("@include {}", rel)
-                                                });
-                                                if !already_imported {
-                                                    // Offer @import (all definitions)
-                                                    let import_line = format!("@import {}\n", rel);
-                                                    let edit = TextEdit {
-                                                        range: Range::new(
-                                                            Position::new(0, 0),
-                                                            Position::new(0, 0),
-                                                        ),
-                                                        new_text: import_line,
-                                                    };
-                                                    let mut changes = HashMap::new();
-                                                    changes.insert(uri.clone(), vec![edit]);
-                                                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                                                        title: format!("Add '@import {}' for @{}", rel, fn_name),
-                                                        kind: Some(CodeActionKind::QUICKFIX),
-                                                        diagnostics: Some(vec![diag.clone()]),
-                                                        edit: Some(WorkspaceEdit {
-                                                            changes: Some(changes),
-                                                            ..Default::default()
-                                                        }),
-                                                        ..Default::default()
-                                                    }));
+                                });
+                                if defines_fn {
+                                    // Compute relative path from current file's dir
+                                    let rel = path
+                                        .strip_prefix(dir)
+                                        .map(|p| p.display().to_string())
+                                        .unwrap_or_else(|_| {
+                                            path.file_name()
+                                                .and_then(|n| n.to_str())
+                                                .unwrap_or("")
+                                                .to_string()
+                                        });
+                                    let already_imported = text.lines().any(|l| {
+                                        let t = l.trim();
+                                        t == format!("@import {}", rel)
+                                            || t == format!("@include {}", rel)
+                                    });
+                                    if !already_imported {
+                                        // Offer @import (all definitions)
+                                        let import_line = format!("@import {}\n", rel);
+                                        let edit = TextEdit {
+                                            range: Range::new(
+                                                Position::new(0, 0),
+                                                Position::new(0, 0),
+                                            ),
+                                            new_text: import_line,
+                                        };
+                                        let mut changes = HashMap::new();
+                                        changes.insert(uri.clone(), vec![edit]);
+                                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                                            title: format!(
+                                                "Add '@import {}' for @{}",
+                                                rel, fn_name
+                                            ),
+                                            kind: Some(CodeActionKind::QUICKFIX),
+                                            diagnostics: Some(vec![diag.clone()]),
+                                            edit: Some(WorkspaceEdit {
+                                                changes: Some(changes),
+                                                ..Default::default()
+                                            }),
+                                            ..Default::default()
+                                        }));
 
-                                                    // Also offer @use (selective import)
-                                                    let use_line = format!("@use \"{}\" {}\n", rel, fn_name);
-                                                    let use_edit = TextEdit {
-                                                        range: Range::new(
-                                                            Position::new(0, 0),
-                                                            Position::new(0, 0),
-                                                        ),
-                                                        new_text: use_line,
-                                                    };
-                                                    let mut use_changes = HashMap::new();
-                                                    use_changes.insert(uri.clone(), vec![use_edit]);
-                                                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                                                        title: format!("Add '@use \"{}\" {}' (selective)", rel, fn_name),
-                                                        kind: Some(CodeActionKind::QUICKFIX),
-                                                        diagnostics: Some(vec![diag.clone()]),
-                                                        edit: Some(WorkspaceEdit {
-                                                            changes: Some(use_changes),
-                                                            ..Default::default()
-                                                        }),
-                                                        ..Default::default()
-                                                    }));
-                                                }
-                                            }
-                                        }
+                                        // Also offer @use (selective import)
+                                        let use_line = format!("@use \"{}\" {}\n", rel, fn_name);
+                                        let use_edit = TextEdit {
+                                            range: Range::new(
+                                                Position::new(0, 0),
+                                                Position::new(0, 0),
+                                            ),
+                                            new_text: use_line,
+                                        };
+                                        let mut use_changes = HashMap::new();
+                                        use_changes.insert(uri.clone(), vec![use_edit]);
+                                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                                            title: format!(
+                                                "Add '@use \"{}\" {}' (selective)",
+                                                rel, fn_name
+                                            ),
+                                            kind: Some(CodeActionKind::QUICKFIX),
+                                            diagnostics: Some(vec![diag.clone()]),
+                                            edit: Some(WorkspaceEdit {
+                                                changes: Some(use_changes),
+                                                ..Default::default()
+                                            }),
+                                            ..Default::default()
+                                        }));
                                     }
                                 }
                             }
                         }
+                    }
+                }
             }
+        }
     }
 
     // Refactoring: extract selection to @fn
@@ -548,19 +587,25 @@ pub(crate) fn code_actions(
             let selected: Vec<&str> = lines[start_line..=end_line].to_vec();
             if !selected.is_empty() {
                 // Determine the minimum indentation of selected lines (ignoring blank lines)
-                let min_indent = selected.iter()
+                let min_indent = selected
+                    .iter()
                     .filter(|l| !l.trim().is_empty())
                     .map(|l| l.len() - l.trim_start().len())
                     .min()
                     .unwrap_or(0);
 
                 // Build the function body with two-space indentation relative to @fn
-                let fn_body: String = selected.iter()
+                let fn_body: String = selected
+                    .iter()
                     .map(|l| {
                         if l.trim().is_empty() {
                             String::from("\n")
                         } else {
-                            let stripped = if l.len() > min_indent { &l[min_indent..] } else { l.trim_start() };
+                            let stripped = if l.len() > min_indent {
+                                &l[min_indent..]
+                            } else {
+                                l.trim_start()
+                            };
                             format!("  {}\n", stripped)
                         }
                     })
@@ -606,49 +651,50 @@ pub(crate) fn code_actions(
         if line_idx < lines.len() {
             let line = lines[line_idx];
             if let Some(bracket_start) = line.find('[')
-                && let Some(bracket_end) = line[bracket_start..].find(']') {
-                    let attrs_str = &line[bracket_start + 1..bracket_start + bracket_end];
-                    // Only offer if there are at least 2 attributes
-                    let attr_count = attrs_str.split(',').count();
-                    if attr_count >= 2 {
-                        let define_name = "extracted-style";
-                        let define_line = format!("@define {} [{}]\n", define_name, attrs_str.trim());
-                        let indent = " ".repeat(line.len() - line.trim_start().len());
+                && let Some(bracket_end) = line[bracket_start..].find(']')
+            {
+                let attrs_str = &line[bracket_start + 1..bracket_start + bracket_end];
+                // Only offer if there are at least 2 attributes
+                let attr_count = attrs_str.split(',').count();
+                if attr_count >= 2 {
+                    let define_name = "extracted-style";
+                    let define_line = format!("@define {} [{}]\n", define_name, attrs_str.trim());
+                    let indent = " ".repeat(line.len() - line.trim_start().len());
 
-                        // Replace [attrs] with [$extracted-style]
-                        let new_line = format!(
-                            "{}{}[${}]{}",
-                            indent,
-                            &line.trim_start()[..line.trim_start().find('[').unwrap_or(0)],
-                            define_name,
-                            &line[bracket_start + bracket_end + 1..]
-                        );
+                    // Replace [attrs] with [$extracted-style]
+                    let new_line = format!(
+                        "{}{}[${}]{}",
+                        indent,
+                        &line.trim_start()[..line.trim_start().find('[').unwrap_or(0)],
+                        define_name,
+                        &line[bracket_start + bracket_end + 1..]
+                    );
 
-                        let replace_edit = TextEdit {
-                            range: Range::new(
-                                Position::new(line_idx as u32, 0),
-                                Position::new(line_idx as u32, line.len() as u32),
-                            ),
-                            new_text: new_line,
-                        };
-                        let insert_edit = TextEdit {
-                            range: Range::new(Position::new(0, 0), Position::new(0, 0)),
-                            new_text: define_line,
-                        };
-                        let mut changes = HashMap::new();
-                        changes.insert(uri.clone(), vec![insert_edit, replace_edit]);
-                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                            title: "Extract to @define".into(),
-                            kind: Some(CodeActionKind::REFACTOR_EXTRACT),
-                            diagnostics: None,
-                            edit: Some(WorkspaceEdit {
-                                changes: Some(changes),
-                                ..Default::default()
-                            }),
+                    let replace_edit = TextEdit {
+                        range: Range::new(
+                            Position::new(line_idx as u32, 0),
+                            Position::new(line_idx as u32, line.len() as u32),
+                        ),
+                        new_text: new_line,
+                    };
+                    let insert_edit = TextEdit {
+                        range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+                        new_text: define_line,
+                    };
+                    let mut changes = HashMap::new();
+                    changes.insert(uri.clone(), vec![insert_edit, replace_edit]);
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Extract to @define".into(),
+                        kind: Some(CodeActionKind::REFACTOR_EXTRACT),
+                        diagnostics: None,
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
                             ..Default::default()
-                        }));
-                    }
+                        }),
+                        ..Default::default()
+                    }));
                 }
+            }
         }
     }
 
@@ -702,20 +748,21 @@ pub(crate) fn find_colors(text: &str) -> Vec<ColorInformation> {
             let hex = &line[hex_start..hex_end];
             let len = hex.len();
             if (len == 3 || len == 6 || len == 8)
-                && let Some((r, g, b, a)) = parse_hex_color(hex) {
-                    colors.push(ColorInformation {
-                        range: Range::new(
-                            Position::new(line_idx as u32, abs_pos as u32),
-                            Position::new(line_idx as u32, hex_end as u32),
-                        ),
-                        color: Color {
-                            red: r as f32 / 255.0,
-                            green: g as f32 / 255.0,
-                            blue: b as f32 / 255.0,
-                            alpha: a as f32 / 255.0,
-                        },
-                    });
-                }
+                && let Some((r, g, b, a)) = parse_hex_color(hex)
+            {
+                colors.push(ColorInformation {
+                    range: Range::new(
+                        Position::new(line_idx as u32, abs_pos as u32),
+                        Position::new(line_idx as u32, hex_end as u32),
+                    ),
+                    color: Color {
+                        red: r as f32 / 255.0,
+                        green: g as f32 / 255.0,
+                        blue: b as f32 / 255.0,
+                        alpha: a as f32 / 255.0,
+                    },
+                });
+            }
             start = hex_end;
         }
         // Detect named CSS colors
@@ -751,43 +798,92 @@ pub(crate) fn find_colors(text: &str) -> Vec<ColorInformation> {
 
 /// Named CSS colors: (name, r, g, b)
 const NAMED_CSS_COLORS: &[(&str, u8, u8, u8)] = &[
-    ("red", 255, 0, 0), ("green", 0, 128, 0), ("blue", 0, 0, 255),
-    ("white", 255, 255, 255), ("black", 0, 0, 0),
-    ("orange", 255, 165, 0), ("yellow", 255, 255, 0), ("purple", 128, 0, 128),
-    ("pink", 255, 192, 203), ("gray", 128, 128, 128), ("grey", 128, 128, 128),
-    ("navy", 0, 0, 128), ("teal", 0, 128, 128), ("maroon", 128, 0, 0),
-    ("aqua", 0, 255, 255), ("cyan", 0, 255, 255), ("fuchsia", 255, 0, 255),
-    ("magenta", 255, 0, 255), ("lime", 0, 255, 0), ("olive", 128, 128, 0),
-    ("silver", 192, 192, 192), ("coral", 255, 127, 80), ("salmon", 250, 128, 114),
-    ("tomato", 255, 99, 71), ("gold", 255, 215, 0), ("khaki", 240, 230, 140),
-    ("violet", 238, 130, 238), ("indigo", 75, 0, 130), ("crimson", 220, 20, 60),
-    ("turquoise", 64, 224, 208), ("plum", 221, 160, 221), ("orchid", 218, 112, 214),
-    ("sienna", 160, 82, 45), ("tan", 210, 180, 140), ("peru", 205, 133, 63),
-    ("chocolate", 210, 105, 30), ("firebrick", 178, 34, 34),
-    ("darkred", 139, 0, 0), ("darkgreen", 0, 100, 0), ("darkblue", 0, 0, 139),
-    ("darkgray", 169, 169, 169), ("darkgrey", 169, 169, 169),
-    ("lightgray", 211, 211, 211), ("lightgrey", 211, 211, 211),
-    ("lightblue", 173, 216, 230), ("lightgreen", 144, 238, 144),
-    ("lightyellow", 255, 255, 224), ("lightcoral", 240, 128, 128),
-    ("lightpink", 255, 182, 193), ("lightsalmon", 255, 160, 122),
-    ("steelblue", 70, 130, 180), ("royalblue", 65, 105, 225),
-    ("dodgerblue", 30, 144, 255), ("deepskyblue", 0, 191, 255),
-    ("cornflowerblue", 100, 149, 237), ("midnightblue", 25, 25, 112),
-    ("slateblue", 106, 90, 205), ("mediumblue", 0, 0, 205),
-    ("springgreen", 0, 255, 127), ("limegreen", 50, 205, 50),
-    ("forestgreen", 34, 139, 34), ("seagreen", 46, 139, 87),
-    ("darkslategray", 47, 79, 79), ("darkslategrey", 47, 79, 79),
-    ("cadetblue", 95, 158, 160), ("mediumaquamarine", 102, 205, 170),
-    ("darkorange", 255, 140, 0), ("orangered", 255, 69, 0),
-    ("deeppink", 255, 20, 147), ("hotpink", 255, 105, 180),
-    ("mediumvioletred", 199, 21, 133), ("palevioletred", 219, 112, 147),
-    ("sandybrown", 244, 164, 96), ("goldenrod", 218, 165, 32),
-    ("darkgoldenrod", 184, 134, 11), ("saddlebrown", 139, 69, 19),
-    ("wheat", 245, 222, 179), ("beige", 245, 245, 220),
-    ("linen", 250, 240, 230), ("ivory", 255, 255, 240),
-    ("snow", 255, 250, 250), ("honeydew", 240, 255, 240),
-    ("azure", 240, 255, 255), ("lavender", 230, 230, 250),
-    ("mistyrose", 255, 228, 225), ("seashell", 255, 245, 238),
+    ("red", 255, 0, 0),
+    ("green", 0, 128, 0),
+    ("blue", 0, 0, 255),
+    ("white", 255, 255, 255),
+    ("black", 0, 0, 0),
+    ("orange", 255, 165, 0),
+    ("yellow", 255, 255, 0),
+    ("purple", 128, 0, 128),
+    ("pink", 255, 192, 203),
+    ("gray", 128, 128, 128),
+    ("grey", 128, 128, 128),
+    ("navy", 0, 0, 128),
+    ("teal", 0, 128, 128),
+    ("maroon", 128, 0, 0),
+    ("aqua", 0, 255, 255),
+    ("cyan", 0, 255, 255),
+    ("fuchsia", 255, 0, 255),
+    ("magenta", 255, 0, 255),
+    ("lime", 0, 255, 0),
+    ("olive", 128, 128, 0),
+    ("silver", 192, 192, 192),
+    ("coral", 255, 127, 80),
+    ("salmon", 250, 128, 114),
+    ("tomato", 255, 99, 71),
+    ("gold", 255, 215, 0),
+    ("khaki", 240, 230, 140),
+    ("violet", 238, 130, 238),
+    ("indigo", 75, 0, 130),
+    ("crimson", 220, 20, 60),
+    ("turquoise", 64, 224, 208),
+    ("plum", 221, 160, 221),
+    ("orchid", 218, 112, 214),
+    ("sienna", 160, 82, 45),
+    ("tan", 210, 180, 140),
+    ("peru", 205, 133, 63),
+    ("chocolate", 210, 105, 30),
+    ("firebrick", 178, 34, 34),
+    ("darkred", 139, 0, 0),
+    ("darkgreen", 0, 100, 0),
+    ("darkblue", 0, 0, 139),
+    ("darkgray", 169, 169, 169),
+    ("darkgrey", 169, 169, 169),
+    ("lightgray", 211, 211, 211),
+    ("lightgrey", 211, 211, 211),
+    ("lightblue", 173, 216, 230),
+    ("lightgreen", 144, 238, 144),
+    ("lightyellow", 255, 255, 224),
+    ("lightcoral", 240, 128, 128),
+    ("lightpink", 255, 182, 193),
+    ("lightsalmon", 255, 160, 122),
+    ("steelblue", 70, 130, 180),
+    ("royalblue", 65, 105, 225),
+    ("dodgerblue", 30, 144, 255),
+    ("deepskyblue", 0, 191, 255),
+    ("cornflowerblue", 100, 149, 237),
+    ("midnightblue", 25, 25, 112),
+    ("slateblue", 106, 90, 205),
+    ("mediumblue", 0, 0, 205),
+    ("springgreen", 0, 255, 127),
+    ("limegreen", 50, 205, 50),
+    ("forestgreen", 34, 139, 34),
+    ("seagreen", 46, 139, 87),
+    ("darkslategray", 47, 79, 79),
+    ("darkslategrey", 47, 79, 79),
+    ("cadetblue", 95, 158, 160),
+    ("mediumaquamarine", 102, 205, 170),
+    ("darkorange", 255, 140, 0),
+    ("orangered", 255, 69, 0),
+    ("deeppink", 255, 20, 147),
+    ("hotpink", 255, 105, 180),
+    ("mediumvioletred", 199, 21, 133),
+    ("palevioletred", 219, 112, 147),
+    ("sandybrown", 244, 164, 96),
+    ("goldenrod", 218, 165, 32),
+    ("darkgoldenrod", 184, 134, 11),
+    ("saddlebrown", 139, 69, 19),
+    ("wheat", 245, 222, 179),
+    ("beige", 245, 245, 220),
+    ("linen", 250, 240, 230),
+    ("ivory", 255, 255, 240),
+    ("snow", 255, 250, 250),
+    ("honeydew", 240, 255, 240),
+    ("azure", 240, 255, 255),
+    ("lavender", 230, 230, 250),
+    ("mistyrose", 255, 228, 225),
+    ("seashell", 255, 245, 238),
 ];
 
 fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8, u8)> {
@@ -903,33 +999,37 @@ pub(crate) fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
     let mut unused_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
     for d in &result.diagnostics {
         if d.message.contains("unused variable '$")
-            && let Some(start) = d.message.find("'$") {
-                let rest = &d.message[start + 2..];
-                if let Some(end) = rest.find('\'') {
-                    unused_vars.insert(rest[..end].to_string());
-                }
+            && let Some(start) = d.message.find("'$")
+        {
+            let rest = &d.message[start + 2..];
+            if let Some(end) = rest.find('\'') {
+                unused_vars.insert(rest[..end].to_string());
             }
+        }
         if d.message.contains("unused function '@")
-            && let Some(start) = d.message.find("'@") {
-                let rest = &d.message[start + 2..];
-                if let Some(end) = rest.find('\'') {
-                    unused_vars.insert(format!("@{}", &rest[..end]));
-                }
+            && let Some(start) = d.message.find("'@")
+        {
+            let rest = &d.message[start + 2..];
+            if let Some(end) = rest.find('\'') {
+                unused_vars.insert(format!("@{}", &rest[..end]));
             }
+        }
         if d.message.contains("unused define '$")
-            && let Some(start) = d.message.find("'$") {
-                let rest = &d.message[start + 2..];
-                if let Some(end) = rest.find('\'') {
-                    unused_vars.insert(rest[..end].to_string());
-                }
+            && let Some(start) = d.message.find("'$")
+        {
+            let rest = &d.message[start + 2..];
+            if let Some(end) = rest.find('\'') {
+                unused_vars.insert(rest[..end].to_string());
             }
+        }
         if d.message.contains("unused mixin '")
-            && let Some(start) = d.message.find("unused mixin '") {
-                let rest = &d.message[start + 14..];
-                if let Some(end) = rest.find('\'') {
-                    unused_vars.insert(rest[..end].to_string());
-                }
+            && let Some(start) = d.message.find("unused mixin '")
+        {
+            let rest = &d.message[start + 14..];
+            if let Some(end) = rest.find('\'') {
+                unused_vars.insert(rest[..end].to_string());
             }
+        }
     }
 
     for (line_idx, line) in text.lines().enumerate() {
@@ -939,7 +1039,16 @@ pub(crate) fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
         // Detect comments
         if trimmed.starts_with("--") {
             let col = (line.len() - trimmed.len()) as u32;
-            push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, col, trimmed.len() as u32, 4, 0);
+            push_token(
+                &mut tokens,
+                &mut prev_line,
+                &mut prev_start,
+                line_num,
+                col,
+                trimmed.len() as u32,
+                4,
+                0,
+            );
             continue;
         }
 
@@ -950,41 +1059,79 @@ pub(crate) fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
             if bytes[i] == b'@' {
                 let start = i;
                 i += 1;
-                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
+                while i < bytes.len()
+                    && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
+                {
                     i += 1;
                 }
                 let word = &line[start..i];
                 let token_type = match word {
                     "@page" | "@let" | "@define" | "@fn" | "@if" | "@else" | "@each"
                     | "@include" | "@import" | "@meta" | "@head" | "@style" | "@keyframes"
-                    | "@match" | "@case" | "@default" | "@slot" | "@children"
-                    | "@warn" | "@debug" | "@lang" | "@favicon" | "@fragment"
-                    | "@unless" | "@og" | "@breakpoint"
-                    | "@canonical" | "@base" | "@font-face" | "@json-ld"
-                    | "@mixin" | "@assert" | "@theme" | "@deprecated" | "@extends"
-                    | "@use" | "@data" | "@env" | "@fetch" | "@svg" | "@css-property" => 0, // keyword
+                    | "@match" | "@case" | "@default" | "@slot" | "@children" | "@warn"
+                    | "@debug" | "@lang" | "@favicon" | "@fragment" | "@unless" | "@og"
+                    | "@breakpoint" | "@canonical" | "@base" | "@font-face" | "@json-ld"
+                    | "@mixin" | "@assert" | "@theme" | "@deprecated" | "@extends" | "@use"
+                    | "@data" | "@env" | "@fetch" | "@svg" | "@css-property" => 0, // keyword
                     _ => {
                         // Check if it's a user function call (starts with @ but not a builtin element)
                         if is_builtin_element(word) { 0 } else { 2 } // function
                     }
                 };
                 // Mark unused @fn definitions with deprecated modifier (dimmed)
-                let modifier = if (trimmed.starts_with("@fn ") || trimmed.starts_with("@define ") || trimmed.starts_with("@mixin ")) && word != "@fn" && word != "@define" && word != "@mixin" {
+                let modifier = if (trimmed.starts_with("@fn ")
+                    || trimmed.starts_with("@define ")
+                    || trimmed.starts_with("@mixin "))
+                    && word != "@fn"
+                    && word != "@define"
+                    && word != "@mixin"
+                {
                     let name_part = &word[1..]; // strip @
-                    if unused_vars.contains(&format!("@{}", name_part)) { 1 } else { 0 }
-                } else { 0 };
-                push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, start as u32, (i - start) as u32, token_type, modifier);
+                    if unused_vars.contains(&format!("@{}", name_part)) {
+                        1
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                push_token(
+                    &mut tokens,
+                    &mut prev_line,
+                    &mut prev_start,
+                    line_num,
+                    start as u32,
+                    (i - start) as u32,
+                    token_type,
+                    modifier,
+                );
             } else if bytes[i] == b'$' {
                 let start = i;
                 i += 1;
-                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_') {
+                while i < bytes.len()
+                    && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
+                {
                     i += 1;
                 }
                 if i > start + 1 {
                     // Check if this is an unused variable definition on a @let line
                     let var_name = &line[start + 1..i];
-                    let modifier = if trimmed.starts_with("@let ") && unused_vars.contains(var_name) { 1 } else { 0 };
-                    push_token(&mut tokens, &mut prev_line, &mut prev_start, line_num, start as u32, (i - start) as u32, 1, modifier); // variable
+                    let modifier = if trimmed.starts_with("@let ") && unused_vars.contains(var_name)
+                    {
+                        1
+                    } else {
+                        0
+                    };
+                    push_token(
+                        &mut tokens,
+                        &mut prev_line,
+                        &mut prev_start,
+                        line_num,
+                        start as u32,
+                        (i - start) as u32,
+                        1,
+                        modifier,
+                    ); // variable
                 }
             } else {
                 i += 1;
@@ -995,18 +1142,77 @@ pub(crate) fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
 }
 
 fn is_builtin_element(word: &str) -> bool {
-    matches!(word,
-        "@row" | "@column" | "@col" | "@el" | "@text" | "@paragraph" | "@p"
-        | "@image" | "@img" | "@link" | "@input" | "@button" | "@btn"
-        | "@select" | "@textarea" | "@option" | "@opt" | "@label" | "@raw"
-        | "@nav" | "@header" | "@footer" | "@main" | "@section" | "@article" | "@aside"
-        | "@list" | "@item" | "@li" | "@table" | "@thead" | "@tbody" | "@tr" | "@td" | "@th"
-        | "@video" | "@audio" | "@form" | "@details" | "@summary"
-        | "@blockquote" | "@cite" | "@code" | "@pre" | "@hr" | "@divider"
-        | "@figure" | "@figcaption" | "@progress" | "@meter" | "@fragment"
-        | "@dialog" | "@dl" | "@dt" | "@dd" | "@fieldset" | "@legend"
-        | "@picture" | "@source" | "@time" | "@mark" | "@kbd" | "@abbr" | "@datalist"
-        | "@script" | "@noscript" | "@address" | "@search" | "@breadcrumb"
+    matches!(
+        word,
+        "@row"
+            | "@column"
+            | "@col"
+            | "@el"
+            | "@text"
+            | "@paragraph"
+            | "@p"
+            | "@image"
+            | "@img"
+            | "@link"
+            | "@input"
+            | "@button"
+            | "@btn"
+            | "@select"
+            | "@textarea"
+            | "@option"
+            | "@opt"
+            | "@label"
+            | "@raw"
+            | "@nav"
+            | "@header"
+            | "@footer"
+            | "@main"
+            | "@section"
+            | "@article"
+            | "@aside"
+            | "@list"
+            | "@item"
+            | "@li"
+            | "@table"
+            | "@thead"
+            | "@tbody"
+            | "@tr"
+            | "@td"
+            | "@th"
+            | "@video"
+            | "@audio"
+            | "@form"
+            | "@details"
+            | "@summary"
+            | "@blockquote"
+            | "@cite"
+            | "@code"
+            | "@pre"
+            | "@hr"
+            | "@divider"
+            | "@figure"
+            | "@figcaption"
+            | "@progress"
+            | "@meter"
+            | "@fragment"
+            | "@dialog"
+            | "@dl"
+            | "@dt"
+            | "@dd"
+            | "@fieldset"
+            | "@legend"
+            | "@picture"
+            | "@source"
+            | "@time"
+            | "@mark"
+            | "@kbd"
+            | "@abbr"
+            | "@datalist"
+            | "@script"
+            | "@noscript"
+            | "@address"
+            | "@search"
+            | "@breadcrumb"
     )
 }
 
@@ -1048,9 +1254,10 @@ pub(crate) fn inlay_hints(text: &str) -> Vec<InlayHint> {
     for line in text.lines() {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("@let ")
-            && let Some((name, value)) = rest.trim().split_once(' ') {
-                vars.insert(name, value.trim());
-            }
+            && let Some((name, value)) = rest.trim().split_once(' ')
+        {
+            vars.insert(name, value.trim());
+        }
     }
 
     let mut hints = Vec::new();
@@ -1112,7 +1319,8 @@ pub(crate) fn get_signature_help(text: &str, position: Position) -> Option<Signa
 
     // Extract the function name
     let after_at = &trimmed[1..];
-    let name_end = after_at.find(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+    let name_end = after_at
+        .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
         .unwrap_or(after_at.len());
     let fn_name = &after_at[..name_end];
 
@@ -1130,7 +1338,8 @@ pub(crate) fn get_signature_help(text: &str, position: Position) -> Option<Signa
         let t = line_text.trim_start();
         if let Some(rest) = t.strip_prefix("@fn ") {
             let rest = rest.trim();
-            let def_name_end = rest.find(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+            let def_name_end = rest
+                .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
                 .unwrap_or(rest.len());
             let def_name = &rest[..def_name_end];
             if def_name != fn_name {
@@ -1146,18 +1355,21 @@ pub(crate) fn get_signature_help(text: &str, position: Position) -> Option<Signa
                 return None;
             }
 
-            let param_labels: Vec<ParameterInformation> = params.iter().map(|p| {
-                let name = p.trim_start_matches('$');
-                let (label, doc) = if let Some((n, default)) = name.split_once('=') {
-                    (n.to_string(), Some(format!("Default: {}", default)))
-                } else {
-                    (name.to_string(), None)
-                };
-                ParameterInformation {
-                    label: ParameterLabel::Simple(label),
-                    documentation: doc.map(Documentation::String),
-                }
-            }).collect();
+            let param_labels: Vec<ParameterInformation> = params
+                .iter()
+                .map(|p| {
+                    let name = p.trim_start_matches('$');
+                    let (label, doc) = if let Some((n, default)) = name.split_once('=') {
+                        (n.to_string(), Some(format!("Default: {}", default)))
+                    } else {
+                        (name.to_string(), None)
+                    };
+                    ParameterInformation {
+                        label: ParameterLabel::Simple(label),
+                        documentation: doc.map(Documentation::String),
+                    }
+                })
+                .collect();
 
             let sig_label = format!("@{} {}", fn_name, params.join(" "));
 
@@ -1175,9 +1387,10 @@ pub(crate) fn get_signature_help(text: &str, position: Position) -> Option<Signa
             return Some(SignatureHelp {
                 signatures: vec![SignatureInformation {
                     label: sig_label,
-                    documentation: Some(Documentation::String(
-                        format!("Defined at line {}", line_idx + 1),
-                    )),
+                    documentation: Some(Documentation::String(format!(
+                        "Defined at line {}",
+                        line_idx + 1
+                    ))),
                     parameters: Some(param_labels),
                     active_parameter: Some(active_param),
                 }],

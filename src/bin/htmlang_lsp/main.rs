@@ -48,7 +48,8 @@ impl Backend {
                 let col_end = if d.column.is_some() {
                     // Highlight a reasonable span from the column
                     let lines_vec: Vec<&str> = text.lines().collect();
-                    lines_vec.get(line as usize)
+                    lines_vec
+                        .get(line as usize)
                         .map(|l| l.len() as u32)
                         .unwrap_or(col_start + 1)
                 } else {
@@ -79,12 +80,7 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::FULL,
                 )),
                 completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec![
-                        "@".into(),
-                        "$".into(),
-                        "[".into(),
-                        ",".into(),
-                    ]),
+                    trigger_characters: Some(vec!["@".into(), "$".into(), "[".into(), ",".into()]),
                     ..Default::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -106,30 +102,32 @@ impl LanguageServer for Backend {
                 color_provider: Some(ColorProviderCapability::Simple(true)),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 semantic_tokens_provider: Some(
-                    SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
-                        legend: SemanticTokensLegend {
-                            token_types: vec![
-                                SemanticTokenType::KEYWORD,
-                                SemanticTokenType::VARIABLE,
-                                SemanticTokenType::FUNCTION,
-                                SemanticTokenType::STRING,
-                                SemanticTokenType::COMMENT,
-                                SemanticTokenType::PROPERTY,
-                            ],
-                            token_modifiers: vec![
-                                SemanticTokenModifier::new("deprecated"), // bit 0 = 1 -> dimmed/strikethrough
-                            ],
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: SemanticTokensLegend {
+                                token_types: vec![
+                                    SemanticTokenType::KEYWORD,
+                                    SemanticTokenType::VARIABLE,
+                                    SemanticTokenType::FUNCTION,
+                                    SemanticTokenType::STRING,
+                                    SemanticTokenType::COMMENT,
+                                    SemanticTokenType::PROPERTY,
+                                ],
+                                token_modifiers: vec![
+                                    SemanticTokenModifier::new("deprecated"), // bit 0 = 1 -> dimmed/strikethrough
+                                ],
+                            },
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: None,
+                            ..Default::default()
                         },
-                        full: Some(SemanticTokensFullOptions::Bool(true)),
-                        range: None,
-                        ..Default::default()
-                    }),
+                    ),
                 ),
                 inlay_hint_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
-                linked_editing_range_provider: Some(
-                    LinkedEditingRangeServerCapabilities::Simple(true),
-                ),
+                linked_editing_range_provider: Some(LinkedEditingRangeServerCapabilities::Simple(
+                    true,
+                )),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 document_range_formatting_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
@@ -178,10 +176,7 @@ impl LanguageServer for Backend {
             .await;
     }
 
-    async fn completion(
-        &self,
-        params: CompletionParams,
-    ) -> Result<Option<CompletionResponse>> {
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
         let pos = params.text_document_position.position;
         let docs = self.documents.read().await;
@@ -195,8 +190,10 @@ impl LanguageServer for Backend {
         let lines: Vec<&str> = text.lines().collect();
         if let Some(line) = lines.get(pos.line as usize) {
             let trimmed = line.trim_start();
-            if trimmed.starts_with("@include ") || trimmed.starts_with("@import ")
-                || trimmed.starts_with("@extends ") {
+            if trimmed.starts_with("@include ")
+                || trimmed.starts_with("@import ")
+                || trimmed.starts_with("@extends ")
+            {
                 let items = path_completions(uri, pos);
                 if !items.is_empty() {
                     return Ok(Some(CompletionResponse::Array(items)));
@@ -245,7 +242,11 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let uri = params.text_document_position_params.text_document.uri.clone();
+        let uri = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .clone();
         let pos = params.text_document_position_params.position;
         let docs = self.documents.read().await;
         let text = match docs.get(&uri) {
@@ -307,10 +308,7 @@ impl LanguageServer for Backend {
         })
     }
 
-    async fn code_action(
-        &self,
-        params: CodeActionParams,
-    ) -> Result<Option<CodeActionResponse>> {
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri.clone();
         let docs = self.documents.read().await;
         let text = match docs.get(&uri) {
@@ -327,10 +325,7 @@ impl LanguageServer for Backend {
         })
     }
 
-    async fn document_color(
-        &self,
-        params: DocumentColorParams,
-    ) -> Result<Vec<ColorInformation>> {
+    async fn document_color(&self, params: DocumentColorParams) -> Result<Vec<ColorInformation>> {
         let uri = &params.text_document.uri;
         let docs = self.documents.read().await;
         let text = match docs.get(uri) {
@@ -365,10 +360,7 @@ impl LanguageServer for Backend {
         }])
     }
 
-    async fn folding_range(
-        &self,
-        params: FoldingRangeParams,
-    ) -> Result<Option<Vec<FoldingRange>>> {
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
         let uri = &params.text_document.uri;
         let docs = self.documents.read().await;
         let text = match docs.get(uri) {
@@ -377,7 +369,11 @@ impl LanguageServer for Backend {
         };
         drop(docs);
         let ranges = folding_ranges(&text);
-        Ok(if ranges.is_empty() { None } else { Some(ranges) })
+        Ok(if ranges.is_empty() {
+            None
+        } else {
+            Some(ranges)
+        })
     }
 
     async fn semantic_tokens_full(
@@ -398,10 +394,7 @@ impl LanguageServer for Backend {
         })))
     }
 
-    async fn inlay_hint(
-        &self,
-        params: InlayHintParams,
-    ) -> Result<Option<Vec<InlayHint>>> {
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let uri = &params.text_document.uri;
         let docs = self.documents.read().await;
         let text = match docs.get(uri) {
@@ -454,7 +447,9 @@ impl LanguageServer for Backend {
             let max_files = 500; // safety cap for huge workspaces
             let mut scanned = 0usize;
             while let Some(dir) = stack.pop() {
-                let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+                let Ok(entries) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
                 for entry in entries.flatten() {
                     if scanned >= max_files {
                         break;
@@ -466,24 +461,25 @@ impl LanguageServer for Backend {
                             || name == "target"
                             || name == "node_modules"
                             || name == "dist")
-                        {
-                            continue;
-                        }
+                    {
+                        continue;
+                    }
                     if path.is_dir() {
                         stack.push(path);
                         continue;
                     }
-                    if path.extension().is_some_and(|e| e == "hl")
-                        && !covered_files.contains(&path)
+                    if path.extension().is_some_and(|e| e == "hl") && !covered_files.contains(&path)
                     {
                         scanned += 1;
-                        let Ok(text) = std::fs::read_to_string(&path) else { continue };
-                        let Ok(file_uri) = Url::from_file_path(&path) else { continue };
+                        let Ok(text) = std::fs::read_to_string(&path) else {
+                            continue;
+                        };
+                        let Ok(file_uri) = Url::from_file_path(&path) else {
+                            continue;
+                        };
                         for mut sym in document_symbols(&text) {
                             sym.location.uri = file_uri.clone();
-                            if query.is_empty()
-                                || sym.name.to_lowercase().contains(&query)
-                            {
+                            if query.is_empty() || sym.name.to_lowercase().contains(&query) {
                                 all_symbols.push(sym);
                             }
                         }
@@ -514,10 +510,7 @@ impl LanguageServer for Backend {
         Ok(linked_editing_ranges(&text, pos))
     }
 
-    async fn formatting(
-        &self,
-        params: DocumentFormattingParams,
-    ) -> Result<Option<Vec<TextEdit>>> {
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let uri = &params.text_document.uri;
         let docs = self.documents.read().await;
         let text = match docs.get(uri) {
@@ -576,10 +569,7 @@ impl LanguageServer for Backend {
         }]))
     }
 
-    async fn document_link(
-        &self,
-        params: DocumentLinkParams,
-    ) -> Result<Option<Vec<DocumentLink>>> {
+    async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
         let uri = params.text_document.uri.clone();
         let docs = self.documents.read().await;
         let text = match docs.get(&uri) {
@@ -658,10 +648,7 @@ impl LanguageServer for Backend {
         Ok(if links.is_empty() { None } else { Some(links) })
     }
 
-    async fn code_lens(
-        &self,
-        params: CodeLensParams,
-    ) -> Result<Option<Vec<CodeLens>>> {
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
         let uri = params.text_document.uri.clone();
         let docs = self.documents.read().await;
         let text = match docs.get(&uri) {
@@ -676,26 +663,43 @@ impl LanguageServer for Backend {
         let lines: Vec<&str> = text.lines().collect();
 
         #[derive(Clone)]
-        struct Def { line: u32, name: String, kind: &'static str }
+        struct Def {
+            line: u32,
+            name: String,
+            kind: &'static str,
+        }
         let mut defs: Vec<Def> = Vec::new();
 
         for (i, line) in lines.iter().enumerate() {
             let trimmed = line.trim_start();
             if let Some(rest) = trimmed.strip_prefix("@fn ") {
                 if let Some(n) = rest.split_whitespace().next() {
-                    defs.push(Def { line: i as u32, name: n.to_string(), kind: "fn" });
+                    defs.push(Def {
+                        line: i as u32,
+                        name: n.to_string(),
+                        kind: "fn",
+                    });
                 }
             } else if let Some(rest) = trimmed.strip_prefix("@let ") {
                 if let Some((n, _)) = rest.trim().split_once(' ') {
-                    defs.push(Def { line: i as u32, name: n.to_string(), kind: "let" });
+                    defs.push(Def {
+                        line: i as u32,
+                        name: n.to_string(),
+                        kind: "let",
+                    });
                 }
             } else if let Some(rest) = trimmed.strip_prefix("@define ")
-                && let Some(bracket) = rest.find('[') {
-                    let n = rest[..bracket].trim();
-                    if !n.is_empty() {
-                        defs.push(Def { line: i as u32, name: n.to_string(), kind: "define" });
-                    }
+                && let Some(bracket) = rest.find('[')
+            {
+                let n = rest[..bracket].trim();
+                if !n.is_empty() {
+                    defs.push(Def {
+                        line: i as u32,
+                        name: n.to_string(),
+                        kind: "define",
+                    });
                 }
+            }
         }
 
         let mut lenses = Vec::with_capacity(defs.len());
@@ -734,10 +738,7 @@ impl LanguageServer for Backend {
                 format!("{} references", count)
             };
             lenses.push(CodeLens {
-                range: Range::new(
-                    Position::new(def.line, 0),
-                    Position::new(def.line, 0),
-                ),
+                range: Range::new(Position::new(def.line, 0), Position::new(def.line, 0)),
                 // Non-executable lens: clients display the title without an
                 // associated command action. Leaving `command` as None yields an
                 // informational lens in most editors.
@@ -750,13 +751,14 @@ impl LanguageServer for Backend {
             });
         }
 
-        Ok(if lenses.is_empty() { None } else { Some(lenses) })
+        Ok(if lenses.is_empty() {
+            None
+        } else {
+            Some(lenses)
+        })
     }
 
-    async fn references(
-        &self,
-        params: ReferenceParams,
-    ) -> Result<Option<Vec<Location>>> {
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let uri = params.text_document_position.text_document.uri.clone();
         let pos = params.text_document_position.position;
         let docs = self.documents.read().await;
@@ -769,10 +771,7 @@ impl LanguageServer for Backend {
         Ok(if refs.is_empty() { None } else { Some(refs) })
     }
 
-    async fn signature_help(
-        &self,
-        params: SignatureHelpParams,
-    ) -> Result<Option<SignatureHelp>> {
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
         let uri = &params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
         let docs = self.documents.read().await;

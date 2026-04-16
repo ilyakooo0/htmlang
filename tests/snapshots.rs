@@ -284,9 +284,7 @@ fn error_else_without_if() {
 fn error_each_bad_syntax() {
     let diags = parse_diagnostics("@each $x");
     assert!(
-        diags
-            .iter()
-            .any(|d| d.message.contains("@each requires")),
+        diags.iter().any(|d| d.message.contains("@each requires")),
         "expected @each syntax error, got: {:?}",
         diags
     );
@@ -308,9 +306,7 @@ fn error_numeric_validation() {
 fn error_opacity_range() {
     let diags = parse_diagnostics("@el [opacity 2.0]");
     assert!(
-        diags
-            .iter()
-            .any(|d| d.message.contains("between 0 and 1")),
+        diags.iter().any(|d| d.message.contains("between 0 and 1")),
         "expected opacity range warning, got: {:?}",
         diags
     );
@@ -342,7 +338,9 @@ fn error_else_if_without_if() {
 
 #[test]
 fn else_if_chain() {
-    let output = compile("@let x 2\n@if $x == 1\n  @text one\n@else if $x == 2\n  @text two\n@else\n  @text other");
+    let output = compile(
+        "@let x 2\n@if $x == 1\n  @text one\n@else if $x == 2\n  @text two\n@else\n  @text other",
+    );
     assert!(output.contains("two"));
     assert!(!output.contains("one"));
     assert!(!output.contains("other"));
@@ -410,7 +408,9 @@ fn each_loop_expansion() {
 fn aria_data_attrs_accepted() {
     let diags = parse_diagnostics("@el [aria-label Test, data-id 42]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "aria-*/data-* should not produce warnings, got: {:?}",
         diags
     );
@@ -426,7 +426,9 @@ fn aria_data_attrs_accepted() {
 fn warning_unused_variable() {
     let diags = parse_diagnostics("@let color red\n@el [padding 10]");
     assert!(
-        diags.iter().any(|d| d.message.contains("unused variable") && d.message.contains("color")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("unused variable") && d.message.contains("color")),
         "expected unused variable warning, got: {:?}",
         diags
     );
@@ -446,7 +448,9 @@ fn no_warning_used_variable() {
 fn warning_unused_function() {
     let diags = parse_diagnostics("@fn card\n  @el [padding 10]\n@el");
     assert!(
-        diags.iter().any(|d| d.message.contains("unused function") && d.message.contains("card")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("unused function") && d.message.contains("card")),
         "expected unused function warning, got: {:?}",
         diags
     );
@@ -488,7 +492,9 @@ fn no_warning_used_define() {
 fn warning_spacing_on_text() {
     let diags = parse_diagnostics("@text [spacing 10] hello");
     assert!(
-        diags.iter().any(|d| d.message.contains("spacing") && d.message.contains("no effect")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("spacing") && d.message.contains("no effect")),
         "expected spacing on @text warning, got: {:?}",
         diags
     );
@@ -498,7 +504,9 @@ fn warning_spacing_on_text() {
 fn no_warning_spacing_on_row() {
     let diags = parse_diagnostics("@row [spacing 10]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("spacing") && d.message.contains("no effect")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("spacing") && d.message.contains("no effect")),
         "should not warn about spacing on @row, got: {:?}",
         diags
     );
@@ -508,7 +516,9 @@ fn no_warning_spacing_on_row() {
 fn warning_placeholder_on_row() {
     let diags = parse_diagnostics("@row [placeholder test]");
     assert!(
-        diags.iter().any(|d| d.message.contains("placeholder") && d.message.contains("no effect")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("placeholder") && d.message.contains("no effect")),
         "expected placeholder on @row warning, got: {:?}",
         diags
     );
@@ -518,7 +528,9 @@ fn warning_placeholder_on_row() {
 fn warning_for_on_non_label() {
     let diags = parse_diagnostics("@el [for email]");
     assert!(
-        diags.iter().any(|d| d.message.contains("'for'") && d.message.contains("@label")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("'for'") && d.message.contains("@label")),
         "expected 'for' on non-label warning, got: {:?}",
         diags
     );
@@ -546,14 +558,18 @@ fn each_range_with_index() {
 
 #[test]
 fn named_slot_basic() {
-    let output = compile("@fn card\n  @el\n    @slot header\n    @children\n@card\n  @slot header\n    @text Title\n  @text Body");
+    let output = compile(
+        "@fn card\n  @el\n    @slot header\n    @children\n@card\n  @slot header\n    @text Title\n  @text Body",
+    );
     assert!(output.contains("Title"));
     assert!(output.contains("Body"));
 }
 
 #[test]
 fn named_slot_default_content() {
-    let output = compile("@fn card\n  @el\n    @slot header\n      @text Default\n    @children\n@card\n  @text Body");
+    let output = compile(
+        "@fn card\n  @el\n    @slot header\n      @text Default\n    @children\n@card\n  @text Body",
+    );
     assert!(output.contains("Default"));
     assert!(output.contains("Body"));
 }
@@ -562,7 +578,9 @@ fn named_slot_default_content() {
 
 #[test]
 fn style_block_output() {
-    let output = compile("@page Test\n@style\n  .custom { color: red; }\n@el [class custom]\n  @text styled");
+    let output = compile(
+        "@page Test\n@style\n  .custom { color: red; }\n@el [class custom]\n  @text styled",
+    );
     assert!(output.contains(".custom{color:red;}") || output.contains(".custom { color: red; }"));
     assert!(output.contains("styled"));
 }
@@ -721,7 +739,9 @@ fn item_alias_li() {
 
 #[test]
 fn table_renders_proper_tags() {
-    let output = compile("@page T\n@table\n  @thead\n    @tr\n      @th Header\n  @tbody\n    @tr\n      @td Cell");
+    let output = compile(
+        "@page T\n@table\n  @thead\n    @tr\n      @th Header\n  @tbody\n    @tr\n      @td Cell",
+    );
     assert!(output.contains("<table"));
     assert!(output.contains("<thead"));
     assert!(output.contains("<tbody"));
@@ -768,7 +788,9 @@ fn video_with_multiple_attrs() {
 
 #[test]
 fn match_selects_correct_case() {
-    let output = compile("@let x b\n@match $x\n  @case a\n    @text A\n  @case b\n    @text B\n  @default\n    @text D");
+    let output = compile(
+        "@let x b\n@match $x\n  @case a\n    @text A\n  @case b\n    @text B\n  @default\n    @text D",
+    );
     assert!(output.contains("B"));
     assert!(!output.contains(">A<"));
     assert!(!output.contains(">D<"));
@@ -776,7 +798,8 @@ fn match_selects_correct_case() {
 
 #[test]
 fn match_falls_to_default() {
-    let output = compile("@let x z\n@match $x\n  @case a\n    @text A\n  @default\n    @text Default");
+    let output =
+        compile("@let x z\n@match $x\n  @case a\n    @text A\n  @default\n    @text Default");
     assert!(output.contains("Default"));
     assert!(!output.contains(">A<"));
 }
@@ -865,7 +888,9 @@ fn warn_produces_diagnostic() {
 fn warn_substitutes_variables() {
     let diags = parse_diagnostics("@let name test\n@warn Missing $name value");
     assert!(
-        diags.iter().any(|d| d.message.contains("Missing test value")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("Missing test value")),
         "expected substituted @warn, got: {:?}",
         diags
     );
@@ -878,7 +903,9 @@ fn warn_substitutes_variables() {
 #[test]
 fn image_auto_lazy_loading() {
     // First 3 images get fetchpriority="high" (above-the-fold), subsequent get loading="lazy"
-    let output = compile("@page T\n@image https://example.com/1.jpg\n@image https://example.com/2.jpg\n@image https://example.com/3.jpg\n@image https://example.com/4.jpg");
+    let output = compile(
+        "@page T\n@image https://example.com/1.jpg\n@image https://example.com/2.jpg\n@image https://example.com/3.jpg\n@image https://example.com/4.jpg",
+    );
     // First 3 images: fetchpriority="high", no lazy loading
     assert!(output.contains("fetchpriority=\"high\""));
     // 4th image: loading="lazy" + decoding="async"
@@ -935,13 +962,17 @@ fn comparison_operators_contains() {
 
 #[test]
 fn comparison_operators_starts_with() {
-    let output = compile("@page T\n@let url https://example.com\n@if $url starts-with https\n  @text secure");
+    let output = compile(
+        "@page T\n@let url https://example.com\n@if $url starts-with https\n  @text secure",
+    );
     assert!(output.contains("secure"));
 }
 
 #[test]
 fn string_concat_operator() {
-    let output = compile("@page T\n@let first Hello\n@let last World\n@let full $first ~ \" \" ~ $last\n@text $full");
+    let output = compile(
+        "@page T\n@let first Hello\n@let last World\n@let full $first ~ \" \" ~ $last\n@text $full",
+    );
     assert!(output.contains("Hello World"), "got: {}", output);
 }
 
@@ -1005,7 +1036,9 @@ fn internal_link_no_noopener() {
 
 #[test]
 fn dns_prefetch_for_external_domains() {
-    let output = compile("@page T\n@link https://example.com\n  Link\n@image https://cdn.example.org/img.jpg");
+    let output = compile(
+        "@page T\n@link https://example.com\n  Link\n@image https://cdn.example.org/img.jpg",
+    );
     assert!(output.contains("dns-prefetch"));
     assert!(output.contains("example.com"));
 }
@@ -1026,7 +1059,12 @@ fn aria_live_passthrough() {
 #[test]
 fn defer_directive() {
     let result = htmlang::parser::parse("@page T\n@defer\n  @el\n    Lazy content");
-    assert!(result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != htmlang::parser::Severity::Error)
+    );
     let html = htmlang::codegen::generate(&result.document);
     assert!(html.contains("data-hl-defer"));
     assert!(html.contains("IntersectionObserver"));
@@ -1053,7 +1091,9 @@ fn comparison_ends_with() {
 fn warning_ordered_on_non_list() {
     let diags = parse_diagnostics("@el [ordered]");
     assert!(
-        diags.iter().any(|d| d.message.contains("ordered") && d.message.contains("@list")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("ordered") && d.message.contains("@list")),
         "expected ordered on non-list warning, got: {:?}",
         diags
     );
@@ -1063,7 +1103,9 @@ fn warning_ordered_on_non_list() {
 fn no_warning_ordered_on_list() {
     let diags = parse_diagnostics("@list [ordered]\n  @item x");
     assert!(
-        !diags.iter().any(|d| d.message.contains("ordered") && d.message.contains("no effect")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("ordered") && d.message.contains("no effect")),
         "should not warn about ordered on @list, got: {:?}",
         diags
     );
@@ -1073,7 +1115,9 @@ fn no_warning_ordered_on_list() {
 fn warning_controls_on_non_media() {
     let diags = parse_diagnostics("@el [controls]");
     assert!(
-        diags.iter().any(|d| d.message.contains("controls") && d.message.contains("@video")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("controls") && d.message.contains("@video")),
         "expected controls on non-media warning, got: {:?}",
         diags
     );
@@ -1087,7 +1131,10 @@ fn warning_controls_on_non_media() {
 fn fmt_normalizes_indentation() {
     let input = "@row\n      @col\n            @text hello\n      @col\n            @text world";
     let formatted = htmlang::fmt::format(input);
-    assert_eq!(formatted, "@row\n  @col\n    @text hello\n  @col\n    @text world\n");
+    assert_eq!(
+        formatted,
+        "@row\n  @col\n    @text hello\n  @col\n    @text world\n"
+    );
 }
 
 #[test]
@@ -1363,7 +1410,9 @@ fn each_destructuring_pairs() {
 fn warning_missing_alt_on_image() {
     let diags = parse_diagnostics("@image photo.jpg");
     assert!(
-        diags.iter().any(|d| d.message.contains("alt") && d.message.contains("accessibility")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("alt") && d.message.contains("accessibility")),
         "expected missing alt warning, got: {:?}",
         diags
     );
@@ -1373,7 +1422,9 @@ fn warning_missing_alt_on_image() {
 fn no_warning_with_alt_on_image() {
     let diags = parse_diagnostics("@image [alt A photo] photo.jpg");
     assert!(
-        !diags.iter().any(|d| d.message.contains("missing") && d.message.contains("alt")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("missing") && d.message.contains("alt")),
         "should not warn when alt is present, got: {:?}",
         diags
     );
@@ -1383,7 +1434,9 @@ fn no_warning_with_alt_on_image() {
 fn warning_invalid_hex_color() {
     let diags = parse_diagnostics("@el [color #ggg]");
     assert!(
-        diags.iter().any(|d| d.message.contains("invalid hex color")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("invalid hex color")),
         "expected invalid hex color warning, got: {:?}",
         diags
     );
@@ -1393,7 +1446,9 @@ fn warning_invalid_hex_color() {
 fn no_warning_valid_hex_color() {
     let diags = parse_diagnostics("@el [color #ff0000]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("invalid hex color")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("invalid hex color")),
         "should not warn on valid hex color, got: {:?}",
         diags
     );
@@ -1403,7 +1458,9 @@ fn no_warning_valid_hex_color() {
 fn warning_duplicate_attribute() {
     let diags = parse_diagnostics("@el [padding 10, padding 20]");
     assert!(
-        diags.iter().any(|d| d.message.contains("duplicate attribute")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("duplicate attribute")),
         "expected duplicate attribute warning, got: {:?}",
         diags
     );
@@ -1594,7 +1651,9 @@ fn css_border_collapse() {
 
 #[test]
 fn css_text_decoration_full() {
-    let output = compile("@page T\n@text [text-decoration underline, text-decoration-color red, text-decoration-style wavy] Hello");
+    let output = compile(
+        "@page T\n@text [text-decoration underline, text-decoration-color red, text-decoration-style wavy] Hello",
+    );
     assert!(output.contains("text-decoration:underline"));
     assert!(output.contains("text-decoration-color:red"));
     assert!(output.contains("text-decoration-style:wavy"));
@@ -1652,9 +1711,13 @@ fn favicon_fallback_href() {
 
 #[test]
 fn no_warning_new_pseudo_prefixes() {
-    let diags = parse_diagnostics("@el [focus-visible:border 2 blue, disabled:opacity 0.5, checked:background green]");
+    let diags = parse_diagnostics(
+        "@el [focus-visible:border 2 blue, disabled:opacity 0.5, checked:background green]",
+    );
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "new pseudo-state prefixes should be recognized, got: {:?}",
         diags
     );
@@ -1662,9 +1725,13 @@ fn no_warning_new_pseudo_prefixes() {
 
 #[test]
 fn no_warning_child_selectors() {
-    let diags = parse_diagnostics("@el [first:padding 0, last:padding 0, odd:background #eee, even:background white]");
+    let diags = parse_diagnostics(
+        "@el [first:padding 0, last:padding 0, odd:background #eee, even:background white]",
+    );
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "child selectors should be recognized, got: {:?}",
         diags
     );
@@ -1672,9 +1739,13 @@ fn no_warning_child_selectors() {
 
 #[test]
 fn no_warning_new_css_attrs() {
-    let diags = parse_diagnostics("@el [overflow-x hidden, overflow-y auto, inset 0, accent-color blue, hidden]");
+    let diags = parse_diagnostics(
+        "@el [overflow-x hidden, overflow-y auto, inset 0, accent-color blue, hidden]",
+    );
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "new CSS attrs should be recognized, got: {:?}",
         diags
     );
@@ -1766,7 +1837,9 @@ fn element_fieldset_legend() {
 
 #[test]
 fn element_picture_source() {
-    let output = compile("@page T\n@picture\n  @source [srcset wide.jpg, media (min-width: 800px)]\n  @image [alt Photo] photo.jpg");
+    let output = compile(
+        "@page T\n@picture\n  @source [srcset wide.jpg, media (min-width: 800px)]\n  @image [alt Photo] photo.jpg",
+    );
     assert!(output.contains("<picture"));
     assert!(output.contains("<source"));
     assert!(output.contains("srcset=\"wide.jpg\""));
@@ -1960,7 +2033,9 @@ fn unless_true_hides_content() {
 
 #[test]
 fn og_tags_in_output() {
-    let output = compile("@page T\n@og title \"My Page\"\n@og image \"https://example.com/img.png\"\n@text Hello");
+    let output = compile(
+        "@page T\n@og title \"My Page\"\n@og image \"https://example.com/img.png\"\n@text Hello",
+    );
     assert!(output.contains("og:title"));
     assert!(output.contains("My Page"));
     assert!(output.contains("og:image"));
@@ -2030,10 +2105,12 @@ fn no_warning_link_with_text() {
 #[test]
 fn no_warning_new_css_properties_2() {
     let diags = parse_diagnostics(
-        "@el [clip-path circle(50%), mix-blend-mode multiply, writing-mode vertical-rl, isolation isolate]"
+        "@el [clip-path circle(50%), mix-blend-mode multiply, writing-mode vertical-rl, isolation isolate]",
     );
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "new CSS properties should be recognized, got: {:?}",
         diags
     );
@@ -2042,10 +2119,12 @@ fn no_warning_new_css_properties_2() {
 #[test]
 fn no_warning_new_css_properties_3() {
     let diags = parse_diagnostics(
-        "@el [column-count 3, column-gap 20, text-indent 2em, hyphens auto, flex-grow 1, flex-shrink 0, flex-basis 200, place-content center, background-image url(x)]"
+        "@el [column-count 3, column-gap 20, text-indent 2em, hyphens auto, flex-grow 1, flex-shrink 0, flex-basis 200, place-content center, background-image url(x)]",
     );
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "new CSS properties should be recognized, got: {:?}",
         diags
     );
@@ -2054,10 +2133,12 @@ fn no_warning_new_css_properties_3() {
 #[test]
 fn no_warning_new_media_prefixes() {
     let diags = parse_diagnostics(
-        "@el [2xl:padding 40, motion-safe:animation none, motion-reduce:transition none, landscape:width 100%, portrait:padding 20]"
+        "@el [2xl:padding 40, motion-safe:animation none, motion-reduce:transition none, landscape:width 100%, portrait:padding 20]",
     );
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "new media prefixes should be recognized, got: {:?}",
         diags
     );
@@ -2075,27 +2156,43 @@ fn snapshot_if_expr() {
 #[test]
 fn if_expr_true_branch() {
     let output = compile("@let x true\n@el [background if($x, blue, gray)]\n  test");
-    assert!(output.contains("blue"), "should use true branch, got: {}", output);
+    assert!(
+        output.contains("blue"),
+        "should use true branch, got: {}",
+        output
+    );
     assert!(!output.contains("gray"), "should not contain false branch");
 }
 
 #[test]
 fn if_expr_false_branch() {
     let output = compile("@let x false\n@el [background if($x, blue, gray)]\n  test");
-    assert!(output.contains("gray"), "should use false branch, got: {}", output);
+    assert!(
+        output.contains("gray"),
+        "should use false branch, got: {}",
+        output
+    );
     assert!(!output.contains("blue"), "should not contain true branch");
 }
 
 #[test]
 fn if_expr_equality_condition() {
     let output = compile("@let theme dark\n@el [color if($theme == dark, white, black)]\n  test");
-    assert!(output.contains("white"), "should match equality, got: {}", output);
+    assert!(
+        output.contains("white"),
+        "should match equality, got: {}",
+        output
+    );
 }
 
 #[test]
 fn if_expr_inequality_condition() {
     let output = compile("@let mode light\n@el [color if($mode != dark, green, red)]\n  test");
-    assert!(output.contains("green"), "should match inequality, got: {}", output);
+    assert!(
+        output.contains("green"),
+        "should match inequality, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -2119,7 +2216,11 @@ fn convert_basic_div() {
 #[test]
 fn convert_paragraph() {
     let hl = htmlang::convert::convert("<p>Some text</p>");
-    assert!(hl.contains("@paragraph"), "p should become @paragraph: {}", hl);
+    assert!(
+        hl.contains("@paragraph"),
+        "p should become @paragraph: {}",
+        hl
+    );
 }
 
 #[test]
@@ -2162,7 +2263,11 @@ fn convert_list() {
 #[test]
 fn convert_ordered_list() {
     let hl = htmlang::convert::convert("<ol><li>First</li></ol>");
-    assert!(hl.contains("@list [ordered]"), "ol becomes @list [ordered]: {}", hl);
+    assert!(
+        hl.contains("@list [ordered]"),
+        "ol becomes @list [ordered]: {}",
+        hl
+    );
 }
 
 #[test]
@@ -2183,8 +2288,14 @@ fn convert_table() {
 
 #[test]
 fn convert_strips_html_boilerplate() {
-    let hl = htmlang::convert::convert("<!DOCTYPE html><html><head><title>T</title></head><body><p>Hi</p></body></html>");
-    assert!(hl.contains("@paragraph"), "should extract body content: {}", hl);
+    let hl = htmlang::convert::convert(
+        "<!DOCTYPE html><html><head><title>T</title></head><body><p>Hi</p></body></html>",
+    );
+    assert!(
+        hl.contains("@paragraph"),
+        "should extract body content: {}",
+        hl
+    );
     assert!(!hl.contains("DOCTYPE"), "should strip doctype: {}", hl);
 }
 
@@ -2192,7 +2303,11 @@ fn convert_strips_html_boilerplate() {
 fn convert_inline_style() {
     let hl = htmlang::convert::convert("<div style=\"padding: 20px; background: red;\">X</div>");
     assert!(hl.contains("padding 20"), "padding converted: {}", hl);
-    assert!(hl.contains("background red"), "background converted: {}", hl);
+    assert!(
+        hl.contains("background red"),
+        "background converted: {}",
+        hl
+    );
 }
 
 #[test]
@@ -2228,8 +2343,13 @@ fn snapshot_each_else() {
 #[test]
 fn each_else_empty_list() {
     // Variable that resolves to empty string: @each produces no items → @else fires
-    let output = compile("@let empty \"\"\n@each $item in $empty\n  @text $item\n@else\n  @text fallback");
-    assert!(output.contains("fallback"), "should render @else block when list is empty: {}", output);
+    let output =
+        compile("@let empty \"\"\n@each $item in $empty\n  @text $item\n@else\n  @text fallback");
+    assert!(
+        output.contains("fallback"),
+        "should render @else block when list is empty: {}",
+        output
+    );
 }
 
 #[test]
@@ -2237,72 +2357,136 @@ fn each_else_non_empty_list() {
     let output = compile("@each $x in a,b\n  @text $x\n@else\n  @text empty");
     assert!(output.contains("a"), "should render loop items: {}", output);
     assert!(output.contains("b"), "should render loop items: {}", output);
-    assert!(!output.contains("empty"), "should not render @else block when list is non-empty: {}", output);
+    assert!(
+        !output.contains("empty"),
+        "should not render @else block when list is non-empty: {}",
+        output
+    );
 }
 
 #[test]
 fn pseudo_element_before_content() {
     let output = compile("@el [before:content arrow, before:color red]\n  Hello");
-    assert!(output.contains("::before"), "should generate ::before CSS: {}", output);
-    assert!(output.contains("content:\"arrow\""), "should generate content property: {}", output);
-    assert!(output.contains("color:red"), "should generate color in ::before: {}", output);
+    assert!(
+        output.contains("::before"),
+        "should generate ::before CSS: {}",
+        output
+    );
+    assert!(
+        output.contains("content:\"arrow\""),
+        "should generate content property: {}",
+        output
+    );
+    assert!(
+        output.contains("color:red"),
+        "should generate color in ::before: {}",
+        output
+    );
 }
 
 #[test]
 fn pseudo_element_after_content() {
     let output = compile("@el [after:content ✓]\n  Done");
-    assert!(output.contains("::after"), "should generate ::after CSS: {}", output);
-    assert!(output.contains("content:\"✓\""), "should generate content: {}", output);
+    assert!(
+        output.contains("::after"),
+        "should generate ::after CSS: {}",
+        output
+    );
+    assert!(
+        output.contains("content:\"✓\""),
+        "should generate content: {}",
+        output
+    );
 }
 
 #[test]
 fn css_font_weight_numeric() {
     let output = compile("@text [font-weight 300] Light text");
-    assert!(output.contains("font-weight:300"), "should generate font-weight CSS: {}", output);
+    assert!(
+        output.contains("font-weight:300"),
+        "should generate font-weight CSS: {}",
+        output
+    );
 }
 
 #[test]
 fn css_text_wrap_balance() {
     let output = compile("@text [text-wrap balance] Balanced");
-    assert!(output.contains("text-wrap:balance"), "should generate text-wrap CSS: {}", output);
+    assert!(
+        output.contains("text-wrap:balance"),
+        "should generate text-wrap CSS: {}",
+        output
+    );
 }
 
 #[test]
 fn css_touch_action() {
     let output = compile("@el [touch-action none]\n  No touch");
-    assert!(output.contains("touch-action:none"), "should generate touch-action CSS: {}", output);
+    assert!(
+        output.contains("touch-action:none"),
+        "should generate touch-action CSS: {}",
+        output
+    );
 }
 
 #[test]
 fn css_content_visibility() {
     let output = compile("@el [content-visibility auto]\n  Lazy");
-    assert!(output.contains("content-visibility:auto"), "should generate content-visibility CSS: {}", output);
+    assert!(
+        output.contains("content-visibility:auto"),
+        "should generate content-visibility CSS: {}",
+        output
+    );
 }
 
 #[test]
 fn css_scroll_margin() {
     let output = compile("@el [scroll-margin-top 80]\n  Offset");
-    assert!(output.contains("scroll-margin-top:80px"), "should generate scroll-margin-top CSS: {}", output);
+    assert!(
+        output.contains("scroll-margin-top:80px"),
+        "should generate scroll-margin-top CSS: {}",
+        output
+    );
 }
 
 #[test]
 fn element_iframe() {
     let output = compile("@iframe [width fill, height 400] https://example.com");
-    assert!(output.contains("<iframe"), "should generate iframe tag: {}", output);
-    assert!(output.contains("src=\"https://example.com\""), "should have src: {}", output);
+    assert!(
+        output.contains("<iframe"),
+        "should generate iframe tag: {}",
+        output
+    );
+    assert!(
+        output.contains("src=\"https://example.com\""),
+        "should have src: {}",
+        output
+    );
 }
 
 #[test]
 fn element_canvas() {
     let output = compile("@canvas [width 400, height 300, id myCanvas]");
-    assert!(output.contains("<canvas"), "should generate canvas tag: {}", output);
-    assert!(output.contains("id=\"myCanvas\""), "should have id: {}", output);
+    assert!(
+        output.contains("<canvas"),
+        "should generate canvas tag: {}",
+        output
+    );
+    assert!(
+        output.contains("id=\"myCanvas\""),
+        "should have id: {}",
+        output
+    );
 }
 
 #[test]
 fn element_output() {
     let output = compile("@output [for a b]\n  42");
-    assert!(output.contains("<output"), "should generate output tag: {}", output);
+    assert!(
+        output.contains("<output"),
+        "should generate output tag: {}",
+        output
+    );
 }
 
 // =========================================================================
@@ -2339,8 +2523,16 @@ fn snapshot_direction_attr() {
 #[test]
 fn element_grid() {
     let output = compile("@page T\n@grid [grid-cols 3, gap 16]\n  @el\n    @text A");
-    assert!(output.contains("display:grid"), "grid should have display:grid: {}", output);
-    assert!(output.contains("grid-template-columns:repeat(3,1fr)"), "should have 3 cols: {}", output);
+    assert!(
+        output.contains("display:grid"),
+        "grid should have display:grid: {}",
+        output
+    );
+    assert!(
+        output.contains("grid-template-columns:repeat(3,1fr)"),
+        "should have 3 cols: {}",
+        output
+    );
 }
 
 // --- Stack element ---
@@ -2348,7 +2540,11 @@ fn element_grid() {
 #[test]
 fn element_stack() {
     let output = compile("@page T\n@stack [width 200, height 200]\n  @el\n    @text Layer");
-    assert!(output.contains("position:relative"), "stack should have position:relative: {}", output);
+    assert!(
+        output.contains("position:relative"),
+        "stack should have position:relative: {}",
+        output
+    );
 }
 
 // --- Spacer element ---
@@ -2356,7 +2552,11 @@ fn element_stack() {
 #[test]
 fn element_spacer() {
     let output = compile("@page T\n@row\n  @text Left\n  @spacer\n  @text Right");
-    assert!(output.contains("flex:1"), "spacer should have flex:1: {}", output);
+    assert!(
+        output.contains("flex:1"),
+        "spacer should have flex:1: {}",
+        output
+    );
 }
 
 // --- Badge element ---
@@ -2364,8 +2564,16 @@ fn element_spacer() {
 #[test]
 fn element_badge() {
     let output = compile("@page T\n@badge [background red, color white] 3");
-    assert!(output.contains("<span"), "badge renders as span: {}", output);
-    assert!(output.contains("border-radius:9999px"), "badge should be pill-shaped: {}", output);
+    assert!(
+        output.contains("<span"),
+        "badge renders as span: {}",
+        output
+    );
+    assert!(
+        output.contains("border-radius:9999px"),
+        "badge should be pill-shaped: {}",
+        output
+    );
     assert!(output.contains("3"), "badge content: {}", output);
 }
 
@@ -2374,8 +2582,16 @@ fn element_badge() {
 #[test]
 fn element_tooltip() {
     let output = compile("@page T\n@tooltip Hover for info\n  @text Help");
-    assert!(output.contains("title=\"Hover for info\""), "tooltip should have title attr: {}", output);
-    assert!(output.contains("cursor:help"), "tooltip should have cursor:help: {}", output);
+    assert!(
+        output.contains("title=\"Hover for info\""),
+        "tooltip should have title attr: {}",
+        output
+    );
+    assert!(
+        output.contains("cursor:help"),
+        "tooltip should have cursor:help: {}",
+        output
+    );
 }
 
 // --- @each step ---
@@ -2404,9 +2620,18 @@ fn each_step_reverse() {
 
 #[test]
 fn selection_pseudo_generates_css() {
-    let output = compile("@page T\n@text [selection:background blue, selection:color white] Select me");
-    assert!(output.contains("::selection"), "should generate ::selection: {}", output);
-    assert!(output.contains("background:blue"), "should have bg: {}", output);
+    let output =
+        compile("@page T\n@text [selection:background blue, selection:color white] Select me");
+    assert!(
+        output.contains("::selection"),
+        "should generate ::selection: {}",
+        output
+    );
+    assert!(
+        output.contains("background:blue"),
+        "should have bg: {}",
+        output
+    );
 }
 
 // --- nth: pseudo ---
@@ -2414,14 +2639,26 @@ fn selection_pseudo_generates_css() {
 #[test]
 fn nth_pseudo_generates_css() {
     let output = compile("@page T\n@el [nth:3:background red]\n  @text test");
-    assert!(output.contains(":nth-child(3)"), "should generate :nth-child(3): {}", output);
-    assert!(output.contains("background:red"), "should have bg: {}", output);
+    assert!(
+        output.contains(":nth-child(3)"),
+        "should generate :nth-child(3): {}",
+        output
+    );
+    assert!(
+        output.contains("background:red"),
+        "should have bg: {}",
+        output
+    );
 }
 
 #[test]
 fn nth_pseudo_formula() {
     let output = compile("@page T\n@el [nth:2n:background #eee]\n  @text test");
-    assert!(output.contains(":nth-child(2n)"), "should generate :nth-child(2n): {}", output);
+    assert!(
+        output.contains(":nth-child(2n)"),
+        "should generate :nth-child(2n): {}",
+        output
+    );
 }
 
 // --- container query prefix ---
@@ -2429,8 +2666,16 @@ fn nth_pseudo_formula() {
 #[test]
 fn container_query_generates_css() {
     let output = compile("@page T\n@el [container]\n  @el [cq-sm:padding 20]\n    @text test");
-    assert!(output.contains("@container(min-width:640px)"), "should generate container query: {}", output);
-    assert!(output.contains("padding:20px"), "should have padding: {}", output);
+    assert!(
+        output.contains("@container(min-width:640px)"),
+        "should generate container query: {}",
+        output
+    );
+    assert!(
+        output.contains("padding:20px"),
+        "should have padding: {}",
+        output
+    );
 }
 
 // --- direction attribute ---
@@ -2438,7 +2683,11 @@ fn container_query_generates_css() {
 #[test]
 fn direction_rtl() {
     let output = compile("@page T\n@el [direction rtl]\n  @text RTL text");
-    assert!(output.contains("direction:rtl"), "should generate direction:rtl: {}", output);
+    assert!(
+        output.contains("direction:rtl"),
+        "should generate direction:rtl: {}",
+        output
+    );
 }
 
 // --- contrast checker ---
@@ -2447,7 +2696,9 @@ fn direction_rtl() {
 fn warning_low_contrast() {
     let diags = parse_diagnostics("@el [background #ffffff, color #cccccc]\n  @text test");
     assert!(
-        diags.iter().any(|d| d.message.contains("low contrast ratio")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("low contrast ratio")),
         "should warn about low contrast, got: {:?}",
         diags
     );
@@ -2457,7 +2708,9 @@ fn warning_low_contrast() {
 fn no_warning_good_contrast() {
     let diags = parse_diagnostics("@el [background #ffffff, color #000000]\n  @text test");
     assert!(
-        !diags.iter().any(|d| d.message.contains("low contrast ratio")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("low contrast ratio")),
         "should not warn about good contrast, got: {:?}",
         diags
     );
@@ -2469,7 +2722,9 @@ fn no_warning_good_contrast() {
 fn no_warning_selection_prefix() {
     let diags = parse_diagnostics("@el [selection:background blue]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "selection: prefix should be recognized, got: {:?}",
         diags
     );
@@ -2479,7 +2734,9 @@ fn no_warning_selection_prefix() {
 fn no_warning_nth_prefix() {
     let diags = parse_diagnostics("@el [nth:3:background red]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "nth: prefix should be recognized, got: {:?}",
         diags
     );
@@ -2489,7 +2746,9 @@ fn no_warning_nth_prefix() {
 fn no_warning_cq_prefix() {
     let diags = parse_diagnostics("@el [cq-sm:padding 20]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "cq- prefix should be recognized, got: {:?}",
         diags
     );
@@ -2499,7 +2758,9 @@ fn no_warning_cq_prefix() {
 fn no_warning_direction_attr() {
     let diags = parse_diagnostics("@el [direction rtl]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "direction should be recognized, got: {:?}",
         diags
     );
@@ -2510,31 +2771,41 @@ fn no_warning_new_elements() {
     // Grid, stack, spacer, badge, tooltip should all parse without errors
     let diags = parse_diagnostics("@grid\n  @text A");
     assert!(
-        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
         "grid should parse, got: {:?}",
         diags
     );
     let diags = parse_diagnostics("@stack\n  @text A");
     assert!(
-        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
         "stack should parse, got: {:?}",
         diags
     );
     let diags = parse_diagnostics("@row\n  @spacer");
     assert!(
-        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
         "spacer should parse, got: {:?}",
         diags
     );
     let diags = parse_diagnostics("@badge [background red] 5");
     assert!(
-        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
         "badge should parse, got: {:?}",
         diags
     );
     let diags = parse_diagnostics("@tooltip Help text\n  @text Hover");
     assert!(
-        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
         "tooltip should parse, got: {:?}",
         diags
     );
@@ -2560,92 +2831,188 @@ fn snapshot_css_shorthands() {
 #[test]
 fn test_variable_filters() {
     let result = htmlang::parser::parse("@let name hello\n@text $name|uppercase");
-    assert!(result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != htmlang::parser::Severity::Error)
+    );
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("HELLO"), "uppercase filter should work, got: {}", html);
+    assert!(
+        html.contains("HELLO"),
+        "uppercase filter should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@let name HELLO\n@text $name|lowercase");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("hello"), "lowercase filter should work, got: {}", html);
+    assert!(
+        html.contains("hello"),
+        "lowercase filter should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@let name hello\n@text $name|capitalize");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("Hello"), "capitalize filter should work, got: {}", html);
+    assert!(
+        html.contains("Hello"),
+        "capitalize filter should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@let name hello\n@text $name|length");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("5"), "length filter should work, got: {}", html);
+    assert!(
+        html.contains("5"),
+        "length filter should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@let name hello\n@text $name|reverse");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("olleh"), "reverse filter should work, got: {}", html);
+    assert!(
+        html.contains("olleh"),
+        "reverse filter should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@let name hello world\n@text $name|truncate:5");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("hello..."), "truncate filter should work, got: {}", html);
+    assert!(
+        html.contains("hello..."),
+        "truncate filter should work, got: {}",
+        html
+    );
 }
 
 #[test]
 fn test_new_elements_parse() {
     // Avatar
     let diags = parse_diagnostics("@avatar [width 48, height 48]\n  @text AB");
-    assert!(!diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error), "avatar: {:?}", diags);
+    assert!(
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
+        "avatar: {:?}",
+        diags
+    );
 
     // Carousel
     let diags = parse_diagnostics("@carousel [gap 16]\n  @el Slide 1");
-    assert!(!diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error), "carousel: {:?}", diags);
+    assert!(
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
+        "carousel: {:?}",
+        diags
+    );
 
     // Chip
     let diags = parse_diagnostics("@chip [background #eee] Tag");
-    assert!(!diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error), "chip: {:?}", diags);
+    assert!(
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
+        "chip: {:?}",
+        diags
+    );
 
     // Tag
     let diags = parse_diagnostics("@tag [color blue] v1.0");
-    assert!(!diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error), "tag: {:?}", diags);
+    assert!(
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
+        "tag: {:?}",
+        diags
+    );
 }
 
 #[test]
 fn test_css_shorthands_output() {
     let result = htmlang::parser::parse("@text [truncate] Hello");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("text-overflow:ellipsis"), "truncate should add ellipsis, got: {}", html);
-    assert!(html.contains("white-space:nowrap"), "truncate should add nowrap");
+    assert!(
+        html.contains("text-overflow:ellipsis"),
+        "truncate should add ellipsis, got: {}",
+        html
+    );
+    assert!(
+        html.contains("white-space:nowrap"),
+        "truncate should add nowrap"
+    );
 
     let result = htmlang::parser::parse("@paragraph [line-clamp 3] Text");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("-webkit-line-clamp:3"), "line-clamp should work, got: {}", html);
+    assert!(
+        html.contains("-webkit-line-clamp:3"),
+        "line-clamp should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@el [blur 4] Content");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("filter:blur(4px)"), "blur should work, got: {}", html);
+    assert!(
+        html.contains("filter:blur(4px)"),
+        "blur should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@el [backdrop-blur 10] Content");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("backdrop-filter:blur(10px)"), "backdrop-blur should work, got: {}", html);
+    assert!(
+        html.contains("backdrop-filter:blur(10px)"),
+        "backdrop-blur should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@el [no-scrollbar] Content");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("scrollbar-width:none"), "no-scrollbar should work, got: {}", html);
+    assert!(
+        html.contains("scrollbar-width:none"),
+        "no-scrollbar should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@el [skeleton, width 100, height 20] Content");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("hl-skeleton"), "skeleton should add animation, got: {}", html);
-    assert!(html.contains("@keyframes hl-skeleton"), "skeleton should add keyframes, got: {}", html);
+    assert!(
+        html.contains("hl-skeleton"),
+        "skeleton should add animation, got: {}",
+        html
+    );
+    assert!(
+        html.contains("@keyframes hl-skeleton"),
+        "skeleton should add keyframes, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@el [gradient #fff #000] Content");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("linear-gradient(#fff,#000)"), "gradient should work, got: {}", html);
+    assert!(
+        html.contains("linear-gradient(#fff,#000)"),
+        "gradient should work, got: {}",
+        html
+    );
 
     let result = htmlang::parser::parse("@el [gradient #fff #000 45deg] Content");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("linear-gradient(45deg,#fff,#000)"), "gradient with angle should work, got: {}", html);
+    assert!(
+        html.contains("linear-gradient(45deg,#fff,#000)"),
+        "gradient with angle should work, got: {}",
+        html
+    );
 }
 
 #[test]
 fn test_carousel_children_snap() {
     let result = htmlang::parser::parse("@carousel\n  @el A\n  @el B");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("scroll-snap-align:start"), "carousel children should have snap-align, got: {}", html);
+    assert!(
+        html.contains("scroll-snap-align:start"),
+        "carousel children should have snap-align, got: {}",
+        html
+    );
 }
 
 #[test]
@@ -2653,110 +3020,206 @@ fn test_use_directive() {
     // We can't test @use with actual files in unit tests easily, but we can verify
     // the parser recognizes the directive without errors when it can't find the file
     let result = htmlang::parser::parse("@use nonexistent.hl card");
-    let has_use_error = result.diagnostics.iter().any(|d|
+    let has_use_error = result.diagnostics.iter().any(|d| {
         d.message.contains("cannot use") && d.severity == htmlang::parser::Severity::Error
+    });
+    assert!(
+        has_use_error,
+        "@use should report error for missing file, got: {:?}",
+        result.diagnostics
     );
-    assert!(has_use_error, "@use should report error for missing file, got: {:?}", result.diagnostics);
 }
 
 #[test]
 fn test_enhanced_keyframes() {
-    let result = htmlang::parser::parse("@keyframes fade-in\n  from [opacity 0]\n  to [opacity 1]\n@el [animation fade-in 0.3s] Content");
+    let result = htmlang::parser::parse(
+        "@keyframes fade-in\n  from [opacity 0]\n  to [opacity 1]\n@el [animation fade-in 0.3s] Content",
+    );
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("@keyframes fade-in{from{opacity:0;}to{opacity:1;}}"), "keyframes should parse htmlang syntax, got: {}", html);
+    assert!(
+        html.contains("@keyframes fade-in{from{opacity:0;}to{opacity:1;}}"),
+        "keyframes should parse htmlang syntax, got: {}",
+        html
+    );
 }
 
 #[test]
 fn test_keyframes_percentage() {
-    let result = htmlang::parser::parse("@keyframes slide\n  0% [transform translateX(-100%)]\n  100% [transform translateX(0)]");
+    let result = htmlang::parser::parse(
+        "@keyframes slide\n  0% [transform translateX(-100%)]\n  100% [transform translateX(0)]",
+    );
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("0%{transform:translateX(-100%);}"), "keyframe percentage should work, got: {}", html);
+    assert!(
+        html.contains("0%{transform:translateX(-100%);}"),
+        "keyframe percentage should work, got: {}",
+        html
+    );
 }
 
 #[test]
 fn test_theme_directive() {
-    let result = htmlang::parser::parse("@theme\n  primary #3b82f6\n  spacing-md 16\n\n@el [background $primary, padding $spacing-md] Content");
+    let result = htmlang::parser::parse(
+        "@theme\n  primary #3b82f6\n  spacing-md 16\n\n@el [background $primary, padding $spacing-md] Content",
+    );
     let diags = &result.diagnostics;
-    let errors: Vec<_> = diags.iter().filter(|d| d.severity == htmlang::parser::Severity::Error).collect();
-    assert!(errors.is_empty(), "theme should not cause errors: {:?}", errors);
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.severity == htmlang::parser::Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "theme should not cause errors: {:?}",
+        errors
+    );
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("--primary:#3b82f6"), "theme should emit CSS vars, got: {}", html);
-    assert!(html.contains("--spacing-md:16"), "theme should emit spacing var, got: {}", html);
-    assert!(html.contains("background:#3b82f6"), "theme var should resolve in attrs, got: {}", html);
+    assert!(
+        html.contains("--primary:#3b82f6"),
+        "theme should emit CSS vars, got: {}",
+        html
+    );
+    assert!(
+        html.contains("--spacing-md:16"),
+        "theme should emit spacing var, got: {}",
+        html
+    );
+    assert!(
+        html.contains("background:#3b82f6"),
+        "theme var should resolve in attrs, got: {}",
+        html
+    );
 }
 
 #[test]
 fn test_deprecated_fn() {
-    let result = htmlang::parser::parse("@deprecated Use @new-card instead\n@fn old-card $title\n  @text $title\n\n@old-card [title Hello]");
-    let warnings: Vec<_> = result.diagnostics.iter()
+    let result = htmlang::parser::parse(
+        "@deprecated Use @new-card instead\n@fn old-card $title\n  @text $title\n\n@old-card [title Hello]",
+    );
+    let warnings: Vec<_> = result
+        .diagnostics
+        .iter()
         .filter(|d| d.message.contains("deprecated"))
         .collect();
-    assert!(!warnings.is_empty(), "calling deprecated fn should warn, got: {:?}", result.diagnostics);
-    assert!(warnings[0].message.contains("Use @new-card instead"), "deprecation message should be included");
+    assert!(
+        !warnings.is_empty(),
+        "calling deprecated fn should warn, got: {:?}",
+        result.diagnostics
+    );
+    assert!(
+        warnings[0].message.contains("Use @new-card instead"),
+        "deprecation message should be included"
+    );
 }
 
 #[test]
 fn test_extends_directive() {
     // Can't test with actual files, but verify parse error for missing file
     let result = htmlang::parser::parse("@extends nonexistent.hl\n@slot content\n  Hello");
-    let has_error = result.diagnostics.iter().any(|d|
+    let has_error = result.diagnostics.iter().any(|d| {
         d.message.contains("cannot extend") && d.severity == htmlang::parser::Severity::Error
+    });
+    assert!(
+        has_error,
+        "@extends should report error for missing file, got: {:?}",
+        result.diagnostics
     );
-    assert!(has_error, "@extends should report error for missing file, got: {:?}", result.diagnostics);
 }
 
 #[test]
 fn test_color_filter_lighten() {
-    let result = htmlang::parser::parse("@let primary #3b82f6\n@el [background $primary|lighten:20] Content");
+    let result = htmlang::parser::parse(
+        "@let primary #3b82f6\n@el [background $primary|lighten:20] Content",
+    );
     let html = htmlang::codegen::generate(&result.document);
     // Lighten #3b82f6 by 20% should produce a lighter blue
-    assert!(html.contains("background:#"), "lighten filter should produce hex color, got: {}", html);
+    assert!(
+        html.contains("background:#"),
+        "lighten filter should produce hex color, got: {}",
+        html
+    );
     // Verify it's not the original color
-    assert!(!html.contains("background:#3b82f6"), "lighten should change the color");
+    assert!(
+        !html.contains("background:#3b82f6"),
+        "lighten should change the color"
+    );
 }
 
 #[test]
 fn test_color_filter_darken() {
-    let result = htmlang::parser::parse("@let primary #ffffff\n@el [background $primary|darken:50] Content");
+    let result =
+        htmlang::parser::parse("@let primary #ffffff\n@el [background $primary|darken:50] Content");
     let html = htmlang::codegen::generate(&result.document);
     // Darken white by 50% should produce gray (#808080 approximately)
-    assert!(html.contains("background:#"), "darken filter should produce hex color, got: {}", html);
-    assert!(!html.contains("background:#ffffff"), "darken should change the color");
+    assert!(
+        html.contains("background:#"),
+        "darken filter should produce hex color, got: {}",
+        html
+    );
+    assert!(
+        !html.contains("background:#ffffff"),
+        "darken should change the color"
+    );
 }
 
 #[test]
 fn test_color_filter_alpha() {
-    let result = htmlang::parser::parse("@let primary #3b82f6\n@el [background $primary|alpha:0.5] Content");
+    let result =
+        htmlang::parser::parse("@let primary #3b82f6\n@el [background $primary|alpha:0.5] Content");
     let html = htmlang::codegen::generate(&result.document);
     // Should produce 8-digit hex with alpha
-    assert!(html.contains("background:#3b82f67f"), "alpha filter should add alpha channel, got: {}", html);
+    assert!(
+        html.contains("background:#3b82f67f"),
+        "alpha filter should add alpha channel, got: {}",
+        html
+    );
 }
 
 #[test]
 fn test_color_filter_mix() {
-    let result = htmlang::parser::parse("@let primary #000000\n@el [background $primary|mix:#ffffff:50] Content");
+    let result = htmlang::parser::parse(
+        "@let primary #000000\n@el [background $primary|mix:#ffffff:50] Content",
+    );
     let html = htmlang::codegen::generate(&result.document);
     // Mix black and white at 50% should produce gray
-    assert!(html.contains("background:#808080") || html.contains("background:#7f7f7f"), "mix filter should blend colors, got: {}", html);
+    assert!(
+        html.contains("background:#808080") || html.contains("background:#7f7f7f"),
+        "mix filter should blend colors, got: {}",
+        html
+    );
 }
 
 #[test]
 fn test_autofocus_attribute() {
     let result = htmlang::parser::parse("@input [type text, autofocus]");
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("autofocus"), "autofocus should be in output, got: {}", html);
+    assert!(
+        html.contains("autofocus"),
+        "autofocus should be in output, got: {}",
+        html
+    );
     // Should not produce unknown attribute warning
-    let unknown_warnings: Vec<_> = result.diagnostics.iter()
+    let unknown_warnings: Vec<_> = result
+        .diagnostics
+        .iter()
         .filter(|d| d.message.contains("unknown attribute") && d.message.contains("autofocus"))
         .collect();
-    assert!(unknown_warnings.is_empty(), "autofocus should not warn as unknown");
+    assert!(
+        unknown_warnings.is_empty(),
+        "autofocus should not warn as unknown"
+    );
 }
 
 #[test]
 fn test_repl_components_feed_subcommands_recognized() {
     // Just verify that the parser and codegen work for content that these commands would process
-    let result = htmlang::parser::parse("@page Test Site\n@meta description A test\n@fn card $title\n  @text $title");
-    assert!(!result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error));
+    let result = htmlang::parser::parse(
+        "@page Test Site\n@meta description A test\n@fn card $title\n  @text $title",
+    );
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error)
+    );
 }
 
 // =========================================================================
@@ -2798,9 +3261,18 @@ fn snapshot_layer_wrapping() {
 
 #[test]
 fn grid_template_areas_passthrough() {
-    let output = compile("@page T\n@el [grid, grid-template-areas \"a b\"]\n  @el [grid-area a]\n    A");
-    assert!(output.contains("grid-template-areas:\"a b\""), "grid-template-areas should pass through: {}", output);
-    assert!(output.contains("grid-area:a"), "grid-area should pass through: {}", output);
+    let output =
+        compile("@page T\n@el [grid, grid-template-areas \"a b\"]\n  @el [grid-area a]\n    A");
+    assert!(
+        output.contains("grid-template-areas:\"a b\""),
+        "grid-template-areas should pass through: {}",
+        output
+    );
+    assert!(
+        output.contains("grid-area:a"),
+        "grid-area should pass through: {}",
+        output
+    );
 }
 
 // --- View transition assertions ---
@@ -2808,15 +3280,25 @@ fn grid_template_areas_passthrough() {
 #[test]
 fn view_transition_name_passthrough() {
     let output = compile("@page T\n@el [view-transition-name hero]\n  Content");
-    assert!(output.contains("view-transition-name:hero"), "view-transition-name should pass through: {}", output);
+    assert!(
+        output.contains("view-transition-name:hero"),
+        "view-transition-name should pass through: {}",
+        output
+    );
 }
 
 // --- Animate shorthand assertions ---
 
 #[test]
 fn animate_generates_animation_css() {
-    let output = compile("@page T\n@keyframes fade\n  from [opacity 0]\n  to [opacity 1]\n@el [animate fade 0.3s ease]\n  Content");
-    assert!(output.contains("animation:fade 0.3s ease"), "animate should generate animation CSS: {}", output);
+    let output = compile(
+        "@page T\n@keyframes fade\n  from [opacity 0]\n  to [opacity 1]\n@el [animate fade 0.3s ease]\n  Content",
+    );
+    assert!(
+        output.contains("animation:fade 0.3s ease"),
+        "animate should generate animation CSS: {}",
+        output
+    );
 }
 
 // --- :has() pseudo assertions ---
@@ -2824,15 +3306,25 @@ fn animate_generates_animation_css() {
 #[test]
 fn has_pseudo_generates_css() {
     let output = compile("@page T\n@el [has(.active):background blue]\n  Content");
-    assert!(output.contains(":has(.active)"), "should generate :has() selector: {}", output);
-    assert!(output.contains("background:blue"), "should have background:blue in :has() rule: {}", output);
+    assert!(
+        output.contains(":has(.active)"),
+        "should generate :has() selector: {}",
+        output
+    );
+    assert!(
+        output.contains("background:blue"),
+        "should have background:blue in :has() rule: {}",
+        output
+    );
 }
 
 #[test]
 fn has_pseudo_no_warning() {
     let diags = parse_diagnostics("@el [has(.child):background red]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "has() prefix should not produce unknown attribute warning: {:?}",
         diags
     );
@@ -2842,8 +3334,13 @@ fn has_pseudo_no_warning() {
 
 #[test]
 fn computed_let_equals_syntax() {
-    let output = compile("@page T\n@let base 10\n@let doubled = $base * 2\n@el [width $doubled]\n  test");
-    assert!(output.contains("width:20px"), "computed @let with = should work: {}", output);
+    let output =
+        compile("@page T\n@let base 10\n@let doubled = $base * 2\n@el [width $doubled]\n  test");
+    assert!(
+        output.contains("width:20px"),
+        "computed @let with = should work: {}",
+        output
+    );
 }
 
 // --- @layer wrapping assertions ---
@@ -2851,24 +3348,52 @@ fn computed_let_equals_syntax() {
 #[test]
 fn output_contains_layer_wrapping() {
     let output = compile("@page T\n@el [padding 10]\n  test");
-    assert!(output.contains("@layer htmlang{"), "output should contain @layer htmlang wrapper: {}", output);
+    assert!(
+        output.contains("@layer htmlang{"),
+        "output should contain @layer htmlang wrapper: {}",
+        output
+    );
 }
 
 // --- Named slots in @fn assertions ---
 
 #[test]
 fn fn_named_slots() {
-    let output = compile("@fn layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot header\n    Custom Header\n  @slot content\n    Page body");
-    assert!(output.contains("Custom Header"), "named slot should be filled: {}", output);
-    assert!(output.contains("Page body"), "content slot should be filled: {}", output);
-    assert!(!output.contains("Default Header"), "default should be overridden: {}", output);
+    let output = compile(
+        "@fn layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot header\n    Custom Header\n  @slot content\n    Page body",
+    );
+    assert!(
+        output.contains("Custom Header"),
+        "named slot should be filled: {}",
+        output
+    );
+    assert!(
+        output.contains("Page body"),
+        "content slot should be filled: {}",
+        output
+    );
+    assert!(
+        !output.contains("Default Header"),
+        "default should be overridden: {}",
+        output
+    );
 }
 
 #[test]
 fn fn_named_slot_default() {
-    let output = compile("@fn layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot content\n    Only content");
-    assert!(output.contains("Default Header"), "unfilled slot should use default: {}", output);
-    assert!(output.contains("Only content"), "filled slot should render: {}", output);
+    let output = compile(
+        "@fn layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot content\n    Only content",
+    );
+    assert!(
+        output.contains("Default Header"),
+        "unfilled slot should use default: {}",
+        output
+    );
+    assert!(
+        output.contains("Only content"),
+        "filled slot should render: {}",
+        output
+    );
 }
 
 // --- No warnings for new attributes ---
@@ -2876,10 +3401,12 @@ fn fn_named_slot_default() {
 #[test]
 fn no_warning_new_attrs_batch6() {
     let diags = parse_diagnostics(
-        "@el [grid-template-areas \"a b\", grid-area a, view-transition-name hero, animate fade 1s, critical]"
+        "@el [grid-template-areas \"a b\", grid-area a, view-transition-name hero, animate fade 1s, critical]",
     );
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "new attributes should be recognized: {:?}",
         diags
     );
@@ -2922,14 +3449,22 @@ fn snapshot_new_css_properties_4() {
 #[test]
 fn script_element_with_src() {
     let output = compile("@script [src app.js, defer]");
-    assert!(output.contains("<script src=\"app.js\" defer>"), "script src: {}", output);
+    assert!(
+        output.contains("<script src=\"app.js\" defer>"),
+        "script src: {}",
+        output
+    );
     assert!(output.contains("</script>"), "script close: {}", output);
 }
 
 #[test]
 fn script_element_inline() {
     let output = compile("@script\n  console.log(42);");
-    assert!(output.contains("<script>console.log(42);</script>"), "inline script: {}", output);
+    assert!(
+        output.contains("<script>console.log(42);</script>"),
+        "inline script: {}",
+        output
+    );
 }
 
 #[test]
@@ -2954,7 +3489,11 @@ fn search_element() {
 #[test]
 fn breadcrumb_generates_nav_ol() {
     let output = compile("@breadcrumb\n  @text Home\n  @text About");
-    assert!(output.contains("<nav aria-label=\"breadcrumb\">"), "nav: {}", output);
+    assert!(
+        output.contains("<nav aria-label=\"breadcrumb\">"),
+        "nav: {}",
+        output
+    );
     assert!(output.contains("<ol>"), "ol: {}", output);
     assert!(output.contains("<li>"), "li: {}", output);
 }
@@ -2962,20 +3501,32 @@ fn breadcrumb_generates_nav_ol() {
 #[test]
 fn canonical_directive() {
     let output = compile("@page T\n@canonical https://example.com/page\n@text Hello");
-    assert!(output.contains("<link rel=\"canonical\" href=\"https://example.com/page\">"), "canonical: {}", output);
+    assert!(
+        output.contains("<link rel=\"canonical\" href=\"https://example.com/page\">"),
+        "canonical: {}",
+        output
+    );
 }
 
 #[test]
 fn base_directive() {
     let output = compile("@page T\n@base https://example.com/\n@text Hello");
-    assert!(output.contains("<base href=\"https://example.com/\">"), "base: {}", output);
+    assert!(
+        output.contains("<base href=\"https://example.com/\">"),
+        "base: {}",
+        output
+    );
 }
 
 #[test]
 fn font_face_directive() {
     let output = compile("@page T\n@font-face Inter fonts/inter.woff2\n@text Hello");
     assert!(output.contains("@font-face"), "font-face: {}", output);
-    assert!(output.contains("font-family:'Inter'"), "font name: {}", output);
+    assert!(
+        output.contains("font-family:'Inter'"),
+        "font name: {}",
+        output
+    );
     assert!(output.contains("fonts/inter.woff2"), "font url: {}", output);
     assert!(output.contains("woff2"), "format hint: {}", output);
 }
@@ -2983,7 +3534,11 @@ fn font_face_directive() {
 #[test]
 fn json_ld_directive() {
     let output = compile("@page T\n@json-ld\n  {\"@type\": \"WebPage\"}\n@text Hello");
-    assert!(output.contains("application/ld+json"), "json-ld type: {}", output);
+    assert!(
+        output.contains("application/ld+json"),
+        "json-ld type: {}",
+        output
+    );
     assert!(output.contains("WebPage"), "json-ld content: {}", output);
 }
 
@@ -3015,28 +3570,42 @@ fn valid_invalid_pseudo() {
 #[test]
 fn text_underline_offset_property() {
     let output = compile("@text [underline, text-underline-offset 4] Link");
-    assert!(output.contains("text-underline-offset:4px"), "text-underline-offset: {}", output);
+    assert!(
+        output.contains("text-underline-offset:4px"),
+        "text-underline-offset: {}",
+        output
+    );
 }
 
 #[test]
 fn column_width_property() {
     let output = compile("@el [column-width 200]\n  Content");
-    assert!(output.contains("column-width:200px"), "column-width: {}", output);
+    assert!(
+        output.contains("column-width:200px"),
+        "column-width: {}",
+        output
+    );
 }
 
 #[test]
 fn column_rule_property() {
     let output = compile("@el [column-rule 1px solid #ccc]\n  Content");
-    assert!(output.contains("column-rule:1px solid #ccc"), "column-rule: {}", output);
+    assert!(
+        output.contains("column-rule:1px solid #ccc"),
+        "column-rule: {}",
+        output
+    );
 }
 
 #[test]
 fn no_warning_new_attrs_batch7() {
     let diags = parse_diagnostics(
-        "@el [text-underline-offset 4, column-width 200, column-rule 1px solid gray]"
+        "@el [text-underline-offset 4, column-width 200, column-rule 1px solid gray]",
     );
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "new CSS properties should be recognized: {:?}",
         diags
     );
@@ -3045,10 +3614,12 @@ fn no_warning_new_attrs_batch7() {
 #[test]
 fn no_warning_script_attrs() {
     let diags = parse_diagnostics(
-        "@script [src app.js, defer, async, crossorigin anonymous, integrity sha384-abc, nomodule]"
+        "@script [src app.js, defer, async, crossorigin anonymous, integrity sha384-abc, nomodule]",
     );
     assert!(
-        !diags.iter().any(|d| d.message.contains("unknown attribute")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unknown attribute")),
         "script attributes should be recognized: {:?}",
         diags
     );
@@ -3066,21 +3637,41 @@ fn snapshot_mixin_spread() {
 #[test]
 fn mixin_expands_in_attrs() {
     let output = compile("@mixin card [padding 20, rounded 8]\n@el [...$card]\n  Hi");
-    assert!(output.contains("padding:20px"), "mixin should expand padding: {}", output);
-    assert!(output.contains("border-radius:8px"), "mixin should expand rounded: {}", output);
+    assert!(
+        output.contains("padding:20px"),
+        "mixin should expand padding: {}",
+        output
+    );
+    assert!(
+        output.contains("border-radius:8px"),
+        "mixin should expand rounded: {}",
+        output
+    );
 }
 
 #[test]
 fn mixin_with_dollar_syntax() {
     let output = compile("@mixin card [padding 20, rounded 8]\n@el [$card]\n  Hi");
-    assert!(output.contains("padding:20px"), "mixin with $ syntax should expand: {}", output);
+    assert!(
+        output.contains("padding:20px"),
+        "mixin with $ syntax should expand: {}",
+        output
+    );
 }
 
 #[test]
 fn mixin_compose_with_extra_attrs() {
     let output = compile("@mixin base [padding 10]\n@el [...$base, background red]\n  Hi");
-    assert!(output.contains("padding:10px"), "mixin should expand: {}", output);
-    assert!(output.contains("background:red"), "extra attrs should work: {}", output);
+    assert!(
+        output.contains("padding:10px"),
+        "mixin should expand: {}",
+        output
+    );
+    assert!(
+        output.contains("background:red"),
+        "extra attrs should work: {}",
+        output
+    );
 }
 
 #[test]
@@ -3116,7 +3707,9 @@ fn snapshot_assert_directive() {
 fn assert_passes_no_error() {
     let diags = parse_diagnostics("@let x hello\n@assert $x == hello\n@el [padding 10]");
     assert!(
-        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
         "passing assertion should produce no error, got: {:?}",
         diags
     );
@@ -3126,7 +3719,10 @@ fn assert_passes_no_error() {
 fn assert_fails_produces_error() {
     let diags = parse_diagnostics("@let x hello\n@assert $x == world");
     assert!(
-        diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("assertion failed")),
+        diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error
+                && d.message.contains("assertion failed")),
         "failing assertion should produce error, got: {:?}",
         diags
     );
@@ -3136,7 +3732,9 @@ fn assert_fails_produces_error() {
 fn assert_not_equal() {
     let diags = parse_diagnostics("@let x hello\n@assert $x != world\n@el");
     assert!(
-        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
         "!= assertion should pass when values differ, got: {:?}",
         diags
     );
@@ -3146,7 +3744,9 @@ fn assert_not_equal() {
 fn assert_truthy() {
     let diags = parse_diagnostics("@let x true\n@assert $x\n@el");
     assert!(
-        !diags.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        !diags
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
         "truthy assertion should pass, got: {:?}",
         diags
     );
@@ -3164,19 +3764,31 @@ fn snapshot_clamp_css() {
 #[test]
 fn clamp_passthrough() {
     let output = compile("@el [size clamp(16px, 2vw, 24px)]");
-    assert!(output.contains("font-size:clamp(16px, 2vw, 24px)"), "clamp should pass through: {}", output);
+    assert!(
+        output.contains("font-size:clamp(16px, 2vw, 24px)"),
+        "clamp should pass through: {}",
+        output
+    );
 }
 
 #[test]
 fn min_passthrough() {
     let output = compile("@el [width min(100%, 800px)]");
-    assert!(output.contains("width:min(100%, 800px)"), "min() should pass through: {}", output);
+    assert!(
+        output.contains("width:min(100%, 800px)"),
+        "min() should pass through: {}",
+        output
+    );
 }
 
 #[test]
 fn max_passthrough() {
     let output = compile("@el [padding max(10px, 2vw)]");
-    assert!(output.contains("padding:max(10px, 2vw)"), "max() should pass through: {}", output);
+    assert!(
+        output.contains("padding:max(10px, 2vw)"),
+        "max() should pass through: {}",
+        output
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3187,14 +3799,22 @@ fn max_passthrough() {
 fn round_trip_basic() {
     let input = "@page Round Trip\n@column [padding 20, spacing 10]\n  @text [bold, size 24] Hello\n  @text World";
     let result = htmlang::parser::parse(input);
-    assert!(!result.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error));
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error)
+    );
     let html = htmlang::codegen::generate_dev(&result.document);
     // Convert back to .hl
     let hl = htmlang::convert::convert(&html);
     // The round-trip should produce valid .hl that parses without errors
     let result2 = htmlang::parser::parse(&hl);
     assert!(
-        !result2.diagnostics.iter().any(|d| d.severity == htmlang::parser::Severity::Error),
+        !result2
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == htmlang::parser::Severity::Error),
         "round-trip should produce valid .hl, got errors: {:?}",
         result2.diagnostics
     );
@@ -3276,7 +3896,8 @@ fn component_wraps_in_scoped_div() {
 
 #[test]
 fn component_with_children() {
-    let html = compile("@component box\n  @el [padding 10]\n    @children\n\n@box\n  @text Inside\n");
+    let html =
+        compile("@component box\n  @el [padding 10]\n    @children\n\n@box\n  @text Inside\n");
     assert!(html.contains("hl-box"));
     assert!(html.contains("Inside"));
 }
@@ -3287,23 +3908,31 @@ fn component_with_children() {
 
 #[test]
 fn switch_matches_case() {
-    let html = compile("@let variant primary\n@switch $variant\n  @case primary\n    @text Primary\n  @case danger\n    @text Danger\n");
+    let html = compile(
+        "@let variant primary\n@switch $variant\n  @case primary\n    @text Primary\n  @case danger\n    @text Danger\n",
+    );
     assert!(html.contains("Primary"));
     assert!(!html.contains("Danger"));
 }
 
 #[test]
 fn switch_falls_to_default() {
-    let html = compile("@let variant unknown\n@switch $variant\n  @case primary\n    @text Primary\n  @default\n    @text Default\n");
+    let html = compile(
+        "@let variant unknown\n@switch $variant\n  @case primary\n    @text Primary\n  @default\n    @text Default\n",
+    );
     assert!(!html.contains("Primary"));
     assert!(html.contains("Default"));
 }
 
 #[test]
 fn switch_with_attrs() {
-    let _html = compile("@let variant primary\n@switch $variant\n  @case primary [background blue, color white]\n  @case danger [background red, color white]\n");
+    let _html = compile(
+        "@let variant primary\n@switch $variant\n  @case primary [background blue, color white]\n  @case danger [background red, color white]\n",
+    );
     // The @switch should register matched attrs as __switch define
-    let result = htmlang::parser::parse("@let variant primary\n@switch $variant\n  @case primary [background blue, color white]\n  @case danger [background red, color white]\n");
+    let result = htmlang::parser::parse(
+        "@let variant primary\n@switch $variant\n  @case primary [background blue, color white]\n  @case danger [background red, color white]\n",
+    );
     assert!(result.document.defines.contains_key("__switch"));
 }
 
@@ -3317,7 +3946,12 @@ fn minified_output_is_smaller() {
     let result = htmlang::parser::parse(input);
     let normal = htmlang::codegen::generate(&result.document);
     let minified = htmlang::codegen::generate_minified(&result.document);
-    assert!(minified.len() <= normal.len(), "minified ({}) should be <= normal ({})", minified.len(), normal.len());
+    assert!(
+        minified.len() <= normal.len(),
+        "minified ({}) should be <= normal ({})",
+        minified.len(),
+        normal.len()
+    );
     assert!(minified.contains("Hello World"));
 }
 
@@ -3349,10 +3983,13 @@ fn critical_attr_inlines_styles() {
 #[test]
 fn warning_input_without_label() {
     let diags = parse_diagnostics("@input [type text]\n");
-    let has_label_warning = diags.iter().any(|d|
-        d.message.contains("aria-label") || d.message.contains("@label")
+    let has_label_warning = diags
+        .iter()
+        .any(|d| d.message.contains("aria-label") || d.message.contains("@label"));
+    assert!(
+        has_label_warning,
+        "should warn about input without label association"
     );
-    assert!(has_label_warning, "should warn about input without label association");
 }
 
 #[test]
@@ -3365,8 +4002,13 @@ fn warning_iframe_without_title() {
 #[test]
 fn warning_button_without_text() {
     let diags = parse_diagnostics("@button [background red]\n");
-    let has_warning = diags.iter().any(|d| d.message.contains("text content") || d.message.contains("aria-label"));
-    assert!(has_warning, "should warn about button without accessible text");
+    let has_warning = diags
+        .iter()
+        .any(|d| d.message.contains("text content") || d.message.contains("aria-label"));
+    assert!(
+        has_warning,
+        "should warn about button without accessible text"
+    );
 }
 
 #[test]
@@ -3379,19 +4021,25 @@ fn warning_positive_tabindex() {
 #[test]
 fn no_warning_input_with_aria_label() {
     let diags = parse_diagnostics("@input [type text, aria-label Search]\n");
-    let has_label_warning = diags.iter().any(|d|
-        d.message.contains("should have an") && d.message.contains("@label")
+    let has_label_warning = diags
+        .iter()
+        .any(|d| d.message.contains("should have an") && d.message.contains("@label"));
+    assert!(
+        !has_label_warning,
+        "should not warn when aria-label is present"
     );
-    assert!(!has_label_warning, "should not warn when aria-label is present");
 }
 
 #[test]
 fn no_warning_input_in_label() {
     let diags = parse_diagnostics("@label\n  @input [type text]\n");
-    let has_label_warning = diags.iter().any(|d|
-        d.message.contains("should have an") && d.message.contains("@label")
+    let has_label_warning = diags
+        .iter()
+        .any(|d| d.message.contains("should have an") && d.message.contains("@label"));
+    assert!(
+        !has_label_warning,
+        "should not warn when input is inside @label"
     );
-    assert!(!has_label_warning, "should not warn when input is inside @label");
 }
 
 // --- New feature tests ---
@@ -3418,42 +4066,72 @@ fn snapshot_data_directive() {
 
 #[test]
 fn test_popover_in_output() {
-    let html = compile("@button [popovertarget my-pop] Open\n@el [popover, id my-pop, padding 10]\n  Hello");
-    assert!(html.contains("popovertarget=\"my-pop\""), "should have popovertarget attr");
-    assert!(html.contains(" popover"), "should have popover boolean attr");
+    let html = compile(
+        "@button [popovertarget my-pop] Open\n@el [popover, id my-pop, padding 10]\n  Hello",
+    );
+    assert!(
+        html.contains("popovertarget=\"my-pop\""),
+        "should have popovertarget attr"
+    );
+    assert!(
+        html.contains(" popover"),
+        "should have popover boolean attr"
+    );
 }
 
 #[test]
 fn test_color_scheme_css() {
     let html = compile("@el [color-scheme light dark]\n  Test");
-    assert!(html.contains("color-scheme:light dark"), "should generate color-scheme CSS");
+    assert!(
+        html.contains("color-scheme:light dark"),
+        "should generate color-scheme CSS"
+    );
 }
 
 #[test]
 fn test_appearance_css() {
     let html = compile("@input [appearance none, padding 10]");
-    assert!(html.contains("appearance:none"), "should generate appearance CSS");
+    assert!(
+        html.contains("appearance:none"),
+        "should generate appearance CSS"
+    );
 }
 
 #[test]
 fn test_inputmode_attr() {
     let html = compile("@input [type search, inputmode search]");
-    assert!(html.contains("inputmode=\"search\""), "should pass through inputmode");
+    assert!(
+        html.contains("inputmode=\"search\""),
+        "should pass through inputmode"
+    );
 }
 
 #[test]
 fn test_fetchpriority_attr() {
     let html = compile("@image [fetchpriority high, width 100] hero.jpg");
-    assert!(html.contains("fetchpriority=\"high\""), "should pass through fetchpriority");
+    assert!(
+        html.contains("fetchpriority=\"high\""),
+        "should pass through fetchpriority"
+    );
 }
 
 #[test]
 fn test_compat_vendor_prefixes() {
-    let result = htmlang::parser::parse("@el [backdrop-filter blur(10px), user-select none]\n  Test");
+    let result =
+        htmlang::parser::parse("@el [backdrop-filter blur(10px), user-select none]\n  Test");
     let html = htmlang::codegen::generate_compat(&result.document);
-    assert!(html.contains("-webkit-backdrop-filter"), "should add webkit prefix for backdrop-filter");
-    assert!(html.contains("-webkit-user-select"), "should add webkit prefix for user-select");
-    assert!(html.contains("-moz-user-select"), "should add moz prefix for user-select");
+    assert!(
+        html.contains("-webkit-backdrop-filter"),
+        "should add webkit prefix for backdrop-filter"
+    );
+    assert!(
+        html.contains("-webkit-user-select"),
+        "should add webkit prefix for user-select"
+    );
+    assert!(
+        html.contains("-moz-user-select"),
+        "should add moz prefix for user-select"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3473,7 +4151,9 @@ fn test_error_unknown_element() {
 fn test_error_unclosed_brackets() {
     let diags = parse_diagnostics("@el [padding 10\n  Hello");
     assert!(
-        diags.iter().any(|d| d.message.contains("unclosed '['") || d.message.contains("unclosed")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("unclosed '['") || d.message.contains("unclosed")),
         "should report unclosed bracket error"
     );
 }
@@ -3511,7 +4191,8 @@ fn test_error_circular_include() {
 fn test_error_assert_failure() {
     let diags = parse_diagnostics("@let x 5\n@assert $x == 10");
     assert!(
-        diags.iter().any(|d| d.message.contains("assertion failed") && d.severity == htmlang::parser::Severity::Error),
+        diags.iter().any(|d| d.message.contains("assertion failed")
+            && d.severity == htmlang::parser::Severity::Error),
         "should report assertion failure as error"
     );
 }
@@ -3520,7 +4201,9 @@ fn test_error_assert_failure() {
 fn test_error_duplicate_attribute() {
     let diags = parse_diagnostics("@el [padding 10, padding 20]\n  Hello");
     assert!(
-        diags.iter().any(|d| d.message.contains("duplicate attribute")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("duplicate attribute")),
         "should warn on duplicate attribute"
     );
 }
@@ -3529,7 +4212,8 @@ fn test_error_duplicate_attribute() {
 fn test_warning_unused_variable() {
     let diags = parse_diagnostics("@let unused_var hello\n@text Hello");
     assert!(
-        diags.iter().any(|d| d.message.contains("unused variable") && d.severity == htmlang::parser::Severity::Warning),
+        diags.iter().any(|d| d.message.contains("unused variable")
+            && d.severity == htmlang::parser::Severity::Warning),
         "should warn about unused variable"
     );
 }
@@ -3538,7 +4222,8 @@ fn test_warning_unused_variable() {
 fn test_warning_unused_function() {
     let diags = parse_diagnostics("@fn unused_fn\n  @text Hello\n\n@text World");
     assert!(
-        diags.iter().any(|d| d.message.contains("unused function") && d.severity == htmlang::parser::Severity::Warning),
+        diags.iter().any(|d| d.message.contains("unused function")
+            && d.severity == htmlang::parser::Severity::Warning),
         "should warn about unused function"
     );
 }
@@ -3557,15 +4242,26 @@ fn test_each_index_variable() {
 
 #[test]
 fn test_children_fallback_content() {
-    let html = compile("@fn wrapper\n  @el [padding 10]\n    @children\n      @text Default content\n\n@wrapper");
-    assert!(html.contains("Default content"), "should use @children fallback when no children provided");
+    let html = compile(
+        "@fn wrapper\n  @el [padding 10]\n    @children\n      @text Default content\n\n@wrapper",
+    );
+    assert!(
+        html.contains("Default content"),
+        "should use @children fallback when no children provided"
+    );
 }
 
 #[test]
 fn test_spread_define() {
     let html = compile("@define btn [padding 12, bold]\n@el [...$btn]\n  Click");
-    assert!(html.contains("padding:12px"), "spread define should apply padding");
-    assert!(html.contains("font-weight:bold") || html.contains("font-weight:700"), "spread define should apply bold");
+    assert!(
+        html.contains("padding:12px"),
+        "spread define should apply padding"
+    );
+    assert!(
+        html.contains("font-weight:bold") || html.contains("font-weight:700"),
+        "spread define should apply bold"
+    );
 }
 
 #[test]
@@ -3573,7 +4269,10 @@ fn test_log_directive() {
     // @log should not produce errors and should be consumed without output nodes
     let result = htmlang::parser::parse("@let x hello\n@log $x\n@text $x");
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != htmlang::parser::Severity::Error),
         "@log should not produce errors"
     );
     let html = htmlang::codegen::generate(&result.document);
@@ -3584,8 +4283,14 @@ fn test_log_directive() {
 fn test_short_class_names() {
     let html = compile("@el [padding 10]\n  @el [padding 20]\n    Hello");
     // Class names should be short single letters, not _0, _1
-    assert!(!html.contains("class=\"_0\""), "should use short class names, not _0");
-    assert!(html.contains("class=\"a\"") || html.contains("class=\"b\""), "should use short alphabetic class names");
+    assert!(
+        !html.contains("class=\"_0\""),
+        "should use short class names, not _0"
+    );
+    assert!(
+        html.contains("class=\"a\"") || html.contains("class=\"b\""),
+        "should use short alphabetic class names"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3603,8 +4308,14 @@ fn test_round_trip() {
     // May have warnings (e.g. unknown attrs from raw HTML) but should not have errors that prevent output
     let html2 = htmlang::codegen::generate(&result2.document);
     // Both HTML outputs should contain the same text content
-    assert!(html2.contains("Hello"), "round-trip should preserve text content 'Hello'");
-    assert!(html2.contains("This is a test"), "round-trip should preserve text content 'This is a test'");
+    assert!(
+        html2.contains("Hello"),
+        "round-trip should preserve text content 'Hello'"
+    );
+    assert!(
+        html2.contains("This is a test"),
+        "round-trip should preserve text content 'This is a test'"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3674,88 +4385,139 @@ fn repeat_directive_basic() {
 #[test]
 fn with_directive_rebinding() {
     let output = compile("@let x hello\n@with $x as y\n  @text $y");
-    assert!(output.contains("hello"), "expected @with to rebind variable");
+    assert!(
+        output.contains("hello"),
+        "expected @with to rebind variable"
+    );
 }
 
 #[test]
 fn markdown_renders_heading() {
     let output = compile("@markdown\n  # Title\n  Some text");
-    assert!(output.contains("<h1>Title</h1>"), "markdown should render # as <h1>");
-    assert!(output.contains("<p>Some text</p>"), "markdown should render paragraphs");
+    assert!(
+        output.contains("<h1>Title</h1>"),
+        "markdown should render # as <h1>"
+    );
+    assert!(
+        output.contains("<p>Some text</p>"),
+        "markdown should render paragraphs"
+    );
 }
 
 #[test]
 fn markdown_renders_bold_italic() {
     let output = compile("@markdown\n  This is **bold** and *italic*");
-    assert!(output.contains("<strong>bold</strong>"), "markdown should render **bold**");
-    assert!(output.contains("<em>italic</em>"), "markdown should render *italic*");
+    assert!(
+        output.contains("<strong>bold</strong>"),
+        "markdown should render **bold**"
+    );
+    assert!(
+        output.contains("<em>italic</em>"),
+        "markdown should render *italic*"
+    );
 }
 
 #[test]
 fn markdown_renders_code() {
     let output = compile("@markdown\n  Use `code` here");
-    assert!(output.contains("<code>code</code>"), "markdown should render `code`");
+    assert!(
+        output.contains("<code>code</code>"),
+        "markdown should render `code`"
+    );
 }
 
 #[test]
 fn markdown_renders_link() {
     let output = compile("@markdown\n  Visit [example](https://example.com)");
-    assert!(output.contains("<a href=\"https://example.com\">example</a>"), "markdown should render links");
+    assert!(
+        output.contains("<a href=\"https://example.com\">example</a>"),
+        "markdown should render links"
+    );
 }
 
 #[test]
 fn markdown_renders_list() {
     let output = compile("@markdown\n  - one\n  - two\n  - three");
-    assert!(output.contains("<ul>"), "markdown should render unordered list");
-    assert!(output.contains("<li>one</li>"), "markdown should render list items");
+    assert!(
+        output.contains("<ul>"),
+        "markdown should render unordered list"
+    );
+    assert!(
+        output.contains("<li>one</li>"),
+        "markdown should render list items"
+    );
 }
 
 #[test]
 fn scope_block_generates_css() {
     let output = compile("@page Test\n@scope .card\n  .title { color: red; }\n@text hello");
-    assert!(output.contains("@scope"), "should generate @scope CSS block");
+    assert!(
+        output.contains("@scope"),
+        "should generate @scope CSS block"
+    );
 }
 
 #[test]
 fn starting_style_generates_css() {
     let output = compile("@page Test\n@starting-style\n  .fade { opacity: 0; }\n@text hello");
-    assert!(output.contains("@starting-style"), "should generate @starting-style CSS block");
+    assert!(
+        output.contains("@starting-style"),
+        "should generate @starting-style CSS block"
+    );
 }
 
 #[test]
 fn manifest_generates_link() {
     let output = compile("@page App\n@manifest My App\n  display standalone\n@text hi");
-    assert!(output.contains("rel=\"manifest\""), "should generate manifest link");
+    assert!(
+        output.contains("rel=\"manifest\""),
+        "should generate manifest link"
+    );
 }
 
 #[test]
 fn subgrid_support() {
     let output = compile("@el [grid-template-columns subgrid]");
-    assert!(output.contains("grid-template-columns:subgrid"), "should support CSS subgrid");
+    assert!(
+        output.contains("grid-template-columns:subgrid"),
+        "should support CSS subgrid"
+    );
 }
 
 #[test]
 fn anchor_positioning_support() {
     let output = compile("@el [anchor-name --my-anchor]\n  @text anchor");
-    assert!(output.contains("anchor-name:--my-anchor"), "should support anchor-name CSS property");
+    assert!(
+        output.contains("anchor-name:--my-anchor"),
+        "should support anchor-name CSS property"
+    );
 }
 
 #[test]
 fn scroll_driven_animation_support() {
     let output = compile("@el [animation-timeline scroll()]\n  @text scroll");
-    assert!(output.contains("animation-timeline:scroll()"), "should support animation-timeline CSS property");
+    assert!(
+        output.contains("animation-timeline:scroll()"),
+        "should support animation-timeline CSS property"
+    );
 }
 
 #[test]
 fn initial_letter_support() {
     let output = compile("@text [initial-letter 3] O");
-    assert!(output.contains("initial-letter:3"), "should support initial-letter CSS property");
+    assert!(
+        output.contains("initial-letter:3"),
+        "should support initial-letter CSS property"
+    );
 }
 
 #[test]
 fn position_area_support() {
     let output = compile("@el [position-area top]\n  @text tooltip");
-    assert!(output.contains("position-area:top"), "should support position-area CSS property");
+    assert!(
+        output.contains("position-area:top"),
+        "should support position-area CSS property"
+    );
 }
 
 // --- Snapshot tests for batch 2 ---
@@ -3789,9 +4551,13 @@ fn snapshot_responsive_images() {
 
 #[test]
 fn translations_inject_variables() {
-    let output = compile("@translations\n  en:\n    hello Hi\n    world Earth\n@text $t.hello $t.world");
+    let output =
+        compile("@translations\n  en:\n    hello Hi\n    world Earth\n@text $t.hello $t.world");
     assert!(output.contains("Hi"), "should inject translation for hello");
-    assert!(output.contains("Earth"), "should inject translation for world");
+    assert!(
+        output.contains("Earth"),
+        "should inject translation for world"
+    );
 }
 
 #[test]
@@ -3814,7 +4580,10 @@ fn pagination_page_2() {
 #[test]
 fn image_auto_preload() {
     let output = compile("@page Test\n@image logo.png\n@image hero.jpg");
-    assert!(output.contains("rel=\"preload\""), "should auto-preload images");
+    assert!(
+        output.contains("rel=\"preload\""),
+        "should auto-preload images"
+    );
     assert!(output.contains("logo.png"), "should preload logo.png");
 }
 
@@ -3823,15 +4592,28 @@ fn source_map_generation() {
     let input = "@page Test\n@text [bold] Hello";
     let result = htmlang::parser::parse(input);
     let map = htmlang::codegen::generate_source_map(&result.document, "test.hl");
-    assert!(map.contains("\"version\":3"), "source map should have version 3");
-    assert!(map.contains("test.hl"), "source map should reference source file");
+    assert!(
+        map.contains("\"version\":3"),
+        "source map should have version 3"
+    );
+    assert!(
+        map.contains("test.hl"),
+        "source map should reference source file"
+    );
 }
 
 #[test]
 fn parser_multiple_errors() {
     let diags = parse_diagnostics("@unknown1\n@text hello\n@unknown2");
-    let errors: Vec<_> = diags.iter().filter(|d| d.severity == htmlang::parser::Severity::Error).collect();
-    assert!(errors.len() >= 2, "parser should report multiple errors, got {}", errors.len());
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.severity == htmlang::parser::Severity::Error)
+        .collect();
+    assert!(
+        errors.len() >= 2,
+        "parser should report multiple errors, got {}",
+        errors.len()
+    );
 }
 
 #[test]
@@ -3848,45 +4630,78 @@ fn repeat_with_index() {
 
 #[test]
 fn env_directive_with_default() {
-    let output = compile("@env HTMLANG_TEST_NONEXISTENT fallback_value\n@text $htmlang_test_nonexistent");
-    assert!(output.contains("fallback_value"), "@env should use default when var is not set, got: {}", output);
+    let output =
+        compile("@env HTMLANG_TEST_NONEXISTENT fallback_value\n@text $htmlang_test_nonexistent");
+    assert!(
+        output.contains("fallback_value"),
+        "@env should use default when var is not set, got: {}",
+        output
+    );
 }
 
 #[test]
 fn env_directive_from_environment() {
     // Set an env var and check it's picked up
-    unsafe { std::env::set_var("HTMLANG_TEST_VAR", "hello_world"); }
+    unsafe {
+        std::env::set_var("HTMLANG_TEST_VAR", "hello_world");
+    }
     let output = compile("@env HTMLANG_TEST_VAR\n@text $htmlang_test_var");
-    assert!(output.contains("hello_world"), "@env should read env var, got: {}", output);
-    unsafe { std::env::remove_var("HTMLANG_TEST_VAR"); }
+    assert!(
+        output.contains("hello_world"),
+        "@env should read env var, got: {}",
+        output
+    );
+    unsafe {
+        std::env::remove_var("HTMLANG_TEST_VAR");
+    }
 }
 
 #[test]
 fn env_directive_warning_when_missing() {
     let result = htmlang::parser::parse("@env HTMLANG_DEFINITELY_NOT_SET_12345");
-    let warnings: Vec<_> = result.diagnostics.iter()
-        .filter(|d| d.severity == htmlang::parser::Severity::Warning && d.message.contains("not set"))
+    let warnings: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            d.severity == htmlang::parser::Severity::Warning && d.message.contains("not set")
+        })
         .collect();
-    assert!(!warnings.is_empty(), "@env should warn when var is not set, got: {:?}", result.diagnostics);
+    assert!(
+        !warnings.is_empty(),
+        "@env should warn when var is not set, got: {:?}",
+        result.diagnostics
+    );
 }
 
 #[test]
 fn fetch_directive_error_on_https() {
     // @fetch with https should produce an error (no TLS support)
     let result = htmlang::parser::parse("@fetch $data https://example.com/api");
-    let errors: Vec<_> = result.diagnostics.iter()
+    let errors: Vec<_> = result
+        .diagnostics
+        .iter()
         .filter(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("https"))
         .collect();
-    assert!(!errors.is_empty(), "@fetch https should error, got: {:?}", result.diagnostics);
+    assert!(
+        !errors.is_empty(),
+        "@fetch https should error, got: {:?}",
+        result.diagnostics
+    );
 }
 
 #[test]
 fn fetch_directive_error_on_bad_url() {
     let result = htmlang::parser::parse("@fetch $data http://127.0.0.1:1/nonexistent");
-    let errors: Vec<_> = result.diagnostics.iter()
+    let errors: Vec<_> = result
+        .diagnostics
+        .iter()
         .filter(|d| d.severity == htmlang::parser::Severity::Error)
         .collect();
-    assert!(!errors.is_empty(), "@fetch should error on unreachable URL, got: {:?}", result.diagnostics);
+    assert!(
+        !errors.is_empty(),
+        "@fetch should error on unreachable URL, got: {:?}",
+        result.diagnostics
+    );
 }
 
 #[test]
@@ -3899,11 +4714,25 @@ fn svg_directive_inline() {
 
     let input = format!("@svg {}", svg_path.display());
     let result = htmlang::parser::parse(&input);
-    assert!(result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error),
-        "should parse without errors: {:?}", result.diagnostics);
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != htmlang::parser::Severity::Error),
+        "should parse without errors: {:?}",
+        result.diagnostics
+    );
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("<svg"), "should inline SVG content, got: {}", html);
-    assert!(html.contains("<circle"), "should contain SVG elements, got: {}", html);
+    assert!(
+        html.contains("<svg"),
+        "should inline SVG content, got: {}",
+        html
+    );
+    assert!(
+        html.contains("<circle"),
+        "should contain SVG elements, got: {}",
+        html
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -3913,13 +4742,25 @@ fn svg_directive_with_attrs() {
     let dir = std::env::temp_dir().join("htmlang_test_svg_attrs");
     let _ = std::fs::create_dir_all(&dir);
     let svg_path = dir.join("icon.svg");
-    std::fs::write(&svg_path, r#"<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect/></svg>"#).unwrap();
+    std::fs::write(
+        &svg_path,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect/></svg>"#,
+    )
+    .unwrap();
 
     let input = format!("@svg [width 24, color red] {}", svg_path.display());
     let result = htmlang::parser::parse(&input);
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("width=\"24\""), "should override width, got: {}", html);
-    assert!(html.contains("fill=\"red\""), "should set fill from color attr, got: {}", html);
+    assert!(
+        html.contains("width=\"24\""),
+        "should override width, got: {}",
+        html
+    );
+    assert!(
+        html.contains("fill=\"red\""),
+        "should set fill from color attr, got: {}",
+        html
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -3927,42 +4768,99 @@ fn svg_directive_with_attrs() {
 #[test]
 fn svg_directive_missing_file() {
     let result = htmlang::parser::parse("@svg /nonexistent/missing.svg");
-    let errors: Vec<_> = result.diagnostics.iter()
-        .filter(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("cannot load SVG"))
+    let errors: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            d.severity == htmlang::parser::Severity::Error && d.message.contains("cannot load SVG")
+        })
         .collect();
-    assert!(!errors.is_empty(), "should error on missing SVG, got: {:?}", result.diagnostics);
+    assert!(
+        !errors.is_empty(),
+        "should error on missing SVG, got: {:?}",
+        result.diagnostics
+    );
 }
 
 #[test]
 fn css_property_directive() {
     let input = "@css-property --my-color\n  syntax \"<color>\"\n  inherits true\n  initial-value #000\n\n@el [background var(--my-color)] Content";
     let result = htmlang::parser::parse(input);
-    assert!(result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error),
-        "should parse without errors: {:?}", result.diagnostics);
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != htmlang::parser::Severity::Error),
+        "should parse without errors: {:?}",
+        result.diagnostics
+    );
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("@property --my-color"), "@css-property should emit CSS @property rule, got: {}", html);
-    assert!(html.contains("syntax:\"<color>\""), "should include syntax, got: {}", html);
-    assert!(html.contains("inherits:true"), "should include inherits, got: {}", html);
-    assert!(html.contains("initial-value:#000"), "should include initial-value, got: {}", html);
+    assert!(
+        html.contains("@property --my-color"),
+        "@css-property should emit CSS @property rule, got: {}",
+        html
+    );
+    assert!(
+        html.contains("syntax:\"<color>\""),
+        "should include syntax, got: {}",
+        html
+    );
+    assert!(
+        html.contains("inherits:true"),
+        "should include inherits, got: {}",
+        html
+    );
+    assert!(
+        html.contains("initial-value:#000"),
+        "should include initial-value, got: {}",
+        html
+    );
 }
 
 #[test]
 fn partial_output() {
     let result = htmlang::parser::parse("@page Test\n@el [padding 20]\n  Hello");
     let html = htmlang::codegen::generate_partial(&result.document);
-    assert!(!html.contains("<!DOCTYPE"), "partial should not have doctype, got: {}", html);
-    assert!(!html.contains("<html"), "partial should not have html tag, got: {}", html);
-    assert!(!html.contains("<head"), "partial should not have head tag, got: {}", html);
-    assert!(!html.contains("<body"), "partial should not have body tag, got: {}", html);
-    assert!(html.contains("<style>"), "partial should still have CSS, got: {}", html);
-    assert!(html.contains("Hello"), "partial should have content, got: {}", html);
+    assert!(
+        !html.contains("<!DOCTYPE"),
+        "partial should not have doctype, got: {}",
+        html
+    );
+    assert!(
+        !html.contains("<html"),
+        "partial should not have html tag, got: {}",
+        html
+    );
+    assert!(
+        !html.contains("<head"),
+        "partial should not have head tag, got: {}",
+        html
+    );
+    assert!(
+        !html.contains("<body"),
+        "partial should not have body tag, got: {}",
+        html
+    );
+    assert!(
+        html.contains("<style>"),
+        "partial should still have CSS, got: {}",
+        html
+    );
+    assert!(
+        html.contains("Hello"),
+        "partial should have content, got: {}",
+        html
+    );
 }
 
 #[test]
 fn partial_output_dev() {
     let result = htmlang::parser::parse("@page Test\n@el [padding 20]\n  Hello");
     let html = htmlang::codegen::generate_partial_dev(&result.document);
-    assert!(!html.contains("<!DOCTYPE"), "partial dev should not have doctype");
+    assert!(
+        !html.contains("<!DOCTYPE"),
+        "partial dev should not have doctype"
+    );
     assert!(html.contains("<style>"), "partial dev should have style");
     assert!(html.contains("Hello"), "partial dev should have content");
 }
@@ -3970,11 +4868,31 @@ fn partial_output_dev() {
 #[test]
 fn responsive_srcset_on_image() {
     let output = compile("@image [responsive 400 800 1200, alt Photo] photo.jpg");
-    assert!(output.contains("srcset=\""), "should generate srcset, got: {}", output);
-    assert!(output.contains("photo-400.jpg 400w"), "should have 400w source, got: {}", output);
-    assert!(output.contains("photo-800.jpg 800w"), "should have 800w source, got: {}", output);
-    assert!(output.contains("photo-1200.jpg 1200w"), "should have 1200w source, got: {}", output);
-    assert!(output.contains("sizes="), "should generate sizes attribute, got: {}", output);
+    assert!(
+        output.contains("srcset=\""),
+        "should generate srcset, got: {}",
+        output
+    );
+    assert!(
+        output.contains("photo-400.jpg 400w"),
+        "should have 400w source, got: {}",
+        output
+    );
+    assert!(
+        output.contains("photo-800.jpg 800w"),
+        "should have 800w source, got: {}",
+        output
+    );
+    assert!(
+        output.contains("photo-1200.jpg 1200w"),
+        "should have 1200w source, got: {}",
+        output
+    );
+    assert!(
+        output.contains("sizes="),
+        "should generate sizes attribute, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -3994,8 +4912,8 @@ fn auto_image_dimensions_png() {
         0x90, 0x77, 0x53, 0xDE, // CRC
         0x00, 0x00, 0x00, 0x0C, // IDAT length
         0x49, 0x44, 0x41, 0x54, // IDAT
-        0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
-        0xE2, 0x21, 0xBC, 0x33, // CRC
+        0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xE2, 0x21, 0xBC,
+        0x33, // CRC
         0x00, 0x00, 0x00, 0x00, // IEND length
         0x49, 0x45, 0x4E, 0x44, // IEND
         0xAE, 0x42, 0x60, 0x82, // CRC
@@ -4005,8 +4923,16 @@ fn auto_image_dimensions_png() {
     let input = format!("@image [alt test] {}", png_path.display());
     let result = htmlang::parser::parse(&input);
     let html = htmlang::codegen::generate(&result.document);
-    assert!(html.contains("width=\"1\""), "should auto-detect width=1 from PNG, got: {}", html);
-    assert!(html.contains("height=\"1\""), "should auto-detect height=1 from PNG, got: {}", html);
+    assert!(
+        html.contains("width=\"1\""),
+        "should auto-detect width=1 from PNG, got: {}",
+        html
+    );
+    assert!(
+        html.contains("height=\"1\""),
+        "should auto-detect height=1 from PNG, got: {}",
+        html
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -4016,7 +4942,11 @@ fn auto_image_dimensions_not_for_urls() {
     // Remote URLs should not trigger dimension detection
     let output = compile("@image [alt test] https://example.com/photo.png");
     // Should not crash or add dimensions for remote URLs
-    assert!(output.contains("src=\"https://example.com/photo.png\""), "should keep URL src, got: {}", output);
+    assert!(
+        output.contains("src=\"https://example.com/photo.png\""),
+        "should keep URL src, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -4026,30 +4956,36 @@ fn auto_image_dimensions_respects_explicit() {
     let _ = std::fs::create_dir_all(&dir);
     let png_path = dir.join("test2.png");
     let png_data: Vec<u8> = vec![
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-        0x00, 0x00, 0x00, 0x0D,
-        0x49, 0x48, 0x44, 0x52,
-        0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x01,
-        0x08, 0x02, 0x00, 0x00, 0x00,
-        0x90, 0x77, 0x53, 0xDE,
-        0x00, 0x00, 0x00, 0x0C,
-        0x49, 0x44, 0x41, 0x54,
-        0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
-        0xE2, 0x21, 0xBC, 0x33,
-        0x00, 0x00, 0x00, 0x00,
-        0x49, 0x45, 0x4E, 0x44,
-        0xAE, 0x42, 0x60, 0x82,
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
+        0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8,
+        0xCF, 0xC0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xE2, 0x21, 0xBC, 0x33, 0x00, 0x00, 0x00,
+        0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ];
     std::fs::write(&png_path, &png_data).unwrap();
 
-    let input = format!("@image [width 100, height 100, alt test] {}", png_path.display());
+    let input = format!(
+        "@image [width 100, height 100, alt test] {}",
+        png_path.display()
+    );
     let result = htmlang::parser::parse(&input);
     let html = htmlang::codegen::generate(&result.document);
     // When width/height are set as CSS attrs, auto-dimensions should not add HTML width/height
-    assert!(html.contains("width:100px"), "should have CSS width, got: {}", html);
-    assert!(html.contains("height:100px"), "should have CSS height, got: {}", html);
-    assert!(!html.contains("width=\"1\""), "should NOT auto-detect dimensions when CSS size is set, got: {}", html);
+    assert!(
+        html.contains("width:100px"),
+        "should have CSS width, got: {}",
+        html
+    );
+    assert!(
+        html.contains("height:100px"),
+        "should have CSS height, got: {}",
+        html
+    );
+    assert!(
+        !html.contains("width=\"1\""),
+        "should NOT auto-detect dimensions when CSS size is set, got: {}",
+        html
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -4101,7 +5037,11 @@ fn error_circular_include_filesystem() {
         .iter()
         .any(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("circular"));
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(has_cycle, "expected circular include error, got: {:?}", result.diagnostics);
+    assert!(
+        has_cycle,
+        "expected circular include error, got: {:?}",
+        result.diagnostics
+    );
 }
 
 #[test]
@@ -4119,10 +5059,18 @@ fn import_with_alias_prefixes_definitions() {
     let _ = std::fs::remove_dir_all(&dir);
 
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != htmlang::parser::Severity::Error),
-        "no errors expected, got: {:?}", result.diagnostics
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != htmlang::parser::Severity::Error),
+        "no errors expected, got: {:?}",
+        result.diagnostics
     );
-    assert!(html.contains("card-body"), "alias prefixed call should expand, got: {}", html);
+    assert!(
+        html.contains("card-body"),
+        "alias prefixed call should expand, got: {}",
+        html
+    );
 }
 
 #[test]
@@ -4135,10 +5083,13 @@ fn error_invalid_json_in_data_directive() {
 
     let input = "@data bad.json\n";
     let result = htmlang::parser::parse_with_base(input, Some(&dir));
-    let has_err = result
-        .diagnostics
-        .iter()
-        .any(|d| d.severity == htmlang::parser::Severity::Error && d.message.contains("invalid JSON"));
+    let has_err = result.diagnostics.iter().any(|d| {
+        d.severity == htmlang::parser::Severity::Error && d.message.contains("invalid JSON")
+    });
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(has_err, "expected invalid JSON error, got: {:?}", result.diagnostics);
+    assert!(
+        has_err,
+        "expected invalid JSON error, got: {:?}",
+        result.diagnostics
+    );
 }

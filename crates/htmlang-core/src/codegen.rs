@@ -28,7 +28,9 @@ pub(crate) fn short_class_name(idx: usize) -> String {
     n /= 26;
     loop {
         name.push((b'a' + (n % 36).min(25) as u8) as char);
-        if n < 36 { break; }
+        if n < 36 {
+            break;
+        }
         n /= 36;
     }
     // Reverse so it reads naturally
@@ -174,9 +176,15 @@ impl StyleCollector {
             for (selector, pseudo_css) in &e.pseudo {
                 if !pseudo_css.is_empty() {
                     if use_layer && dev {
-                        css.push_str(&format!("  .{}{}{sp}{{{}}}{nl}", e.class_name, selector, pseudo_css));
+                        css.push_str(&format!(
+                            "  .{}{}{sp}{{{}}}{nl}",
+                            e.class_name, selector, pseudo_css
+                        ));
                     } else {
-                        css.push_str(&format!(".{}{}{sp}{{{}}}{nl}", e.class_name, selector, pseudo_css));
+                        css.push_str(&format!(
+                            ".{}{}{sp}{{{}}}{nl}",
+                            e.class_name, selector, pseudo_css
+                        ));
                     }
                 }
             }
@@ -203,10 +211,7 @@ impl StyleCollector {
                         bp_width, bp_css
                     ));
                 } else {
-                    css.push_str(&format!(
-                        "@media(min-width:{}){{{}}}",
-                        bp_width, bp_css
-                    ));
+                    css.push_str(&format!("@media(min-width:{}){{{}}}", bp_width, bp_css));
                 }
             }
         }
@@ -224,9 +229,15 @@ impl StyleCollector {
         }
         if !dark_css.is_empty() {
             if dev {
-                css.push_str(&format!("@media (prefers-color-scheme: dark) {{\n{}}}\n", dark_css));
+                css.push_str(&format!(
+                    "@media (prefers-color-scheme: dark) {{\n{}}}\n",
+                    dark_css
+                ));
             } else {
-                css.push_str(&format!("@media(prefers-color-scheme:dark){{{}}}", dark_css));
+                css.push_str(&format!(
+                    "@media(prefers-color-scheme:dark){{{}}}",
+                    dark_css
+                ));
             }
         }
 
@@ -254,7 +265,8 @@ impl StyleCollector {
         for e in &self.entries {
             if !e.motion_safe.is_empty() {
                 if dev {
-                    motion_safe_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.motion_safe));
+                    motion_safe_css
+                        .push_str(&format!("  .{} {{{}}}\n", e.class_name, e.motion_safe));
                 } else {
                     motion_safe_css.push_str(&format!(".{}{{{}}}", e.class_name, e.motion_safe));
                 }
@@ -262,9 +274,15 @@ impl StyleCollector {
         }
         if !motion_safe_css.is_empty() {
             if dev {
-                css.push_str(&format!("@media (prefers-reduced-motion: no-preference) {{\n{}}}\n", motion_safe_css));
+                css.push_str(&format!(
+                    "@media (prefers-reduced-motion: no-preference) {{\n{}}}\n",
+                    motion_safe_css
+                ));
             } else {
-                css.push_str(&format!("@media(prefers-reduced-motion:no-preference){{{}}}", motion_safe_css));
+                css.push_str(&format!(
+                    "@media(prefers-reduced-motion:no-preference){{{}}}",
+                    motion_safe_css
+                ));
             }
         }
 
@@ -273,17 +291,25 @@ impl StyleCollector {
         for e in &self.entries {
             if !e.motion_reduce.is_empty() {
                 if dev {
-                    motion_reduce_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.motion_reduce));
+                    motion_reduce_css
+                        .push_str(&format!("  .{} {{{}}}\n", e.class_name, e.motion_reduce));
                 } else {
-                    motion_reduce_css.push_str(&format!(".{}{{{}}}", e.class_name, e.motion_reduce));
+                    motion_reduce_css
+                        .push_str(&format!(".{}{{{}}}", e.class_name, e.motion_reduce));
                 }
             }
         }
         if !motion_reduce_css.is_empty() {
             if dev {
-                css.push_str(&format!("@media (prefers-reduced-motion: reduce) {{\n{}}}\n", motion_reduce_css));
+                css.push_str(&format!(
+                    "@media (prefers-reduced-motion: reduce) {{\n{}}}\n",
+                    motion_reduce_css
+                ));
             } else {
-                css.push_str(&format!("@media(prefers-reduced-motion:reduce){{{}}}", motion_reduce_css));
+                css.push_str(&format!(
+                    "@media(prefers-reduced-motion:reduce){{{}}}",
+                    motion_reduce_css
+                ));
             }
         }
 
@@ -300,9 +326,15 @@ impl StyleCollector {
         }
         if !landscape_css.is_empty() {
             if dev {
-                css.push_str(&format!("@media (orientation: landscape) {{\n{}}}\n", landscape_css));
+                css.push_str(&format!(
+                    "@media (orientation: landscape) {{\n{}}}\n",
+                    landscape_css
+                ));
             } else {
-                css.push_str(&format!("@media(orientation:landscape){{{}}}", landscape_css));
+                css.push_str(&format!(
+                    "@media(orientation:landscape){{{}}}",
+                    landscape_css
+                ));
             }
         }
 
@@ -319,7 +351,10 @@ impl StyleCollector {
         }
         if !portrait_css.is_empty() {
             if dev {
-                css.push_str(&format!("@media (orientation: portrait) {{\n{}}}\n", portrait_css));
+                css.push_str(&format!(
+                    "@media (orientation: portrait) {{\n{}}}\n",
+                    portrait_css
+                ));
             } else {
                 css.push_str(&format!("@media(orientation:portrait){{{}}}", portrait_css));
             }
@@ -346,10 +381,7 @@ impl StyleCollector {
                         bp_width, cq_css
                     ));
                 } else {
-                    css.push_str(&format!(
-                        "@container(min-width:{}){{{}}}",
-                        bp_width, cq_css
-                    ));
+                    css.push_str(&format!("@container(min-width:{}){{{}}}", bp_width, cq_css));
                 }
             }
         }
@@ -422,31 +454,76 @@ pub fn generate(doc: &Document) -> String {
 }
 
 pub fn generate_dev(doc: &Document) -> String {
-    generate_with(doc, &CodegenOptions { dev: true, ..Default::default() })
+    generate_with(
+        doc,
+        &CodegenOptions {
+            dev: true,
+            ..Default::default()
+        },
+    )
 }
 
 pub fn generate_partial(doc: &Document) -> String {
-    generate_with(doc, &CodegenOptions { partial: true, ..Default::default() })
+    generate_with(
+        doc,
+        &CodegenOptions {
+            partial: true,
+            ..Default::default()
+        },
+    )
 }
 
 pub fn generate_partial_dev(doc: &Document) -> String {
-    generate_with(doc, &CodegenOptions { dev: true, partial: true, ..Default::default() })
+    generate_with(
+        doc,
+        &CodegenOptions {
+            dev: true,
+            partial: true,
+            ..Default::default()
+        },
+    )
 }
 
 pub fn generate_minified(doc: &Document) -> String {
-    generate_with(doc, &CodegenOptions { minify: true, ..Default::default() })
+    generate_with(
+        doc,
+        &CodegenOptions {
+            minify: true,
+            ..Default::default()
+        },
+    )
 }
 
 pub fn generate_compat(doc: &Document) -> String {
-    generate_with(doc, &CodegenOptions { compat: true, ..Default::default() })
+    generate_with(
+        doc,
+        &CodegenOptions {
+            compat: true,
+            ..Default::default()
+        },
+    )
 }
 
 pub fn generate_dev_compat(doc: &Document) -> String {
-    generate_with(doc, &CodegenOptions { dev: true, compat: true, ..Default::default() })
+    generate_with(
+        doc,
+        &CodegenOptions {
+            dev: true,
+            compat: true,
+            ..Default::default()
+        },
+    )
 }
 
 pub fn generate_minified_compat(doc: &Document) -> String {
-    generate_with(doc, &CodegenOptions { minify: true, compat: true, ..Default::default() })
+    generate_with(
+        doc,
+        &CodegenOptions {
+            minify: true,
+            compat: true,
+            ..Default::default()
+        },
+    )
 }
 
 fn minify_html(html: &str) -> String {
@@ -479,13 +556,18 @@ fn minify_html(html: &str) -> String {
         }
 
         // Strip HTML comments (<!-- ... -->)
-        if !in_script && !in_style && i + 3 < chars.len()
-            && chars[i] == '<' && chars[i+1] == '!' && chars[i+2] == '-' && chars[i+3] == '-'
+        if !in_script
+            && !in_style
+            && i + 3 < chars.len()
+            && chars[i] == '<'
+            && chars[i + 1] == '!'
+            && chars[i + 2] == '-'
+            && chars[i + 3] == '-'
         {
             // Skip to -->
             let mut j = i + 4;
             while j + 2 < chars.len() {
-                if chars[j] == '-' && chars[j+1] == '-' && chars[j+2] == '>' {
+                if chars[j] == '-' && chars[j + 1] == '-' && chars[j + 2] == '>' {
                     j += 3;
                     break;
                 }
@@ -634,7 +716,13 @@ fn prefix_declarations(block: &str) -> String {
 
 fn generate_full_inner(doc: &Document, dev: bool) -> String {
     let mut styles = StyleCollector::new();
-    let mut ctx = GenContext { dev, depth: 0, image_count: 0, has_interactive: false, has_defer: false };
+    let mut ctx = GenContext {
+        dev,
+        depth: 0,
+        image_count: 0,
+        has_interactive: false,
+        has_defer: false,
+    };
 
     // Check if document has @main for skip-to-content link
     let has_main = has_element_kind(&doc.nodes, &ElementKind::Main);
@@ -733,11 +821,7 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
             element_css.push('\n');
         } else {
             // Minify: collapse whitespace
-            let minified: String = block
-                .lines()
-                .map(|l| l.trim())
-                .collect::<Vec<_>>()
-                .join("");
+            let minified: String = block.lines().map(|l| l.trim()).collect::<Vec<_>>().join("");
             element_css.push_str(&minified);
         }
     }
@@ -852,7 +936,10 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
                 };
                 let b64 = base64_encode(&data);
                 if dev {
-                    format!("<link rel=\"icon\" href=\"data:{};base64,{}\">\n", mime, b64)
+                    format!(
+                        "<link rel=\"icon\" href=\"data:{};base64,{}\">\n",
+                        mime, b64
+                    )
                 } else {
                     format!("<link rel=\"icon\" href=\"data:{};base64,{}\">", mime, b64)
                 }
@@ -911,21 +998,31 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
                 name, url, format_hint
             ));
         } else {
-            element_css.insert_str(0, &format!(
-                "@font-face{{font-family:'{}';src:url('{}'){};font-display:swap}}",
-                name, url, format_hint
-            ));
+            element_css.insert_str(
+                0,
+                &format!(
+                    "@font-face{{font-family:'{}';src:url('{}'){};font-display:swap}}",
+                    name, url, format_hint
+                ),
+            );
         }
     }
 
     // JSON-LD blocks
-    let json_ld_html: String = doc.json_ld_blocks.iter().map(|block| {
-        if dev {
-            format!("<script type=\"application/ld+json\">\n{}\n</script>\n", block)
-        } else {
-            format!("<script type=\"application/ld+json\">{}</script>", block)
-        }
-    }).collect();
+    let json_ld_html: String = doc
+        .json_ld_blocks
+        .iter()
+        .map(|block| {
+            if dev {
+                format!(
+                    "<script type=\"application/ld+json\">\n{}\n</script>\n",
+                    block
+                )
+            } else {
+                format!("<script type=\"application/ld+json\">{}</script>", block)
+            }
+        })
+        .collect();
 
     // Manifest link
     let manifest_html = if let Some(ref manifest) = doc.manifest {
@@ -948,8 +1045,13 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
         if !manifest.icons.is_empty() {
             json.push_str(",\"icons\":[");
             for (i, (src, sizes)) in manifest.icons.iter().enumerate() {
-                if i > 0 { json.push(','); }
-                json.push_str(&format!("{{\"src\":\"{}\",\"sizes\":\"{}\",\"type\":\"image/png\"}}", src, sizes));
+                if i > 0 {
+                    json.push(',');
+                }
+                json.push_str(&format!(
+                    "{{\"src\":\"{}\",\"sizes\":\"{}\",\"type\":\"image/png\"}}",
+                    src, sizes
+                ));
             }
             json.push(']');
         }
@@ -958,9 +1060,15 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
         // Inline the manifest as a data URI
         let encoded = base64_encode(json.as_bytes());
         if dev {
-            format!("<link rel=\"manifest\" href=\"data:application/manifest+json;base64,{}\">\n", encoded)
+            format!(
+                "<link rel=\"manifest\" href=\"data:application/manifest+json;base64,{}\">\n",
+                encoded
+            )
         } else {
-            format!("<link rel=\"manifest\" href=\"data:application/manifest+json;base64,{}\">", encoded)
+            format!(
+                "<link rel=\"manifest\" href=\"data:application/manifest+json;base64,{}\">",
+                encoded
+            )
         }
     } else {
         String::new()
@@ -971,11 +1079,13 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
     for (_, url) in &doc.font_faces {
         if dev {
             preload_html.push_str(&format!(
-                "<link rel=\"preload\" href=\"{}\" as=\"font\" type=\"font/woff2\" crossorigin>\n", url
+                "<link rel=\"preload\" href=\"{}\" as=\"font\" type=\"font/woff2\" crossorigin>\n",
+                url
             ));
         } else {
             preload_html.push_str(&format!(
-                "<link rel=\"preload\" href=\"{}\" as=\"font\" type=\"font/woff2\" crossorigin>", url
+                "<link rel=\"preload\" href=\"{}\" as=\"font\" type=\"font/woff2\" crossorigin>",
+                url
             ));
         }
     }
@@ -984,26 +1094,36 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
         if dev {
             preload_html.push_str(&format!(
                 "<link rel=\"preload\" href=\"{}\" as=\"{}\"{}>\n",
-                html_escape(&hint.href), hint.as_type,
+                html_escape(&hint.href),
+                hint.as_type,
                 if hint.crossorigin { " crossorigin" } else { "" }
             ));
         } else {
             preload_html.push_str(&format!(
                 "<link rel=\"preload\" href=\"{}\" as=\"{}\"{}>",
-                html_escape(&hint.href), hint.as_type,
+                html_escape(&hint.href),
+                hint.as_type,
                 if hint.crossorigin { " crossorigin" } else { "" }
             ));
         }
     }
 
     // Auto theme-color meta from @theme primary token
-    let theme_color_html = doc.theme_tokens.iter()
+    let theme_color_html = doc
+        .theme_tokens
+        .iter()
         .find(|(name, _)| name == "primary" || name == "theme-color")
         .map(|(_, value)| {
             if dev {
-                format!("<meta name=\"theme-color\" content=\"{}\">\n", html_escape(value))
+                format!(
+                    "<meta name=\"theme-color\" content=\"{}\">\n",
+                    html_escape(value)
+                )
             } else {
-                format!("<meta name=\"theme-color\" content=\"{}\">", html_escape(value))
+                format!(
+                    "<meta name=\"theme-color\" content=\"{}\">",
+                    html_escape(value)
+                )
             }
         })
         .unwrap_or_default();
@@ -1112,12 +1232,10 @@ img {{ display: block; }}
         None => {
             if element_css.is_empty() {
                 body
+            } else if dev {
+                format!("<style>\n{}</style>\n{}", element_css, body)
             } else {
-                if dev {
-                    format!("<style>\n{}</style>\n{}", element_css, body)
-                } else {
-                    format!("<style>{}</style>{}", element_css, body)
-                }
+                format!("<style>{}</style>{}", element_css, body)
             }
         }
     }
@@ -1126,7 +1244,13 @@ img {{ display: block; }}
 /// Generate an HTML fragment: body + optional <style>, no <html>/<head>/<body> wrapper.
 fn generate_partial_inner(doc: &Document, dev: bool) -> String {
     let mut styles = StyleCollector::new();
-    let mut ctx = GenContext { dev, depth: 0, image_count: 0, has_interactive: false, has_defer: false };
+    let mut ctx = GenContext {
+        dev,
+        depth: 0,
+        image_count: 0,
+        has_interactive: false,
+        has_defer: false,
+    };
     let mut body = String::new();
 
     for node in &doc.nodes {
@@ -1216,16 +1340,31 @@ fn generate_node(
         Node::Text(segments) => {
             let needs_wrap = matches!(
                 parent_kind,
-                Some(ElementKind::Row) | Some(ElementKind::Column) | Some(ElementKind::El)
-                | Some(ElementKind::Nav) | Some(ElementKind::Header) | Some(ElementKind::Footer)
-                | Some(ElementKind::Main) | Some(ElementKind::Section) | Some(ElementKind::Article)
-                | Some(ElementKind::Aside) | Some(ElementKind::ListItem)
-                | Some(ElementKind::Form) | Some(ElementKind::Details) | Some(ElementKind::Figure)
-                | Some(ElementKind::Blockquote)
-                | Some(ElementKind::Dialog) | Some(ElementKind::DefinitionList)
-                | Some(ElementKind::DefinitionDescription) | Some(ElementKind::Fieldset)
-                | Some(ElementKind::Datalist) | Some(ElementKind::Grid) | Some(ElementKind::Stack)
-                | Some(ElementKind::Noscript) | Some(ElementKind::Address) | Some(ElementKind::Search)
+                Some(ElementKind::Row)
+                    | Some(ElementKind::Column)
+                    | Some(ElementKind::El)
+                    | Some(ElementKind::Nav)
+                    | Some(ElementKind::Header)
+                    | Some(ElementKind::Footer)
+                    | Some(ElementKind::Main)
+                    | Some(ElementKind::Section)
+                    | Some(ElementKind::Article)
+                    | Some(ElementKind::Aside)
+                    | Some(ElementKind::ListItem)
+                    | Some(ElementKind::Form)
+                    | Some(ElementKind::Details)
+                    | Some(ElementKind::Figure)
+                    | Some(ElementKind::Blockquote)
+                    | Some(ElementKind::Dialog)
+                    | Some(ElementKind::DefinitionList)
+                    | Some(ElementKind::DefinitionDescription)
+                    | Some(ElementKind::Fieldset)
+                    | Some(ElementKind::Datalist)
+                    | Some(ElementKind::Grid)
+                    | Some(ElementKind::Stack)
+                    | Some(ElementKind::Noscript)
+                    | Some(ElementKind::Address)
+                    | Some(ElementKind::Search)
             );
             if needs_wrap {
                 out.push_str(&ctx.indent());
@@ -1247,44 +1386,95 @@ fn generate_node(
 
 /// HTML attributes that are passed through to the HTML tag rather than converted to CSS.
 const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
-    "type", "placeholder", "name", "value", "disabled", "required", "checked",
-    "for", "action", "method", "autocomplete",
-    "min", "max", "step", "pattern", "maxlength", "rows", "cols", "multiple",
-    "alt", "role", "tabindex", "title", "autofocus",
+    "type",
+    "placeholder",
+    "name",
+    "value",
+    "disabled",
+    "required",
+    "checked",
+    "for",
+    "action",
+    "method",
+    "autocomplete",
+    "min",
+    "max",
+    "step",
+    "pattern",
+    "maxlength",
+    "rows",
+    "cols",
+    "multiple",
+    "alt",
+    "role",
+    "tabindex",
+    "title",
+    "autofocus",
     // Media
-    "controls", "autoplay", "loop", "muted", "poster", "preload",
+    "controls",
+    "autoplay",
+    "loop",
+    "muted",
+    "poster",
+    "preload",
     // Image optimization
-    "loading", "decoding",
+    "loading",
+    "decoding",
     // Media src (explicit attribute form)
     "src",
     // New element attributes
-    "datetime", "media", "sizes", "srcset", "list",
+    "datetime",
+    "media",
+    "sizes",
+    "srcset",
+    "list",
     // Details
     "open",
     // Form
     "novalidate",
     // Progress/Meter
-    "low", "high", "optimum",
+    "low",
+    "high",
+    "optimum",
     // Table
-    "colspan", "rowspan", "scope",
+    "colspan",
+    "rowspan",
+    "scope",
     // Popover API
-    "popover", "popovertarget", "popovertargetaction",
+    "popover",
+    "popovertarget",
+    "popovertargetaction",
     // Modern form/input hints
-    "inputmode", "enterkeyhint",
+    "inputmode",
+    "enterkeyhint",
     // Performance hints
-    "fetchpriority", "blocking",
+    "fetchpriority",
+    "blocking",
     // Global attrs
-    "translate", "spellcheck",
+    "translate",
+    "spellcheck",
     // ARIA live regions
-    "aria-live", "aria-atomic", "aria-relevant",
+    "aria-live",
+    "aria-atomic",
+    "aria-relevant",
 ];
 
 /// Boolean HTML attributes (rendered without a value, e.g., `<input disabled>`).
 const BOOLEAN_HTML_ATTRS: &[&str] = &[
-    "disabled", "required", "checked", "multiple",
-    "controls", "autoplay", "loop", "muted",
-    "open", "novalidate", "autofocus",
-    "defer", "async", "nomodule",
+    "disabled",
+    "required",
+    "checked",
+    "multiple",
+    "controls",
+    "autoplay",
+    "loop",
+    "muted",
+    "open",
+    "novalidate",
+    "autofocus",
+    "defer",
+    "async",
+    "nomodule",
     // Popover
     "popover",
 ];
@@ -1319,7 +1509,14 @@ fn generate_element(
     ctx: &mut GenContext,
 ) {
     // Self-closing elements
-    if matches!(elem.kind, ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule | ElementKind::Source | ElementKind::Spacer) {
+    if matches!(
+        elem.kind,
+        ElementKind::Image
+            | ElementKind::Input
+            | ElementKind::HorizontalRule
+            | ElementKind::Source
+            | ElementKind::Spacer
+    ) {
         generate_self_closing(elem, parent_kind, out, styles, ctx);
         return;
     }
@@ -1330,7 +1527,17 @@ fn generate_element(
         // Pass through src, type, defer, async, etc.
         for attr in &elem.attrs {
             let key = attr.key.as_str();
-            if matches!(key, "src" | "type" | "defer" | "async" | "crossorigin" | "integrity" | "nomodule" | "id") {
+            if matches!(
+                key,
+                "src"
+                    | "type"
+                    | "defer"
+                    | "async"
+                    | "crossorigin"
+                    | "integrity"
+                    | "nomodule"
+                    | "id"
+            ) {
                 if let Some(val) = &attr.value {
                     out.push(' ');
                     out.push_str(key);
@@ -1349,7 +1556,9 @@ fn generate_element(
             match child {
                 Node::Text(segments) => {
                     for seg in segments {
-                        if let TextSegment::Plain(text) = seg { out.push_str(text) }
+                        if let TextSegment::Plain(text) = seg {
+                            out.push_str(text)
+                        }
                     }
                 }
                 Node::Raw(content) => out.push_str(content),
@@ -1413,8 +1622,11 @@ fn generate_element(
     }
 
     let tag = match &elem.kind {
-        ElementKind::Row | ElementKind::Column | ElementKind::El
-        | ElementKind::Grid | ElementKind::Stack => "div",
+        ElementKind::Row
+        | ElementKind::Column
+        | ElementKind::El
+        | ElementKind::Grid
+        | ElementKind::Stack => "div",
         ElementKind::Text => "span",
         ElementKind::Paragraph => "p",
         ElementKind::Link => "a",
@@ -1433,7 +1645,11 @@ fn generate_element(
         ElementKind::Aside => "aside",
         // List
         ElementKind::List => {
-            if elem.attrs.iter().any(|a| a.key == "ordered") { "ol" } else { "ul" }
+            if elem.attrs.iter().any(|a| a.key == "ordered") {
+                "ol"
+            } else {
+                "ul"
+            }
         }
         ElementKind::ListItem => "li",
         // Table
@@ -1483,10 +1699,16 @@ fn generate_element(
         ElementKind::Noscript => "noscript",
         ElementKind::Address => "address",
         ElementKind::Search => "search",
-        ElementKind::Image | ElementKind::Input | ElementKind::HorizontalRule
-        | ElementKind::Children | ElementKind::Slot(_) | ElementKind::Fragment
-        | ElementKind::Source | ElementKind::Spacer
-        | ElementKind::Script | ElementKind::Breadcrumb => unreachable!(),
+        ElementKind::Image
+        | ElementKind::Input
+        | ElementKind::HorizontalRule
+        | ElementKind::Children
+        | ElementKind::Slot(_)
+        | ElementKind::Fragment
+        | ElementKind::Source
+        | ElementKind::Spacer
+        | ElementKind::Script
+        | ElementKind::Breadcrumb => unreachable!(),
     };
 
     let kind_label = match elem.kind {
@@ -1558,8 +1780,14 @@ fn generate_element(
     };
 
     // Track interactive elements for focus-visible CSS
-    if matches!(elem.kind, ElementKind::Link | ElementKind::Button | ElementKind::Input
-        | ElementKind::Select | ElementKind::Textarea) {
+    if matches!(
+        elem.kind,
+        ElementKind::Link
+            | ElementKind::Button
+            | ElementKind::Input
+            | ElementKind::Select
+            | ElementKind::Textarea
+    ) {
         ctx.has_interactive = true;
     }
 
@@ -1569,7 +1797,10 @@ fn generate_element(
 
     if ctx.dev && elem.line_num > 0 {
         out.push_str(&ctx.indent());
-        out.push_str(&format!("<!-- @{} line {} -->\n", kind_label, elem.line_num));
+        out.push_str(&format!(
+            "<!-- @{} line {} -->\n",
+            kind_label, elem.line_num
+        ));
     }
     out.push_str(&ctx.indent());
     out.push('<');
@@ -1581,64 +1812,70 @@ fn generate_element(
     }
 
     if elem.kind == ElementKind::Link
-        && let Some(url) = &elem.argument {
-            out.push_str(" href=\"");
-            out.push_str(&html_escape(url));
-            out.push('"');
-            // Auto rel="noopener noreferrer" and target="_blank" for external links
-            let is_external = url.starts_with("http://") || url.starts_with("https://");
-            if is_external {
-                let has_rel = elem.attrs.iter().any(|a| a.key == "rel");
-                let has_target = elem.attrs.iter().any(|a| a.key == "target");
-                if !has_rel {
-                    out.push_str(" rel=\"noopener noreferrer\"");
-                }
-                if !has_target {
-                    out.push_str(" target=\"_blank\"");
-                }
+        && let Some(url) = &elem.argument
+    {
+        out.push_str(" href=\"");
+        out.push_str(&html_escape(url));
+        out.push('"');
+        // Auto rel="noopener noreferrer" and target="_blank" for external links
+        let is_external = url.starts_with("http://") || url.starts_with("https://");
+        if is_external {
+            let has_rel = elem.attrs.iter().any(|a| a.key == "rel");
+            let has_target = elem.attrs.iter().any(|a| a.key == "target");
+            if !has_rel {
+                out.push_str(" rel=\"noopener noreferrer\"");
+            }
+            if !has_target {
+                out.push_str(" target=\"_blank\"");
             }
         }
+    }
 
     // Video/Audio src
     if matches!(elem.kind, ElementKind::Video | ElementKind::Audio)
-        && let Some(src) = &elem.argument {
-            out.push_str(" src=\"");
-            out.push_str(&html_escape(src));
-            out.push('"');
-        }
+        && let Some(src) = &elem.argument
+    {
+        out.push_str(" src=\"");
+        out.push_str(&html_escape(src));
+        out.push('"');
+    }
 
     // Form action
     if elem.kind == ElementKind::Form
-        && let Some(action) = &elem.argument {
-            out.push_str(" action=\"");
-            out.push_str(&html_escape(action));
-            out.push('"');
-        }
+        && let Some(action) = &elem.argument
+    {
+        out.push_str(" action=\"");
+        out.push_str(&html_escape(action));
+        out.push('"');
+    }
 
     // Iframe src
     if elem.kind == ElementKind::Iframe
-        && let Some(src) = &elem.argument {
-            out.push_str(" src=\"");
-            out.push_str(&html_escape(src));
-            out.push('"');
-        }
+        && let Some(src) = &elem.argument
+    {
+        out.push_str(" src=\"");
+        out.push_str(&html_escape(src));
+        out.push('"');
+    }
 
     // Tooltip title
     if elem.kind == ElementKind::Tooltip
-        && let Some(text) = &elem.argument {
-            out.push_str(" title=\"");
-            out.push_str(&html_escape(text));
-            out.push('"');
-        }
+        && let Some(text) = &elem.argument
+    {
+        out.push_str(" title=\"");
+        out.push_str(&html_escape(text));
+        out.push('"');
+    }
 
     // Time datetime
     if elem.kind == ElementKind::Time
         && let Some(dt) = elem.attrs.iter().find(|a| a.key == "datetime")
-            && let Some(val) = &dt.value {
-                out.push_str(" datetime=\"");
-                out.push_str(&html_escape(val));
-                out.push('"');
-            }
+        && let Some(val) = &dt.value
+    {
+        out.push_str(" datetime=\"");
+        out.push_str(&html_escape(val));
+        out.push('"');
+    }
 
     // Critical CSS: inline styles directly instead of using a class
     let is_critical = elem.attrs.iter().any(|a| a.key == "critical");
@@ -1669,7 +1906,10 @@ fn generate_element(
 
     // Source map attributes in dev mode
     if ctx.dev && elem.line_num > 0 {
-        out.push_str(&format!(" data-hl-line=\"{}\" data-hl-el=\"{}\"", elem.line_num, kind_label));
+        out.push_str(&format!(
+            " data-hl-line=\"{}\" data-hl-el=\"{}\"",
+            elem.line_num, kind_label
+        ));
     }
 
     out.push('>');
@@ -1701,10 +1941,10 @@ fn generate_element(
             | ElementKind::Tooltip
             | ElementKind::Chip
             | ElementKind::Tag
-    )
-        && let Some(text) = &elem.argument {
-            out.push_str(&html_escape(text));
-        }
+    ) && let Some(text) = &elem.argument
+    {
+        out.push_str(&html_escape(text));
+    }
 
     // Children
     ctx.depth += 1;
@@ -1745,7 +1985,10 @@ fn generate_self_closing(
 
     if ctx.dev && elem.line_num > 0 {
         out.push_str(&ctx.indent());
-        out.push_str(&format!("<!-- @{} line {} -->\n", kind_label, elem.line_num));
+        out.push_str(&format!(
+            "<!-- @{} line {} -->\n",
+            kind_label, elem.line_num
+        ));
     }
     out.push_str(&ctx.indent());
     out.push('<');
@@ -1756,12 +1999,19 @@ fn generate_self_closing(
         let src = elem.argument.as_deref().unwrap_or("");
         let is_inline = elem.attrs.iter().any(|a| a.key == "inline");
         if is_inline && !src.is_empty() && !src.ends_with(".svg") {
-            let mime = if src.ends_with(".png") { "image/png" }
-                else if src.ends_with(".jpg") || src.ends_with(".jpeg") { "image/jpeg" }
-                else if src.ends_with(".gif") { "image/gif" }
-                else if src.ends_with(".webp") { "image/webp" }
-                else if src.ends_with(".avif") { "image/avif" }
-                else { "application/octet-stream" };
+            let mime = if src.ends_with(".png") {
+                "image/png"
+            } else if src.ends_with(".jpg") || src.ends_with(".jpeg") {
+                "image/jpeg"
+            } else if src.ends_with(".gif") {
+                "image/gif"
+            } else if src.ends_with(".webp") {
+                "image/webp"
+            } else if src.ends_with(".avif") {
+                "image/avif"
+            } else {
+                "application/octet-stream"
+            };
             if let Ok(data) = std::fs::read(src) {
                 let b64 = base64_encode(&data);
                 out.push_str(" src=\"data:");
@@ -1793,7 +2043,10 @@ fn generate_self_closing(
 
     // Source map attributes in dev mode (self-closing)
     if ctx.dev && elem.line_num > 0 {
-        out.push_str(&format!(" data-hl-line=\"{}\" data-hl-el=\"{}\"", elem.line_num, kind_label));
+        out.push_str(&format!(
+            " data-hl-line=\"{}\" data-hl-el=\"{}\"",
+            elem.line_num, kind_label
+        ));
     }
 
     // Image optimization: auto-add loading="lazy" and decoding="async"
@@ -1801,60 +2054,68 @@ fn generate_self_closing(
         // SVG inlining: @image [inline] logo.svg
         if elem.attrs.iter().any(|a| a.key == "inline")
             && let Some(src) = &elem.argument
-                && src.ends_with(".svg")
-                    && let Ok(svg_content) = std::fs::read_to_string(src) {
-                        // Close the tag we opened, then emit inline SVG instead
-                        out.truncate(out.rfind('<').unwrap_or(0));
-                        out.push_str(&ctx.indent());
-                        out.push_str(svg_content.trim());
-                        out.push_str(ctx.nl());
-                        return;
-                    }
+            && src.ends_with(".svg")
+            && let Ok(svg_content) = std::fs::read_to_string(src)
+        {
+            // Close the tag we opened, then emit inline SVG instead
+            out.truncate(out.rfind('<').unwrap_or(0));
+            out.push_str(&ctx.indent());
+            out.push_str(svg_content.trim());
+            out.push_str(ctx.nl());
+            return;
+        }
         // Responsive srcset: @image photo.jpg [responsive 400 800 1200]
         let responsive_attr = elem.attrs.iter().find(|a| a.key == "responsive");
         if let Some(resp) = responsive_attr
-            && let Some(ref sizes_str) = resp.value {
-                let widths: Vec<&str> = sizes_str.split_whitespace().collect();
-                if !widths.is_empty() {
-                    let src = elem.argument.as_deref().unwrap_or("");
-                    if !src.is_empty() {
-                        // Generate srcset with width descriptors
-                        // Convention: file-{width}.ext (e.g., photo-400.jpg)
-                        let dot_pos = src.rfind('.').unwrap_or(src.len());
-                        let base = &src[..dot_pos];
-                        let ext = &src[dot_pos..];
-                        let mut srcset_parts = Vec::new();
-                        for w in &widths {
-                            srcset_parts.push(format!("{}-{}{} {}w", base, w, ext, w));
-                        }
-                        out.push_str(" srcset=\"");
-                        out.push_str(&srcset_parts.join(", "));
-                        out.push('"');
-                        // Generate sizes attribute
-                        let max_width = widths.last().unwrap_or(&"100vw");
-                        out.push_str(&format!(" sizes=\"(max-width: {}px) 100vw, {}px\"", max_width, max_width));
+            && let Some(ref sizes_str) = resp.value
+        {
+            let widths: Vec<&str> = sizes_str.split_whitespace().collect();
+            if !widths.is_empty() {
+                let src = elem.argument.as_deref().unwrap_or("");
+                if !src.is_empty() {
+                    // Generate srcset with width descriptors
+                    // Convention: file-{width}.ext (e.g., photo-400.jpg)
+                    let dot_pos = src.rfind('.').unwrap_or(src.len());
+                    let base = &src[..dot_pos];
+                    let ext = &src[dot_pos..];
+                    let mut srcset_parts = Vec::new();
+                    for w in &widths {
+                        srcset_parts.push(format!("{}-{}{} {}w", base, w, ext, w));
                     }
+                    out.push_str(" srcset=\"");
+                    out.push_str(&srcset_parts.join(", "));
+                    out.push('"');
+                    // Generate sizes attribute
+                    let max_width = widths.last().unwrap_or(&"100vw");
+                    out.push_str(&format!(
+                        " sizes=\"(max-width: {}px) 100vw, {}px\"",
+                        max_width, max_width
+                    ));
                 }
             }
+        }
 
         // Auto image dimensions: read local image file to inject width/height + aspect-ratio
         let has_width = elem.attrs.iter().any(|a| a.key == "width");
         let has_height = elem.attrs.iter().any(|a| a.key == "height");
         if (!has_width || !has_height)
             && let Some(ref src) = elem.argument
-                && !src.starts_with("http://") && !src.starts_with("https://") && !src.starts_with("data:")
-                    && let Some((w, h)) = read_image_dimensions(src) {
-                        if !has_width {
-                            out.push_str(&format!(" width=\"{}\"", w));
-                        }
-                        if !has_height {
-                            out.push_str(&format!(" height=\"{}\"", h));
-                        }
-                        // Auto aspect-ratio to prevent CLS
-                        if !elem.attrs.iter().any(|a| a.key == "aspect-ratio") {
-                            out.push_str(&format!(" style=\"aspect-ratio:{}/{}\"", w, h));
-                        }
-                    }
+            && !src.starts_with("http://")
+            && !src.starts_with("https://")
+            && !src.starts_with("data:")
+            && let Some((w, h)) = read_image_dimensions(src)
+        {
+            if !has_width {
+                out.push_str(&format!(" width=\"{}\"", w));
+            }
+            if !has_height {
+                out.push_str(&format!(" height=\"{}\"", h));
+            }
+            // Auto aspect-ratio to prevent CLS
+            if !elem.attrs.iter().any(|a| a.key == "aspect-ratio") {
+                out.push_str(&format!(" style=\"aspect-ratio:{}/{}\"", w, h));
+            }
+        }
 
         // Smart image loading: first 3 images get fetchpriority="high" (above the fold),
         // subsequent images get loading="lazy" + decoding="async"
@@ -1920,7 +2181,10 @@ fn compute_class(
 
     // Auto-add ::-webkit-scrollbar pseudo for no-scrollbar attribute
     if attrs.iter().any(|a| a.key == "no-scrollbar") {
-        pseudo.push(("::-webkit-scrollbar".to_string(), "display:none;".to_string()));
+        pseudo.push((
+            "::-webkit-scrollbar".to_string(),
+            "display:none;".to_string(),
+        ));
     }
 
     // Collect nth:EXPR: dynamic pseudo selectors
@@ -1949,12 +2213,13 @@ fn compute_class(
     let mut has_prefixes: Vec<String> = Vec::new();
     for attr in attrs {
         if attr.key.starts_with("has(")
-            && let Some(close) = attr.key.find("):") {
-                let prefix = format!("{}:", &attr.key[..close + 1]);
-                if !has_prefixes.contains(&prefix) {
-                    has_prefixes.push(prefix);
-                }
+            && let Some(close) = attr.key.find("):")
+        {
+            let prefix = format!("{}:", &attr.key[..close + 1]);
+            if !has_prefixes.contains(&prefix) {
+                has_prefixes.push(prefix);
             }
+        }
     }
     for prefix in &has_prefixes {
         let inner = &prefix[4..prefix.len() - 2]; // extract selector from has(selector):
@@ -1992,7 +2257,18 @@ fn compute_class(
     let landscape = attrs_to_css(attrs, "landscape:", kind, parent_kind);
     let portrait = attrs_to_css(attrs, "portrait:", kind, parent_kind);
 
-    styles.get_class(base, pseudo, responsive, dark, print, motion_safe, motion_reduce, landscape, portrait, container)
+    styles.get_class(
+        base,
+        pseudo,
+        responsive,
+        dark,
+        print,
+        motion_safe,
+        motion_reduce,
+        landscape,
+        portrait,
+        container,
+    )
 }
 
 fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option<&str>) {
@@ -2046,7 +2322,14 @@ const PSEUDO_PREFIXES: &[(&str, &str)] = &[
     ("invalid:", ":invalid"),
 ];
 const RESPONSIVE_PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:", "2xl:"];
-const MEDIA_PREFIXES: &[&str] = &["dark:", "print:", "motion-safe:", "motion-reduce:", "landscape:", "portrait:"];
+const MEDIA_PREFIXES: &[&str] = &[
+    "dark:",
+    "print:",
+    "motion-safe:",
+    "motion-reduce:",
+    "landscape:",
+    "portrait:",
+];
 const CONTAINER_QUERY_PREFIXES: &[&str] = &["cq-sm:", "cq-md:", "cq-lg:", "cq-xl:", "cq-2xl:"];
 
 fn is_prefixed_attr(key: &str) -> bool {
@@ -2443,7 +2726,11 @@ fn attrs_to_css(
             "grid-cols" => {
                 if let Some(v) = val {
                     if let Ok(n) = v.parse::<u32>() {
-                        push_css(&mut css, "grid-template-columns", &format!("repeat({},1fr)", n));
+                        push_css(
+                            &mut css,
+                            "grid-template-columns",
+                            &format!("repeat({},1fr)", n),
+                        );
                     } else {
                         push_css(&mut css, "grid-template-columns", v);
                     }
@@ -2452,7 +2739,11 @@ fn attrs_to_css(
             "grid-rows" => {
                 if let Some(v) = val {
                     if let Ok(n) = v.parse::<u32>() {
-                        push_css(&mut css, "grid-template-rows", &format!("repeat({},1fr)", n));
+                        push_css(
+                            &mut css,
+                            "grid-template-rows",
+                            &format!("repeat({},1fr)", n),
+                        );
                     } else {
                         push_css(&mut css, "grid-template-rows", v);
                     }
@@ -2542,10 +2833,14 @@ fn attrs_to_css(
             }
 
             // Logical property start/end variants
-            "padding-inline-start" | "padding-inline-end" |
-            "padding-block-start" | "padding-block-end" |
-            "margin-inline-start" | "margin-inline-end" |
-            "margin-block-start" | "margin-block-end" => {
+            "padding-inline-start"
+            | "padding-inline-end"
+            | "padding-block-start"
+            | "padding-block-end"
+            | "margin-inline-start"
+            | "margin-inline-end"
+            | "margin-block-start"
+            | "margin-block-end" => {
                 if let Some(v) = val {
                     push_css(&mut css, effective_key, &css_px(v));
                 }
@@ -2557,42 +2852,47 @@ fn attrs_to_css(
                     push_css(&mut css, effective_key, &css_px_multi(v));
                 }
             }
-            "inset-inline-start" | "inset-inline-end" |
-            "inset-block-start" | "inset-block-end" => {
+            "inset-inline-start" | "inset-inline-end" | "inset-block-start" | "inset-block-end" => {
                 if let Some(v) = val {
                     push_css(&mut css, effective_key, &css_px(v));
                 }
             }
 
             // Logical border
-            "border-inline" | "border-block" |
-            "border-inline-start" | "border-inline-end" |
-            "border-block-start" | "border-block-end" => {
+            "border-inline"
+            | "border-block"
+            | "border-inline-start"
+            | "border-inline-end"
+            | "border-block-start"
+            | "border-block-end" => {
                 if let Some(v) = val {
                     push_css(&mut css, effective_key, v);
                 }
             }
 
             // Logical border-radius
-            "border-start-start-radius" | "border-start-end-radius" |
-            "border-end-start-radius" | "border-end-end-radius" => {
+            "border-start-start-radius"
+            | "border-start-end-radius"
+            | "border-end-start-radius"
+            | "border-end-end-radius" => {
                 if let Some(v) = val {
                     push_css(&mut css, effective_key, &css_px(v));
                 }
             }
 
             // Logical scroll margins & padding
-            "scroll-margin-inline" | "scroll-margin-block" |
-            "scroll-padding-inline" | "scroll-padding-block" => {
+            "scroll-margin-inline"
+            | "scroll-margin-block"
+            | "scroll-padding-inline"
+            | "scroll-padding-block" => {
                 if let Some(v) = val {
                     push_css(&mut css, effective_key, &css_px_multi(v));
                 }
             }
 
             // Logical sizing
-            "inline-size" | "block-size" |
-            "min-inline-size" | "max-inline-size" |
-            "min-block-size" | "max-block-size" => {
+            "inline-size" | "block-size" | "min-inline-size" | "max-inline-size"
+            | "min-block-size" | "max-block-size" => {
                 if let Some(v) = val {
                     push_css(&mut css, effective_key, &css_px(v));
                 }
@@ -2866,85 +3166,147 @@ fn attrs_to_css(
 
             // New CSS properties
             "clip-path" => {
-                if let Some(v) = val { push_css(&mut css, "clip-path", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "clip-path", v);
+                }
             }
             "mix-blend-mode" => {
-                if let Some(v) = val { push_css(&mut css, "mix-blend-mode", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "mix-blend-mode", v);
+                }
             }
             "background-blend-mode" => {
-                if let Some(v) = val { push_css(&mut css, "background-blend-mode", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "background-blend-mode", v);
+                }
             }
             "writing-mode" => {
-                if let Some(v) = val { push_css(&mut css, "writing-mode", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "writing-mode", v);
+                }
             }
             "column-count" => {
-                if let Some(v) = val { push_css(&mut css, "column-count", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "column-count", v);
+                }
             }
             "column-gap" => {
-                if let Some(v) = val { push_css(&mut css, "column-gap", &css_px(v)); }
+                if let Some(v) = val {
+                    push_css(&mut css, "column-gap", &css_px(v));
+                }
             }
             "text-indent" => {
-                if let Some(v) = val { push_css(&mut css, "text-indent", &css_px(v)); }
+                if let Some(v) = val {
+                    push_css(&mut css, "text-indent", &css_px(v));
+                }
             }
             "hyphens" => {
-                if let Some(v) = val { push_css(&mut css, "hyphens", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "hyphens", v);
+                }
             }
             "flex-grow" => {
-                if let Some(v) = val { push_css(&mut css, "flex-grow", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "flex-grow", v);
+                }
             }
             "flex-shrink" => {
-                if let Some(v) = val { push_css(&mut css, "flex-shrink", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "flex-shrink", v);
+                }
             }
             "flex-basis" => {
-                if let Some(v) = val { push_css(&mut css, "flex-basis", &css_px(v)); }
+                if let Some(v) = val {
+                    push_css(&mut css, "flex-basis", &css_px(v));
+                }
             }
             "isolation" => {
-                if let Some(v) = val { push_css(&mut css, "isolation", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "isolation", v);
+                }
             }
             "place-content" => {
-                if let Some(v) = val { push_css(&mut css, "place-content", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "place-content", v);
+                }
             }
             "background-image" => {
-                if let Some(v) = val { push_css(&mut css, "background-image", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "background-image", v);
+                }
             }
             "font-weight" => {
-                if let Some(v) = val { push_css(&mut css, "font-weight", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "font-weight", v);
+                }
             }
             "font-style" => {
-                if let Some(v) = val { push_css(&mut css, "font-style", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "font-style", v);
+                }
             }
             "text-wrap" => {
-                if let Some(v) = val { push_css(&mut css, "text-wrap", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "text-wrap", v);
+                }
             }
             "will-change" => {
-                if let Some(v) = val { push_css(&mut css, "will-change", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "will-change", v);
+                }
             }
             "touch-action" => {
-                if let Some(v) = val { push_css(&mut css, "touch-action", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "touch-action", v);
+                }
             }
             "vertical-align" => {
-                if let Some(v) = val { push_css(&mut css, "vertical-align", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "vertical-align", v);
+                }
             }
             "scroll-margin" => {
-                if let Some(v) = val { push_css(&mut css, "scroll-margin", &css_px(v)); }
+                if let Some(v) = val {
+                    push_css(&mut css, "scroll-margin", &css_px(v));
+                }
             }
-            "scroll-margin-top" | "scroll-margin-bottom" | "scroll-margin-left" | "scroll-margin-right" => {
-                if let Some(v) = val { push_css(&mut css, effective_key, &css_px(v)); }
+            "scroll-margin-top"
+            | "scroll-margin-bottom"
+            | "scroll-margin-left"
+            | "scroll-margin-right" => {
+                if let Some(v) = val {
+                    push_css(&mut css, effective_key, &css_px(v));
+                }
             }
             "scroll-padding" => {
-                if let Some(v) = val { push_css(&mut css, "scroll-padding", &css_px(v)); }
+                if let Some(v) = val {
+                    push_css(&mut css, "scroll-padding", &css_px(v));
+                }
             }
-            "scroll-padding-top" | "scroll-padding-bottom" | "scroll-padding-left" | "scroll-padding-right" => {
-                if let Some(v) = val { push_css(&mut css, effective_key, &css_px(v)); }
+            "scroll-padding-top"
+            | "scroll-padding-bottom"
+            | "scroll-padding-left"
+            | "scroll-padding-right" => {
+                if let Some(v) = val {
+                    push_css(&mut css, effective_key, &css_px(v));
+                }
             }
             "direction" => {
-                if let Some(v) = val { push_css(&mut css, "direction", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "direction", v);
+                }
             }
 
             "content" => {
                 if let Some(v) = val {
                     // Wrap in quotes if not already quoted and not a CSS keyword
-                    if v.starts_with('"') || v.starts_with('\'') || v == "none" || v == "normal" || v.starts_with("attr(") || v.starts_with("counter(") {
+                    if v.starts_with('"')
+                        || v.starts_with('\'')
+                        || v == "none"
+                        || v == "normal"
+                        || v.starts_with("attr(")
+                        || v.starts_with("counter(")
+                    {
                         push_css(&mut css, "content", v);
                     } else {
                         push_css(&mut css, "content", &format!("\"{}\"", v));
@@ -2953,7 +3315,6 @@ fn attrs_to_css(
             }
 
             // --- CSS Shorthands ---
-
             "truncate" => {
                 push_css(&mut css, "overflow", "hidden");
                 push_css(&mut css, "text-overflow", "ellipsis");
@@ -2982,15 +3343,27 @@ fn attrs_to_css(
                 push_css(&mut css, "-ms-overflow-style", "none");
             }
             "skeleton" => {
-                push_css(&mut css, "background", "linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)");
+                push_css(
+                    &mut css,
+                    "background",
+                    "linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)",
+                );
                 push_css(&mut css, "background-size", "200% 100%");
-                push_css(&mut css, "animation", "hl-skeleton 1.5s ease-in-out infinite");
+                push_css(
+                    &mut css,
+                    "animation",
+                    "hl-skeleton 1.5s ease-in-out infinite",
+                );
             }
             "gradient" => {
                 if let Some(v) = val {
                     // Parse: "from to [angle]" or "color1 color2 [angle]"
                     let parts: Vec<&str> = v.split_whitespace().collect();
-                    let bg = if parts.len() >= 3 && (parts[2].ends_with("deg") || parts[2].ends_with("turn") || parts[2].ends_with("rad")) {
+                    let bg = if parts.len() >= 3
+                        && (parts[2].ends_with("deg")
+                            || parts[2].ends_with("turn")
+                            || parts[2].ends_with("rad"))
+                    {
                         format!("linear-gradient({},{},{})", parts[2], parts[0], parts[1])
                     } else if parts.len() >= 2 {
                         format!("linear-gradient({},{})", parts[0], parts[1])
@@ -3003,68 +3376,102 @@ fn attrs_to_css(
 
             // Grid areas
             "grid-template-areas" => {
-                if let Some(v) = val { push_css(&mut css, "grid-template-areas", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "grid-template-areas", v);
+                }
             }
             "grid-area" => {
-                if let Some(v) = val { push_css(&mut css, "grid-area", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "grid-area", v);
+                }
             }
 
             // View transitions
             "view-transition-name" => {
-                if let Some(v) = val { push_css(&mut css, "view-transition-name", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "view-transition-name", v);
+                }
             }
 
             // Animate shorthand (alias for animation)
             "animate" => {
-                if let Some(v) = val { push_css(&mut css, "animation", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "animation", v);
+                }
             }
 
             // CSS subgrid
             "grid-template-columns" => {
-                if let Some(v) = val { push_css(&mut css, "grid-template-columns", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "grid-template-columns", v);
+                }
             }
             "grid-template-rows" => {
-                if let Some(v) = val { push_css(&mut css, "grid-template-rows", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "grid-template-rows", v);
+                }
             }
 
             // Scroll-driven animations
             "animation-timeline" => {
-                if let Some(v) = val { push_css(&mut css, "animation-timeline", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "animation-timeline", v);
+                }
             }
             "animation-range" => {
-                if let Some(v) = val { push_css(&mut css, "animation-range", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "animation-range", v);
+                }
             }
             "view-timeline-name" => {
-                if let Some(v) = val { push_css(&mut css, "view-timeline-name", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "view-timeline-name", v);
+                }
             }
             "view-timeline-axis" => {
-                if let Some(v) = val { push_css(&mut css, "view-timeline-axis", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "view-timeline-axis", v);
+                }
             }
             "scroll-timeline-name" => {
-                if let Some(v) = val { push_css(&mut css, "scroll-timeline-name", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "scroll-timeline-name", v);
+                }
             }
             "scroll-timeline-axis" => {
-                if let Some(v) = val { push_css(&mut css, "scroll-timeline-axis", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "scroll-timeline-axis", v);
+                }
             }
 
             // Anchor positioning
             "anchor-name" => {
-                if let Some(v) = val { push_css(&mut css, "anchor-name", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "anchor-name", v);
+                }
             }
             "position-anchor" => {
-                if let Some(v) = val { push_css(&mut css, "position-anchor", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "position-anchor", v);
+                }
             }
             "position-area" => {
-                if let Some(v) = val { push_css(&mut css, "position-area", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "position-area", v);
+                }
             }
             "inset-area" => {
                 // Legacy alias for position-area
-                if let Some(v) = val { push_css(&mut css, "position-area", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "position-area", v);
+                }
             }
 
             // initial-letter (drop caps)
             "initial-letter" => {
-                if let Some(v) = val { push_css(&mut css, "initial-letter", v); }
+                if let Some(v) = val {
+                    push_css(&mut css, "initial-letter", v);
+                }
             }
 
             // Critical CSS hint — not CSS, handled elsewhere
@@ -3072,18 +3479,15 @@ fn attrs_to_css(
 
             // Identity and HTML passthrough — not CSS
             "id" | "class" => {}
-            "type" | "placeholder" | "name" | "value" | "disabled" | "required"
-            | "checked" | "for" | "action" | "method" | "autocomplete" | "min"
-            | "max" | "step" | "pattern" | "maxlength" | "rows" | "cols"
-            | "multiple" | "alt" | "role" | "tabindex" | "title"
-            | "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload"
-            | "loading" | "decoding" | "ordered" | "src"
-            | "open" | "novalidate" | "low" | "high" | "optimum"
-            | "colspan" | "rowspan" | "scope" | "inline" | "responsive"
-            | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list"
-            | "sandbox" | "allow" | "allowfullscreen" | "referrerpolicy"
-            | "formaction" | "formmethod" | "formtarget" | "target"
-            | "autofocus" => {}
+            "type" | "placeholder" | "name" | "value" | "disabled" | "required" | "checked"
+            | "for" | "action" | "method" | "autocomplete" | "min" | "max" | "step" | "pattern"
+            | "maxlength" | "rows" | "cols" | "multiple" | "alt" | "role" | "tabindex"
+            | "title" | "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload"
+            | "loading" | "decoding" | "ordered" | "src" | "open" | "novalidate" | "low"
+            | "high" | "optimum" | "colspan" | "rowspan" | "scope" | "inline" | "responsive"
+            | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list" | "sandbox" | "allow"
+            | "allowfullscreen" | "referrerpolicy" | "formaction" | "formmethod" | "formtarget"
+            | "target" | "autofocus" => {}
 
             _ => {}
         }
@@ -3101,8 +3505,8 @@ fn push_css(css: &mut String, prop: &str, value: &str) {
 
 /// Known CSS units — if a value ends with one, skip appending `px`.
 const CSS_UNITS: &[&str] = &[
-    "%", "rem", "em", "vh", "vw", "vmin", "vmax", "dvh", "svh", "lvh",
-    "ch", "ex", "cm", "mm", "in", "pt", "pc", "fr",
+    "%", "rem", "em", "vh", "vw", "vmin", "vmax", "dvh", "svh", "lvh", "ch", "ex", "cm", "mm",
+    "in", "pt", "pc", "fr",
 ];
 
 /// Format a numeric value: if it already has a CSS unit, pass through as-is;
@@ -3115,7 +3519,12 @@ fn css_px(value: &str) -> String {
     if CSS_UNITS.iter().any(|u| v.ends_with(u)) {
         return v.to_string();
     }
-    if v.starts_with("var(") || v.starts_with("calc(") || v.starts_with("clamp(") || v.starts_with("min(") || v.starts_with("max(") {
+    if v.starts_with("var(")
+        || v.starts_with("calc(")
+        || v.starts_with("clamp(")
+        || v.starts_with("min(")
+        || v.starts_with("max(")
+    {
         return v.to_string();
     }
     format!("{}px", v)
@@ -3230,9 +3639,11 @@ fn read_svg_dimensions(text: &str) -> Option<(u32, u32)> {
             let parts: Vec<&str> = rest[..end].split_whitespace().collect();
             if parts.len() == 4
                 && let (Ok(w), Ok(h)) = (parts[2].parse::<f64>(), parts[3].parse::<f64>())
-                    && w > 0.0 && h > 0.0 {
-                        return Some((w.round() as u32, h.round() as u32));
-                    }
+                && w > 0.0
+                && h > 0.0
+            {
+                return Some((w.round() as u32, h.round() as u32));
+            }
         }
     }
     // Fall back to width/height attributes on <svg>
@@ -3258,7 +3669,8 @@ fn read_avif_dimensions(data: &[u8]) -> Option<(u32, u32)> {
     // Walk ISOBMFF boxes looking for "ispe" (image spatial extents)
     let mut i = 0;
     while i + 8 <= data.len() {
-        let box_size = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
+        let box_size =
+            u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
         let box_type = &data[i + 4..i + 8];
         if box_size < 8 {
             break;
@@ -3271,12 +3683,16 @@ fn read_avif_dimensions(data: &[u8]) -> Option<(u32, u32)> {
             return Some((w, h));
         }
         // Recurse into container boxes (meta, iprp, ipco)
-        if matches!(box_type, b"meta" | b"iprp" | b"ipco" | b"moov" | b"trak" | b"mdia") {
+        if matches!(
+            box_type,
+            b"meta" | b"iprp" | b"ipco" | b"moov" | b"trak" | b"mdia"
+        ) {
             let header_size = if box_type == b"meta" { 12 } else { 8 };
             if i + header_size < box_end
-                && let Some(dims) = read_avif_dimensions(&data[i + header_size..box_end]) {
-                    return Some(dims);
-                }
+                && let Some(dims) = read_avif_dimensions(&data[i + header_size..box_end])
+            {
+                return Some(dims);
+            }
         }
         i = box_end;
     }
@@ -3342,16 +3758,19 @@ pub fn generate_source_map(doc: &Document, source_file: &str) -> String {
         if mapping_idx < mappings.len() && mappings[mapping_idx].0 == gen_line {
             let source_line = mappings[mapping_idx].1 as i64 - 1; // 0-based
             // Segment: gen_col=0, source_idx=0, source_line=delta, source_col=0
-            vlq_encode(0, &mut vlq);         // generated column (always 0)
-            vlq_encode(0, &mut vlq);         // source file index (always 0)
+            vlq_encode(0, &mut vlq); // generated column (always 0)
+            vlq_encode(0, &mut vlq); // source file index (always 0)
             vlq_encode(source_line - prev_source_line, &mut vlq); // source line delta
-            vlq_encode(0, &mut vlq);         // source column (always 0)
+            vlq_encode(0, &mut vlq); // source column (always 0)
             prev_source_line = source_line;
             mapping_idx += 1;
         }
     }
 
-    let escaped_file = source_file.replace(".hl", ".html").replace('\\', "\\\\").replace('"', "\\\"");
+    let escaped_file = source_file
+        .replace(".hl", ".html")
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
     let escaped_source = source_file.replace('\\', "\\\\").replace('"', "\\\"");
 
     format!(
@@ -3414,7 +3833,9 @@ fn collect_dns_prefetch(html: &str, dev: bool) -> String {
     while let Some(pos) = rest.find("https://") {
         let start = pos + 8; // skip "https://"
         rest = &rest[start..];
-        let end = rest.find(['/', '"', '\'', ' ', '>', ')']).unwrap_or(rest.len());
+        let end = rest
+            .find(['/', '"', '\'', ' ', '>', ')'])
+            .unwrap_or(rest.len());
         let domain = &rest[..end];
         if !domain.is_empty() && domain.contains('.') && !domains.contains(&domain.to_string()) {
             domains.push(domain.to_string());
@@ -3423,9 +3844,15 @@ fn collect_dns_prefetch(html: &str, dev: bool) -> String {
     let mut out = String::new();
     for domain in &domains {
         if dev {
-            out.push_str(&format!("<link rel=\"dns-prefetch\" href=\"//{}\">\n", domain));
+            out.push_str(&format!(
+                "<link rel=\"dns-prefetch\" href=\"//{}\">\n",
+                domain
+            ));
         } else {
-            out.push_str(&format!("<link rel=\"dns-prefetch\" href=\"//{}\">", domain));
+            out.push_str(&format!(
+                "<link rel=\"dns-prefetch\" href=\"//{}\">",
+                domain
+            ));
         }
     }
     out
