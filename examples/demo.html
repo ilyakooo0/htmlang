@@ -1,3 +1,599 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>htmlang Demo</title><meta name="theme-color" content="#3b82f6"><link rel="preload" href="https://picsum.photos/72" as="image"><link rel="preload" href="https://picsum.photos/640/200" as="image"><link rel="dns-prefetch" href="//github.com"><link rel="dns-prefetch" href="//picsum.photos"><meta name="description" content="A one-page tour of htmlang."><meta property="og:title" content="htmlang"><meta property="og:type" content="website"><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif}img{display:block}a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid currentColor;outline-offset:2px}:root{--primary:#3b82f6;--ink:#0f172a;--muted:#64748b;--subtle:#f8fafc;}@layer htmlang{.a{display:flex;flex-direction:column;max-width:960px;margin-left:auto;margin-right:auto;padding:32px;gap:24px;background:white;}.b{display:flex;flex-direction:column;gap:8px;}.c{display:flex;flex-direction:column;gap:6px;color:#64748b;font-size:13px;}.d{display:flex;flex-direction:row;gap:6px;align-items:center;}.e{color:#64748b;}.f{color:#0f172a;}.g{display:flex;flex-direction:row;gap:16px;align-items:center;}.h{display:flex;flex-direction:column;flex:1;min-width:0;gap:6px;}.i{font-weight:bold;font-size:40px;color:#0f172a;}.j{margin:0;line-height:1.6;color:#64748b;}.k{font-weight:bold;color:#3b82f6;}.l{color:#3b82f6;text-decoration:underline;}.m{width:72px;height:72px;border-radius:36px;}.n{border-top:1px solid #e5e7eb;}.o{display:flex;flex-direction:column;gap:12px;padding-top:8px;padding-bottom:8px;}.p{font-weight:bold;font-size:22px;color:#0f172a;}.q{display:flex;flex-direction:row;flex-wrap:wrap;gap:8px;}.r{display:flex;flex-direction:column;padding:16px;background:white;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.05);cursor:pointer;transition:all 0.2s ease;animation:fade-up 0.3s ease;}.r:hover{box-shadow:0 4px 12px rgba(0,0,0,0.08);}.s{display:flex;flex-direction:row;gap:10px;align-items:center;}.t{font-size:20px;color:#3b82f6;}.u{font-weight:bold;font-size:16px;color:#0f172a;}.v{margin:0;line-height:1.7;}.w{font-weight:bold;}.x{font-style:italic;}.y{font-family:ui-monospace,monospace;padding:2px 6px;background:#f1f5f9;border-radius:4px;font-family:monospace;font-size:13px;}.z{background:#fef08a;}.aa{display:flex;flex-direction:column;margin:0;padding-inline-start:16px;border-left:3px solid #3b82f6;color:#64748b;font-style:italic;}.ab{margin:0;white-space:pre;font-family:ui-monospace,monospace;background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;font-family:monospace;font-size:13px;overflow-x:auto;}.ac{display:flex;flex-direction:column;gap:6px;}.ad{display:flex;flex-direction:row;gap:10px;align-items:baseline;}.ae{font-weight:bold;min-width:80px;}.af{color:#64748b;font-style:italic;}.ag{display:flex;flex-direction:row;gap:6px;}.ah{display:flex;flex-direction:column;width:18px;height:18px;border-radius:9px;background:#3b82f6;opacity:0.4;}.ai{display:flex;flex-direction:row;gap:4px;}.aj{display:flex;flex-direction:column;width:24px;height:24px;border-radius:4px;background:#3b82f6;color:white;text-align:center;font-size:12px;font-weight:bold;line-height:24;}.ak{font-weight:bold;min-width:64px;}.al{color:#3b82f6;font-weight:bold;}.am{color:#10b981;font-weight:bold;}.an{display:flex;flex-direction:column;padding:12px;border-radius:6px;background:#3b82f6;color:white;}.an::before{content:"→ ";font-weight:bold;}.ao{font-family:ui-monospace,monospace;}.ap{display:flex;flex-direction:column;gap:10px;max-width:420px;}.aq{font-weight:bold;font-size:13px;}.ar{padding:10px;border:1px solid #e5e7eb;border-radius:6px;transition:border 0.15s ease;}.ar:focus{border:1px solid #3b82f6;}.ar:valid{border:1px solid #10b981;}.ar:invalid{border:1px solid #ef4444;}.as{padding:10px;border:1px solid #e5e7eb;border-radius:6px;}.at{display:flex;flex-direction:row;gap:8px;}.au{padding:10px 16px;background:#3b82f6;color:white;font-weight:bold;border-radius:6px;border:0 solid currentColor;transition:background 0.15s ease;cursor:pointer;}.au:hover{background:#3575dd;}.au:active{background:#2f68c5;}.av{padding:10px 16px;background:white;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;}.aw{display:flex;flex-direction:row;gap:16px;flex-wrap:wrap;}.ax{display:flex;flex-direction:column;flex:1;min-width:0;gap:8px;min-width:240px;}.ay{margin:0;padding-left:0;list-style:none;gap:4px;list-style:disc;padding-inline-start:20px;}.az{display:flex;flex-direction:column;}.ba{margin:0;padding-left:0;list-style:none;list-style:decimal;padding-inline-start:20px;}.bb{text-align:left;padding:8px;}.bc{text-align:right;padding:8px;}.bd{padding:8px;border-top:1px solid #e5e7eb;}.be{padding:8px;border-top:1px solid #e5e7eb;text-align:right;}.bf{display:flex;flex-direction:column;margin:0;gap:6px;}.bg{border-radius:8px;}.bh{color:#64748b;font-size:13px;text-align:center;}.bi{display:flex;flex-direction:column;padding:12px;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc;}.bj{font-weight:bold;cursor:pointer;}.bk{margin:0;color:#64748b;line-height:1.6;padding-block-start:6px;}.bl{display:flex;flex-direction:column;display:grid;grid-template-columns:1fr 2fr;grid-template-areas:"h h" "s m" "f f";gap:8px;padding:8px;background:#f8fafc;border-radius:8px;}.bm{display:flex;flex-direction:column;grid-area:h;padding:10px;background:#3b82f6;color:white;border-radius:6px;text-align:center;}.bn{display:flex;flex-direction:column;grid-area:s;padding:10px;background:white;border-radius:6px;border:1px solid #e5e7eb;}.bo{display:flex;flex-direction:column;grid-area:m;padding:10px;background:white;border-radius:6px;border:1px solid #e5e7eb;}.bp{display:flex;flex-direction:column;grid-area:f;padding:10px;background:#0f172a;color:white;border-radius:6px;text-align:center;}.bq{gap:4px;font-style:normal;}.br{color:#3b82f6;}.bs{font-size:13px;color:#64748b;}.bt{font-size:13px;}.bu{display:flex;flex-direction:column;padding-block-start:24px;margin-block-start:24px;border-top:1px solid #e5e7eb;gap:8px;}.bv{display:flex;flex-direction:row;gap:8px;align-items:center;}.bw{display:flex;flex-direction:column;padding:12px 20px;background:#3b82f6;color:white;font-weight:bold;border-radius:8px;transition:all 0.15s ease;cursor:pointer;}.bw:hover{background:#3575dd;}.bw:active{background:#2f68c5;}.bx{color:#3b82f6;}.bx:hover{text-decoration:underline;}.bx:visited{color:#8b5cf6;}.by{display:flex;flex-direction:column;flex:1;min-width:0;}.bz{color:#64748b;font-size:13px;}@media(prefers-color-scheme:dark){.a{background:#0b1220;color:#e2e8f0;}.i{color:white;}}@media print{.bu{display:none;}}}@keyframes fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}</style></head><body><noscript><style>.needs-js{display:none}</style></noscript><div class="a"><header class="b"><nav class="c"><div class="d"><a href="/" class="e">Home</a><span>/</span><a href="/demos" class="e">Demos</a><span>/</span><span class="f">htmlang</span></div></nav><div class="g"><div class="h"><span class="i">Welcome to htmlang</span><p class="j">A minimalist layout language that compiles to <span class="k">static HTML</span> — no JS, no build step. Visit the <a href="https://github.com" rel="noopener noreferrer" target="_blank" class="l">repo</a> for more.</p></div><img src="https://picsum.photos/72" class="m" alt="&quot;Avatar&quot;" fetchpriority="high"></div></header><hr class="n"><section class="o"><span class="p">Features</span><div class="q"><article class="r"><div class="s"><span class="t">✦</span><span class="u">Simple</span></div><span>Write layouts without CSS classes.</span></article><article class="r"><div class="s"><span class="t">⚡</span><span class="u">Fast</span></div><span>Compiles to a single self-contained HTML file.</span></article><article class="r"><div class="s"><span class="t">○</span><span class="u">Minimal</span></div><span>Zero runtime JavaScript by default.</span></article><article class="r"><div class="s"><span class="t">◆</span><span class="u">Typed</span></div><span>LSP with diagnostics and go-to-definition.</span></article></div></section><section class="o"><span class="p">Typography</span><p class="v">A quick brown fox jumps over <span class="w">the lazy</span> <span class="x">dog</span>. Press <kbd class="y">Ctrl+K</kbd> to search. <mark class="z">Highlighted</mark> uses mark. <abbr title="HyperText Markup Language + language">htmlang</abbr> is an abbreviation.</p><blockquote class="aa"><span>Layout is code. Style is code. Everything should compose.</span><cite>— Anonymous</cite></blockquote><pre class="ab">@fn button $label
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>htmlang Demo</title>
+<meta name="theme-color" content="#3b82f6">
+<link rel="preload" href="https://picsum.photos/72" as="image">
+<link rel="preload" href="https://picsum.photos/640/200" as="image">
+<link rel="dns-prefetch" href="//github.com">
+<link rel="dns-prefetch" href="//picsum.photos">
+<meta name="description" content="A one-page tour of htmlang.">
+<meta property="og:title" content="htmlang">
+<meta property="og:type" content="website">
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+img { display: block; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+:root {
+  --primary: #3b82f6;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --subtle: #f8fafc;
+}
+@layer htmlang {
+  .a {display:flex;flex-direction:column;max-width:960px;margin-left:auto;margin-right:auto;padding:32px;gap:24px;background:white;}
+  .b {display:flex;flex-direction:column;gap:8px;}
+  .c {display:flex;flex-direction:column;gap:6px;color:#64748b;font-size:13px;}
+  .d {display:flex;flex-direction:row;gap:6px;align-items:center;}
+  .e {color:#64748b;}
+  .f {color:#0f172a;}
+  .g {display:flex;flex-direction:row;gap:16px;align-items:center;}
+  .h {display:flex;flex-direction:column;flex:1;min-width:0;gap:6px;}
+  .i {font-weight:bold;font-size:40px;color:#0f172a;}
+  .j {margin:0;line-height:1.6;color:#64748b;}
+  .k {font-weight:bold;color:#3b82f6;}
+  .l {color:#3b82f6;text-decoration:underline;}
+  .m {width:72px;height:72px;border-radius:36px;}
+  .n {border-top:1px solid #e5e7eb;}
+  .o {display:flex;flex-direction:column;gap:12px;padding-top:8px;padding-bottom:8px;}
+  .p {font-weight:bold;font-size:22px;color:#0f172a;}
+  .q {display:flex;flex-direction:row;flex-wrap:wrap;gap:8px;}
+  .r {display:flex;flex-direction:column;padding:16px;background:white;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.05);cursor:pointer;transition:all 0.2s ease;animation:fade-up 0.3s ease;}
+  .r:hover {box-shadow:0 4px 12px rgba(0,0,0,0.08);}
+  .s {display:flex;flex-direction:row;gap:10px;align-items:center;}
+  .t {font-size:20px;color:#3b82f6;}
+  .u {font-weight:bold;font-size:16px;color:#0f172a;}
+  .v {margin:0;line-height:1.7;}
+  .w {font-weight:bold;}
+  .x {font-style:italic;}
+  .y {font-family:ui-monospace,monospace;padding:2px 6px;background:#f1f5f9;border-radius:4px;font-family:monospace;font-size:13px;}
+  .z {background:#fef08a;}
+  .aa {display:flex;flex-direction:column;margin:0;padding-inline-start:16px;border-left:3px solid #3b82f6;color:#64748b;font-style:italic;}
+  .ab {margin:0;white-space:pre;font-family:ui-monospace,monospace;background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;font-family:monospace;font-size:13px;overflow-x:auto;}
+  .ac {display:flex;flex-direction:column;gap:6px;}
+  .ad {display:flex;flex-direction:row;gap:10px;align-items:baseline;}
+  .ae {font-weight:bold;min-width:80px;}
+  .af {color:#64748b;font-style:italic;}
+  .ag {display:flex;flex-direction:row;gap:6px;}
+  .ah {display:flex;flex-direction:column;width:18px;height:18px;border-radius:9px;background:#3b82f6;opacity:0.4;}
+  .ai {display:flex;flex-direction:row;gap:4px;}
+  .aj {display:flex;flex-direction:column;width:24px;height:24px;border-radius:4px;background:#3b82f6;color:white;text-align:center;font-size:12px;font-weight:bold;line-height:24;}
+  .ak {font-weight:bold;min-width:64px;}
+  .al {color:#3b82f6;font-weight:bold;}
+  .am {color:#10b981;font-weight:bold;}
+  .an {display:flex;flex-direction:column;padding:12px;border-radius:6px;background:#3b82f6;color:white;}
+  .an::before {content:"→ ";font-weight:bold;}
+  .ao {font-family:ui-monospace,monospace;}
+  .ap {display:flex;flex-direction:column;gap:10px;max-width:420px;}
+  .aq {font-weight:bold;font-size:13px;}
+  .ar {padding:10px;border:1px solid #e5e7eb;border-radius:6px;transition:border 0.15s ease;}
+  .ar:focus {border:1px solid #3b82f6;}
+  .ar:valid {border:1px solid #10b981;}
+  .ar:invalid {border:1px solid #ef4444;}
+  .as {padding:10px;border:1px solid #e5e7eb;border-radius:6px;}
+  .at {display:flex;flex-direction:row;gap:8px;}
+  .au {padding:10px 16px;background:#3b82f6;color:white;font-weight:bold;border-radius:6px;border:0 solid currentColor;transition:background 0.15s ease;cursor:pointer;}
+  .au:hover {background:#3575dd;}
+  .au:active {background:#2f68c5;}
+  .av {padding:10px 16px;background:white;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;}
+  .aw {display:flex;flex-direction:row;gap:16px;flex-wrap:wrap;}
+  .ax {display:flex;flex-direction:column;flex:1;min-width:0;gap:8px;min-width:240px;}
+  .ay {margin:0;padding-left:0;list-style:none;gap:4px;list-style:disc;padding-inline-start:20px;}
+  .az {display:flex;flex-direction:column;}
+  .ba {margin:0;padding-left:0;list-style:none;list-style:decimal;padding-inline-start:20px;}
+  .bb {text-align:left;padding:8px;}
+  .bc {text-align:right;padding:8px;}
+  .bd {padding:8px;border-top:1px solid #e5e7eb;}
+  .be {padding:8px;border-top:1px solid #e5e7eb;text-align:right;}
+  .bf {display:flex;flex-direction:column;margin:0;gap:6px;}
+  .bg {border-radius:8px;}
+  .bh {color:#64748b;font-size:13px;text-align:center;}
+  .bi {display:flex;flex-direction:column;padding:12px;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc;}
+  .bj {font-weight:bold;cursor:pointer;}
+  .bk {margin:0;color:#64748b;line-height:1.6;padding-block-start:6px;}
+  .bl {display:flex;flex-direction:column;display:grid;grid-template-columns:1fr 2fr;grid-template-areas:"h h" "s m" "f f";gap:8px;padding:8px;background:#f8fafc;border-radius:8px;}
+  .bm {display:flex;flex-direction:column;grid-area:h;padding:10px;background:#3b82f6;color:white;border-radius:6px;text-align:center;}
+  .bn {display:flex;flex-direction:column;grid-area:s;padding:10px;background:white;border-radius:6px;border:1px solid #e5e7eb;}
+  .bo {display:flex;flex-direction:column;grid-area:m;padding:10px;background:white;border-radius:6px;border:1px solid #e5e7eb;}
+  .bp {display:flex;flex-direction:column;grid-area:f;padding:10px;background:#0f172a;color:white;border-radius:6px;text-align:center;}
+  .bq {gap:4px;font-style:normal;}
+  .br {color:#3b82f6;}
+  .bs {font-size:13px;color:#64748b;}
+  .bt {font-size:13px;}
+  .bu {display:flex;flex-direction:column;padding-block-start:24px;margin-block-start:24px;border-top:1px solid #e5e7eb;gap:8px;}
+  .bv {display:flex;flex-direction:row;gap:8px;align-items:center;}
+  .bw {display:flex;flex-direction:column;padding:12px 20px;background:#3b82f6;color:white;font-weight:bold;border-radius:8px;transition:all 0.15s ease;cursor:pointer;}
+  .bw:hover {background:#3575dd;}
+  .bw:active {background:#2f68c5;}
+  .bx {color:#3b82f6;}
+  .bx:hover {text-decoration:underline;}
+  .bx:visited {color:#8b5cf6;}
+  .by {display:flex;flex-direction:column;flex:1;min-width:0;}
+  .bz {color:#64748b;font-size:13px;}
+@media (prefers-color-scheme: dark) {
+  .a {background:#0b1220;color:#e2e8f0;}
+  .i {color:white;}
+}
+@media print {
+  .bu {display:none;}
+}
+}
+@keyframes fade-up {
+from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}
+}
+</style>
+</head>
+<body>
+<noscript><style>.needs-js{display:none}</style></noscript>
+<!-- @column line 61 -->
+<div class="a" data-hl-line="61" data-hl-el="column">
+  <!-- @header line 72 -->
+  <header class="b" data-hl-line="72" data-hl-el="header">
+    <!-- @nav line 73 -->
+    <nav class="c" data-hl-line="73" data-hl-el="nav">
+      <!-- @row line 74 -->
+      <div class="d" data-hl-line="74" data-hl-el="row">
+        <!-- @link line 75 -->
+        <a href="/" class="e" data-hl-line="75" data-hl-el="link">
+Home        </a>
+        <!-- @text line 76 -->
+        <span data-hl-line="76" data-hl-el="text">
+/        </span>
+        <!-- @link line 77 -->
+        <a href="/demos" class="e" data-hl-line="77" data-hl-el="link">
+Demos        </a>
+        <!-- @text line 78 -->
+        <span data-hl-line="78" data-hl-el="text">
+/        </span>
+        <!-- @text line 79 -->
+        <span class="f" data-hl-line="79" data-hl-el="text">
+htmlang        </span>
+      </div>
+    </nav>
+    <!-- @row line 81 -->
+    <div class="g" data-hl-line="81" data-hl-el="row">
+      <!-- @column line 82 -->
+      <div class="h" data-hl-line="82" data-hl-el="column">
+        <!-- @text line 83 -->
+        <span class="i" data-hl-line="83" data-hl-el="text">
+Welcome to htmlang        </span>
+        <!-- @paragraph line 84 -->
+        <p class="j" data-hl-line="84" data-hl-el="paragraph">
+A minimalist layout language that compiles to           <span class="k">
+static HTML          </span> — no JS, no build step. Visit the           <a href="https://github.com" rel="noopener noreferrer" target="_blank" class="l">
+repo          </a> for more.        </p>
+      </div>
+      <!-- @image line 88 -->
+      <img src="https://picsum.photos/72" class="m" alt="&quot;Avatar&quot;" data-hl-line="88" data-hl-el="image" fetchpriority="high">
+    </div>
+  </header>
+  <!-- @hr line 90 -->
+  <hr class="n" data-hl-line="90" data-hl-el="hr">
+  <!-- @section line 56 -->
+  <section class="o" data-hl-line="56" data-hl-el="section">
+    <!-- @text line 57 -->
+    <span class="p" data-hl-line="57" data-hl-el="text">
+Features    </span>
+    <!-- @row line 94 -->
+    <div class="q" data-hl-line="94" data-hl-el="row">
+      <!-- @article line 48 -->
+      <article class="r" data-hl-line="48" data-hl-el="article">
+        <!-- @row line 49 -->
+        <div class="s" data-hl-line="49" data-hl-el="row">
+          <!-- @text line 50 -->
+          <span class="t" data-hl-line="50" data-hl-el="text">
+✦          </span>
+          <!-- @text line 51 -->
+          <span class="u" data-hl-line="51" data-hl-el="text">
+Simple          </span>
+        </div>
+        <span>Write layouts without CSS classes.</span>
+      </article>
+      <!-- @article line 48 -->
+      <article class="r" data-hl-line="48" data-hl-el="article">
+        <!-- @row line 49 -->
+        <div class="s" data-hl-line="49" data-hl-el="row">
+          <!-- @text line 50 -->
+          <span class="t" data-hl-line="50" data-hl-el="text">
+⚡          </span>
+          <!-- @text line 51 -->
+          <span class="u" data-hl-line="51" data-hl-el="text">
+Fast          </span>
+        </div>
+        <span>Compiles to a single self-contained HTML file.</span>
+      </article>
+      <!-- @article line 48 -->
+      <article class="r" data-hl-line="48" data-hl-el="article">
+        <!-- @row line 49 -->
+        <div class="s" data-hl-line="49" data-hl-el="row">
+          <!-- @text line 50 -->
+          <span class="t" data-hl-line="50" data-hl-el="text">
+○          </span>
+          <!-- @text line 51 -->
+          <span class="u" data-hl-line="51" data-hl-el="text">
+Minimal          </span>
+        </div>
+        <span>Zero runtime JavaScript by default.</span>
+      </article>
+      <!-- @article line 48 -->
+      <article class="r" data-hl-line="48" data-hl-el="article">
+        <!-- @row line 49 -->
+        <div class="s" data-hl-line="49" data-hl-el="row">
+          <!-- @text line 50 -->
+          <span class="t" data-hl-line="50" data-hl-el="text">
+◆          </span>
+          <!-- @text line 51 -->
+          <span class="u" data-hl-line="51" data-hl-el="text">
+Typed          </span>
+        </div>
+        <span>LSP with diagnostics and go-to-definition.</span>
+      </article>
+    </div>
+  </section>
+  <!-- @section line 56 -->
+  <section class="o" data-hl-line="56" data-hl-el="section">
+    <!-- @text line 57 -->
+    <span class="p" data-hl-line="57" data-hl-el="text">
+Typography    </span>
+    <!-- @paragraph line 106 -->
+    <p class="v" data-hl-line="106" data-hl-el="paragraph">
+A quick brown fox jumps over       <span class="w">
+the lazy      </span>       <span class="x">
+dog      </span>. Press       <kbd class="y">
+Ctrl+K      </kbd> to search.       <mark class="z">
+Highlighted      </mark> uses mark.       <abbr title="HyperText Markup Language + language">
+htmlang      </abbr> is an abbreviation.    </p>
+    <!-- @blockquote line 114 -->
+    <blockquote class="aa" data-hl-line="114" data-hl-el="blockquote">
+      <span>Layout is code. Style is code. Everything should compose.</span>
+      <!-- @cite line 119 -->
+      <cite data-hl-line="119" data-hl-el="cite">
+— Anonymous      </cite>
+    </blockquote>
+    <!-- @pre line 121 -->
+    <pre class="ab" data-hl-line="121" data-hl-el="pre">
+      @fn button $label
   @el [padding 12, background blue]
-    @text $label</pre></section><section class="o"><span class="p">Control flow</span><div class="ac"><div class="ad"><span class="ae">Alice</span><span class="e">Engineer</span></div><div class="ad"><span class="ae">Bob</span><span class="e">Designer</span></div><div class="ad"><span class="ae">Carol</span><span class="e">PM</span></div></div><span class="af" data-state="">(Nothing — @each ... @else fallback)</span><div class="ag"><div class="ah"></div><div class="ah"></div><div class="ah"></div><div class="ah"></div><div class="ah"></div><div class="ah"></div></div><div class="ai"><div class="aj"><span>1</span></div><div class="aj"><span>2</span></div><div class="aj"><span>3</span></div><div class="aj"><span>4</span></div><div class="aj"><span>5</span></div><div class="aj"><span>6</span></div></div><div class="d"><span class="ak">Count:</span><span class="al">3 items</span></div><span class="am">✓ Ready</span><div class="an"><span>Conditional styling via <code class="ao">if(cond, a, b)</code>.</span></div></section><section class="o"><span class="p">Forms</span><form action="/subscribe" class="ap"><label class="aq" for="email">Email</label><input class="ar" id="email" type="email" name="email" placeholder="you@example.com" required><label class="aq" for="role">Role</label><select class="as" id="role" name="role"><option value="dev">Developer</option><option value="designer">Designer</option><option value="other">Other</option></select><label class="aq" for="msg">Message</label><textarea class="as" id="msg" name="msg" rows="3"></textarea><div class="at"><button class="au" type="submit">Subscribe</button><button class="av" type="reset">Reset</button></div><progress value="60" max="100"></progress></form></section><section class="o"><span class="p">Data</span><div class="aw"><div class="ax"><span class="w">Unordered</span><ul class="ay"><li class="az">Composable with @each</li><li class="az">Indent to nest children</li><li class="az">Bold list items work too</li></ul><span class="w">Ordered</span><ol class="ba"><li class="az">First</li><li class="az">Second</li><li class="az">Third</li></ol></div><div class="ax"><span class="w">Table</span><table><thead><tr><th class="bb">Item</th><th class="bc">Qty</th></tr></thead><tbody><tr><td class="bd">Widgets</td><td class="be">12</td></tr><tr><td class="bd">Gadgets</td><td class="be">7</td></tr></tbody></table></div></div><figure class="bf"><img src="https://picsum.photos/640/200" class="bg" alt="&quot;A random placeholder&quot;" fetchpriority="high"><figcaption class="bh">A placeholder image.</figcaption></figure></section><section class="o"><span class="p">Disclosure + grid areas</span><details class="bi"><summary class="bj">What is htmlang?</summary><p class="bk">htmlang is a layout-first language that compiles to a single, self-contained HTML file with embedded CSS.</p></details><div class="bl"><div class="bm"><span>Header</span></div><div class="bn"><span>Sidebar</span></div><div class="bo"><span>Main</span></div><div class="bp"><span>Footer</span></div></div></section><section class="o"><span class="p">Misc</span><address class="bq"><span class="w">htmlang HQ</span><span>123 Flexbox Avenue</span><a href="mailto:hi@htmlang.dev" class="br">hi@htmlang.dev</a></address><div class="s"><span class="bs">Published</span><time datetime="2026-04-16" class="bt" datetime="2026-04-16">April 16 2026</time></div><div class="s"><span class="bs">Confidence</span><meter value="8" min="0" max="10" low="3" high="7"></meter></div></section><footer class="bu"><div class="bv"><div class="bw"><a href="https://github.com" rel="noopener noreferrer" target="_blank">Get Started</a></div><a href="https://github.com" rel="noopener noreferrer" target="_blank" class="bx">Browse source</a><div class="by"></div><span class="bz">© 2026 htmlang</span></div></footer></div></body></html>
+    @text $label
+    </pre>
+  </section>
+  <!-- @section line 56 -->
+  <section class="o" data-hl-line="56" data-hl-el="section">
+    <!-- @text line 57 -->
+    <span class="p" data-hl-line="57" data-hl-el="text">
+Control flow    </span>
+    <!-- @column line 134 -->
+    <div class="ac" data-hl-line="134" data-hl-el="column">
+      <!-- @row line 136 -->
+      <div class="ad" data-hl-line="136" data-hl-el="row">
+        <!-- @text line 137 -->
+        <span class="ae" data-hl-line="137" data-hl-el="text">
+Alice        </span>
+        <!-- @text line 138 -->
+        <span class="e" data-hl-line="138" data-hl-el="text">
+Engineer        </span>
+      </div>
+      <!-- @row line 136 -->
+      <div class="ad" data-hl-line="136" data-hl-el="row">
+        <!-- @text line 137 -->
+        <span class="ae" data-hl-line="137" data-hl-el="text">
+Bob        </span>
+        <!-- @text line 138 -->
+        <span class="e" data-hl-line="138" data-hl-el="text">
+Designer        </span>
+      </div>
+      <!-- @row line 136 -->
+      <div class="ad" data-hl-line="136" data-hl-el="row">
+        <!-- @text line 137 -->
+        <span class="ae" data-hl-line="137" data-hl-el="text">
+Carol        </span>
+        <!-- @text line 138 -->
+        <span class="e" data-hl-line="138" data-hl-el="text">
+PM        </span>
+      </div>
+    </div>
+    <!-- @text line 145 -->
+    <span class="af" data-state="" data-hl-line="145" data-hl-el="text">
+(Nothing — @each ... @else fallback)    </span>
+    <!-- @row line 148 -->
+    <div class="ag" data-hl-line="148" data-hl-el="row">
+      <!-- @el line 150 -->
+      <div class="ah" data-hl-line="150" data-hl-el="el">
+      </div>
+      <!-- @el line 150 -->
+      <div class="ah" data-hl-line="150" data-hl-el="el">
+      </div>
+      <!-- @el line 150 -->
+      <div class="ah" data-hl-line="150" data-hl-el="el">
+      </div>
+      <!-- @el line 150 -->
+      <div class="ah" data-hl-line="150" data-hl-el="el">
+      </div>
+      <!-- @el line 150 -->
+      <div class="ah" data-hl-line="150" data-hl-el="el">
+      </div>
+      <!-- @el line 150 -->
+      <div class="ah" data-hl-line="150" data-hl-el="el">
+      </div>
+    </div>
+    <!-- @row line 153 -->
+    <div class="ai" data-hl-line="153" data-hl-el="row">
+      <!-- @el line 155 -->
+      <div class="aj" data-hl-line="155" data-hl-el="el">
+        <span>1</span>
+      </div>
+      <!-- @el line 155 -->
+      <div class="aj" data-hl-line="155" data-hl-el="el">
+        <span>2</span>
+      </div>
+      <!-- @el line 155 -->
+      <div class="aj" data-hl-line="155" data-hl-el="el">
+        <span>3</span>
+      </div>
+      <!-- @el line 155 -->
+      <div class="aj" data-hl-line="155" data-hl-el="el">
+        <span>4</span>
+      </div>
+      <!-- @el line 155 -->
+      <div class="aj" data-hl-line="155" data-hl-el="el">
+        <span>5</span>
+      </div>
+      <!-- @el line 155 -->
+      <div class="aj" data-hl-line="155" data-hl-el="el">
+        <span>6</span>
+      </div>
+    </div>
+    <!-- @row line 165 -->
+    <div class="d" data-hl-line="165" data-hl-el="row">
+      <!-- @text line 166 -->
+      <span class="ak" data-hl-line="166" data-hl-el="text">
+Count:      </span>
+      <!-- @text line 172 -->
+      <span class="al" data-hl-line="172" data-hl-el="text">
+3 items      </span>
+    </div>
+    <!-- @text line 180 -->
+    <span class="am" data-hl-line="180" data-hl-el="text">
+✓ Ready    </span>
+    <!-- @el line 188 -->
+    <div class="an" data-hl-line="188" data-hl-el="el">
+      <span>Conditional styling via       <code class="ao">
+if(cond, a, b)      </code>.</span>
+    </div>
+  </section>
+  <!-- @section line 56 -->
+  <section class="o" data-hl-line="56" data-hl-el="section">
+    <!-- @text line 57 -->
+    <span class="p" data-hl-line="57" data-hl-el="text">
+Forms    </span>
+    <!-- @form line 198 -->
+    <form action="/subscribe" class="ap" data-hl-line="198" data-hl-el="form">
+      <!-- @label line 199 -->
+      <label class="aq" for="email" data-hl-line="199" data-hl-el="label">
+Email      </label>
+      <!-- @input line 200 -->
+      <input class="ar" id="email" type="email" name="email" placeholder="you@example.com" required data-hl-line="200" data-hl-el="input">
+      <!-- @label line 209 -->
+      <label class="aq" for="role" data-hl-line="209" data-hl-el="label">
+Role      </label>
+      <!-- @select line 210 -->
+      <select class="as" id="role" name="role" data-hl-line="210" data-hl-el="select">
+        <!-- @option line 211 -->
+        <option value="dev" data-hl-line="211" data-hl-el="option">
+Developer        </option>
+        <!-- @option line 212 -->
+        <option value="designer" data-hl-line="212" data-hl-el="option">
+Designer        </option>
+        <!-- @option line 213 -->
+        <option value="other" data-hl-line="213" data-hl-el="option">
+Other        </option>
+      </select>
+      <!-- @label line 214 -->
+      <label class="aq" for="msg" data-hl-line="214" data-hl-el="label">
+Message      </label>
+      <!-- @textarea line 215 -->
+      <textarea class="as" id="msg" name="msg" rows="3" data-hl-line="215" data-hl-el="textarea">
+      </textarea>
+      <!-- @row line 219 -->
+      <div class="at" data-hl-line="219" data-hl-el="row">
+        <!-- @button line 220 -->
+        <button class="au" type="submit" data-hl-line="220" data-hl-el="button">
+Subscribe        </button>
+        <!-- @button line 229 -->
+        <button class="av" type="reset" data-hl-line="229" data-hl-el="button">
+Reset        </button>
+      </div>
+      <!-- @ line 234 -->
+      <progress value="60" max="100" data-hl-line="234" data-hl-el="">
+      </progress>
+    </form>
+  </section>
+  <!-- @section line 56 -->
+  <section class="o" data-hl-line="56" data-hl-el="section">
+    <!-- @text line 57 -->
+    <span class="p" data-hl-line="57" data-hl-el="text">
+Data    </span>
+    <!-- @row line 238 -->
+    <div class="aw" data-hl-line="238" data-hl-el="row">
+      <!-- @column line 239 -->
+      <div class="ax" data-hl-line="239" data-hl-el="column">
+        <!-- @text line 240 -->
+        <span class="w" data-hl-line="240" data-hl-el="text">
+Unordered        </span>
+        <!-- @list line 241 -->
+        <ul class="ay" data-hl-line="241" data-hl-el="list">
+          <!-- @item line 242 -->
+          <li class="az" data-hl-line="242" data-hl-el="item">
+Composable with @each          </li>
+          <!-- @item line 243 -->
+          <li class="az" data-hl-line="243" data-hl-el="item">
+Indent to nest children          </li>
+          <!-- @item line 244 -->
+          <li class="az" data-hl-line="244" data-hl-el="item">
+Bold list items work too          </li>
+        </ul>
+        <!-- @text line 245 -->
+        <span class="w" data-hl-line="245" data-hl-el="text">
+Ordered        </span>
+        <!-- @list line 246 -->
+        <ol class="ba" data-hl-line="246" data-hl-el="list">
+          <!-- @item line 247 -->
+          <li class="az" data-hl-line="247" data-hl-el="item">
+First          </li>
+          <!-- @item line 248 -->
+          <li class="az" data-hl-line="248" data-hl-el="item">
+Second          </li>
+          <!-- @item line 249 -->
+          <li class="az" data-hl-line="249" data-hl-el="item">
+Third          </li>
+        </ol>
+      </div>
+      <!-- @column line 251 -->
+      <div class="ax" data-hl-line="251" data-hl-el="column">
+        <!-- @text line 252 -->
+        <span class="w" data-hl-line="252" data-hl-el="text">
+Table        </span>
+        <!-- @table line 253 -->
+        <table data-hl-line="253" data-hl-el="table">
+          <!-- @thead line 254 -->
+          <thead data-hl-line="254" data-hl-el="thead">
+            <!-- @tr line 255 -->
+            <tr data-hl-line="255" data-hl-el="tr">
+              <!-- @th line 256 -->
+              <th class="bb" data-hl-line="256" data-hl-el="th">
+Item              </th>
+              <!-- @th line 257 -->
+              <th class="bc" data-hl-line="257" data-hl-el="th">
+Qty              </th>
+            </tr>
+          </thead>
+          <!-- @tbody line 258 -->
+          <tbody data-hl-line="258" data-hl-el="tbody">
+            <!-- @tr line 259 -->
+            <tr data-hl-line="259" data-hl-el="tr">
+              <!-- @td line 260 -->
+              <td class="bd" data-hl-line="260" data-hl-el="td">
+Widgets              </td>
+              <!-- @td line 261 -->
+              <td class="be" data-hl-line="261" data-hl-el="td">
+12              </td>
+            </tr>
+            <!-- @tr line 262 -->
+            <tr data-hl-line="262" data-hl-el="tr">
+              <!-- @td line 263 -->
+              <td class="bd" data-hl-line="263" data-hl-el="td">
+Gadgets              </td>
+              <!-- @td line 264 -->
+              <td class="be" data-hl-line="264" data-hl-el="td">
+7              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- @figure line 266 -->
+    <figure class="bf" data-hl-line="266" data-hl-el="figure">
+      <!-- @image line 267 -->
+      <img src="https://picsum.photos/640/200" class="bg" alt="&quot;A random placeholder&quot;" data-hl-line="267" data-hl-el="image" fetchpriority="high">
+      <!-- @figcaption line 268 -->
+      <figcaption class="bh" data-hl-line="268" data-hl-el="figcaption">
+A placeholder image.      </figcaption>
+    </figure>
+  </section>
+  <!-- @section line 56 -->
+  <section class="o" data-hl-line="56" data-hl-el="section">
+    <!-- @text line 57 -->
+    <span class="p" data-hl-line="57" data-hl-el="text">
+Disclosure + grid areas    </span>
+    <!-- @details line 273 -->
+    <details class="bi" data-hl-line="273" data-hl-el="details">
+      <!-- @summary line 274 -->
+      <summary class="bj" data-hl-line="274" data-hl-el="summary">
+What is htmlang?      </summary>
+      <!-- @paragraph line 275 -->
+      <p class="bk" data-hl-line="275" data-hl-el="paragraph">
+htmlang is a layout-first language that compiles to a single, self-contained HTML file with embedded CSS.      </p>
+    </details>
+    <!-- @el line 280 -->
+    <div class="bl" data-hl-line="280" data-hl-el="el">
+      <!-- @el line 287 -->
+      <div class="bm" data-hl-line="287" data-hl-el="el">
+        <span>Header</span>
+      </div>
+      <!-- @el line 289 -->
+      <div class="bn" data-hl-line="289" data-hl-el="el">
+        <span>Sidebar</span>
+      </div>
+      <!-- @el line 291 -->
+      <div class="bo" data-hl-line="291" data-hl-el="el">
+        <span>Main</span>
+      </div>
+      <!-- @el line 293 -->
+      <div class="bp" data-hl-line="293" data-hl-el="el">
+        <span>Footer</span>
+      </div>
+    </div>
+  </section>
+  <!-- @section line 56 -->
+  <section class="o" data-hl-line="56" data-hl-el="section">
+    <!-- @text line 57 -->
+    <span class="p" data-hl-line="57" data-hl-el="text">
+Misc    </span>
+    <!-- @address line 298 -->
+    <address class="bq" data-hl-line="298" data-hl-el="address">
+      <!-- @text line 299 -->
+      <span class="w" data-hl-line="299" data-hl-el="text">
+htmlang HQ      </span>
+      <!-- @text line 300 -->
+      <span data-hl-line="300" data-hl-el="text">
+123 Flexbox Avenue      </span>
+      <!-- @link line 301 -->
+      <a href="mailto:hi@htmlang.dev" class="br" data-hl-line="301" data-hl-el="link">
+hi@htmlang.dev      </a>
+    </address>
+    <!-- @row line 302 -->
+    <div class="s" data-hl-line="302" data-hl-el="row">
+      <!-- @text line 303 -->
+      <span class="bs" data-hl-line="303" data-hl-el="text">
+Published      </span>
+      <!-- @time line 304 -->
+      <time datetime="2026-04-16" class="bt" datetime="2026-04-16" data-hl-line="304" data-hl-el="time">
+April 16 2026      </time>
+    </div>
+    <!-- @row line 305 -->
+    <div class="s" data-hl-line="305" data-hl-el="row">
+      <!-- @text line 306 -->
+      <span class="bs" data-hl-line="306" data-hl-el="text">
+Confidence      </span>
+      <!-- @ line 307 -->
+      <meter value="8" min="0" max="10" low="3" high="7" data-hl-line="307" data-hl-el="">
+      </meter>
+    </div>
+  </section>
+  <!-- @footer line 310 -->
+  <footer class="bu" data-hl-line="310" data-hl-el="footer">
+    <!-- @row line 315 -->
+    <div class="bv" data-hl-line="315" data-hl-el="row">
+      <!-- @el line 316 -->
+      <div class="bw" data-hl-line="316" data-hl-el="el">
+        <!-- @link line 316 -->
+        <a href="https://github.com" rel="noopener noreferrer" target="_blank" data-hl-line="316" data-hl-el="link">
+Get Started        </a>
+      </div>
+      <!-- @link line 324 -->
+      <a href="https://github.com" rel="noopener noreferrer" target="_blank" class="bx" data-hl-line="324" data-hl-el="link">
+Browse source      </a>
+      <!-- @el line 329 -->
+      <div class="by" data-hl-line="329" data-hl-el="el">
+      </div>
+      <!-- @text line 330 -->
+      <span class="bz" data-hl-line="330" data-hl-el="text">
+© 2026 htmlang      </span>
+    </div>
+  </footer>
+</div>
+</body>
+</html>
