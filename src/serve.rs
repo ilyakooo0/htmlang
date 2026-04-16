@@ -233,7 +233,7 @@ where
         Some(fp) => {
             let body = match std::fs::read(&fp) {
                 Ok(content) => {
-                    if fp.extension().map_or(false, |e| e == "html") {
+                    if fp.extension().is_some_and(|e| e == "html") {
                         inject_reload_script(&content)
                     } else {
                         content
@@ -304,11 +304,10 @@ fn collect_html_pages(base: &Path, dir: &Path, pages: &mut Vec<String>) {
             let path = entry.path();
             if path.is_dir() {
                 collect_html_pages(base, &path, pages);
-            } else if path.extension().map_or(false, |e| e == "html") {
-                if let Ok(rel) = path.strip_prefix(base) {
+            } else if path.extension().is_some_and(|e| e == "html")
+                && let Ok(rel) = path.strip_prefix(base) {
                     pages.push(format!("/{}", rel.display()));
                 }
-            }
         }
     }
 }
@@ -416,7 +415,7 @@ where
 
     let body = match std::fs::read(&file_path) {
         Ok(content) => {
-            if file_path.extension().map_or(false, |e| e == "html") {
+            if file_path.extension().is_some_and(|e| e == "html") {
                 inject_reload_script(&content)
             } else {
                 content

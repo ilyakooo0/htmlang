@@ -86,8 +86,8 @@ impl<'a> HtmlParser<'a> {
                 break;
             }
             // Check for closing tag
-            if let Some(stop) = stop_tag {
-                if self.starts_with("</") {
+            if let Some(stop) = stop_tag
+                && self.starts_with("</") {
                     let saved = self.pos;
                     self.pos += 2;
                     let tag = self.parse_tag_name();
@@ -102,7 +102,6 @@ impl<'a> HtmlParser<'a> {
                     // parent handle it.
                     break;
                 }
-            }
 
             if self.starts_with("<!--") {
                 self.pos += 4;
@@ -356,7 +355,10 @@ fn strip_px_multi(v: &str) -> String {
 /// Converts CSS properties to htmlang attribute key-value pairs.
 /// Returns (attrs, leftover_css) where leftover_css is anything we
 /// could not convert to a known htmlang attribute.
-fn css_to_hl_attrs(styles: &[(String, String)]) -> (Vec<(String, Option<String>)>, Vec<(String, String)>) {
+type HlAttr = (String, Option<String>);
+type CssDecl = (String, String);
+
+fn css_to_hl_attrs(styles: &[CssDecl]) -> (Vec<HlAttr>, Vec<CssDecl>) {
     let mut attrs: Vec<(String, Option<String>)> = Vec::new();
     let mut leftover: Vec<(String, String)> = Vec::new();
 
@@ -387,36 +389,30 @@ fn css_to_hl_attrs(styles: &[(String, String)]) -> (Vec<(String, Option<String>)
             }
             "padding-left" | "padding-right" => {
                 // Check for padding-x pattern
-                if key == "padding-left" {
-                    if let Some(&pr) = style_map.get("padding-right") {
-                        if pr == val {
+                if key == "padding-left"
+                    && let Some(&pr) = style_map.get("padding-right")
+                        && pr == val {
                             attrs.push(("padding-x".into(), Some(strip_px(val).into())));
                             continue;
                         }
-                    }
-                }
-                if key == "padding-right" {
-                    if style_map.get("padding-left") == Some(&val.as_str()) {
+                if key == "padding-right"
+                    && style_map.get("padding-left") == Some(&val.as_str()) {
                         // Already emitted as padding-x
                         continue;
                     }
-                }
                 leftover.push((key.clone(), val.clone()));
             }
             "padding-top" | "padding-bottom" => {
-                if key == "padding-top" {
-                    if let Some(&pb) = style_map.get("padding-bottom") {
-                        if pb == val {
+                if key == "padding-top"
+                    && let Some(&pb) = style_map.get("padding-bottom")
+                        && pb == val {
                             attrs.push(("padding-y".into(), Some(strip_px(val).into())));
                             continue;
                         }
-                    }
-                }
-                if key == "padding-bottom" {
-                    if style_map.get("padding-top") == Some(&val.as_str()) {
+                if key == "padding-bottom"
+                    && style_map.get("padding-top") == Some(&val.as_str()) {
                         continue;
                     }
-                }
                 leftover.push((key.clone(), val.clone()));
             }
             "padding-inline" => {
@@ -430,35 +426,29 @@ fn css_to_hl_attrs(styles: &[(String, String)]) -> (Vec<(String, Option<String>)
                 attrs.push(("margin".into(), Some(strip_px_multi(val))));
             }
             "margin-left" | "margin-right" => {
-                if key == "margin-left" {
-                    if let Some(&mr) = style_map.get("margin-right") {
-                        if mr == val {
+                if key == "margin-left"
+                    && let Some(&mr) = style_map.get("margin-right")
+                        && mr == val {
                             attrs.push(("margin-x".into(), Some(strip_px(val).into())));
                             continue;
                         }
-                    }
-                }
-                if key == "margin-right" {
-                    if style_map.get("margin-left") == Some(&val.as_str()) {
+                if key == "margin-right"
+                    && style_map.get("margin-left") == Some(&val.as_str()) {
                         continue;
                     }
-                }
                 leftover.push((key.clone(), val.clone()));
             }
             "margin-top" | "margin-bottom" => {
-                if key == "margin-top" {
-                    if let Some(&mb) = style_map.get("margin-bottom") {
-                        if mb == val {
+                if key == "margin-top"
+                    && let Some(&mb) = style_map.get("margin-bottom")
+                        && mb == val {
                             attrs.push(("margin-y".into(), Some(strip_px(val).into())));
                             continue;
                         }
-                    }
-                }
-                if key == "margin-bottom" {
-                    if style_map.get("margin-top") == Some(&val.as_str()) {
+                if key == "margin-bottom"
+                    && style_map.get("margin-top") == Some(&val.as_str()) {
                         continue;
                     }
-                }
                 leftover.push((key.clone(), val.clone()));
             }
             "margin-inline" => {
@@ -677,16 +667,13 @@ fn unwrap_boilerplate(nodes: &[HtmlNode]) -> Vec<&HtmlNode> {
         .collect();
 
     // If there's a single <html> element, unwrap it
-    if meaningful.len() == 1 {
-        if let HtmlNode::Element {
+    if meaningful.len() == 1
+        && let HtmlNode::Element {
             tag, children, ..
         } = meaningful[0]
-        {
-            if tag == "html" {
+            && tag == "html" {
                 return unwrap_html_children(children);
             }
-        }
-    }
 
     // Otherwise, check if there are any html/head/body tags mixed in
     let mut result = Vec::new();
@@ -950,13 +937,11 @@ fn emit_element(
     }
 
     // Alt text for images
-    if tag == "img" {
-        if let Some(alt_text) = &alt {
-            if !alt_text.is_empty() {
+    if tag == "img"
+        && let Some(alt_text) = &alt
+            && !alt_text.is_empty() {
                 hl_attrs.push(("alt".into(), Some(alt_text.clone())));
             }
-        }
-    }
 
     // Passthrough HTML attributes that htmlang supports
     for (key, val) in attrs {
@@ -996,12 +981,11 @@ fn emit_element(
             out.push(' ');
             out.push_str(url);
         }
-    } else if tag == "img" {
-        if let Some(src_val) = &src {
+    } else if tag == "img"
+        && let Some(src_val) = &src {
             out.push(' ');
             out.push_str(src_val);
         }
-    }
 
     // Attributes block
     if !hl_attrs.is_empty() {
@@ -1041,17 +1025,15 @@ fn emit_element(
     }
 
     // Alt text for images
-    if tag == "img" {
-        if let Some(alt_text) = &alt {
-            if !alt_text.is_empty() {
+    if tag == "img"
+        && let Some(alt_text) = &alt
+            && !alt_text.is_empty() {
                 // Alt is emitted as an attribute already? No -- let's add it.
                 // Actually we should add it to hl_attrs above. But since we
                 // already flushed the line, add a comment.
                 // Re-check: the image alt is typically an attribute.
                 // We'll add it inline. Let's fix this by checking above.
             }
-        }
-    }
 
     // Emit children
     for child in children {

@@ -71,6 +71,7 @@ impl StyleCollector {
     }
 
     /// Returns a class name for this style combination, or None if all empty.
+    #[allow(clippy::too_many_arguments)]
     fn get_class(
         &mut self,
         base: String,
@@ -1348,10 +1349,7 @@ fn generate_element(
             match child {
                 Node::Text(segments) => {
                     for seg in segments {
-                        match seg {
-                            TextSegment::Plain(text) => out.push_str(text),
-                            _ => {}
-                        }
+                        if let TextSegment::Plain(text) = seg { out.push_str(text) }
                     }
                 }
                 Node::Raw(content) => out.push_str(content),
@@ -1582,8 +1580,8 @@ fn generate_element(
         out.push_str(" id=\"hl-main\"");
     }
 
-    if elem.kind == ElementKind::Link {
-        if let Some(url) = &elem.argument {
+    if elem.kind == ElementKind::Link
+        && let Some(url) = &elem.argument {
             out.push_str(" href=\"");
             out.push_str(&html_escape(url));
             out.push('"');
@@ -1600,54 +1598,47 @@ fn generate_element(
                 }
             }
         }
-    }
 
     // Video/Audio src
-    if matches!(elem.kind, ElementKind::Video | ElementKind::Audio) {
-        if let Some(src) = &elem.argument {
+    if matches!(elem.kind, ElementKind::Video | ElementKind::Audio)
+        && let Some(src) = &elem.argument {
             out.push_str(" src=\"");
             out.push_str(&html_escape(src));
             out.push('"');
         }
-    }
 
     // Form action
-    if elem.kind == ElementKind::Form {
-        if let Some(action) = &elem.argument {
+    if elem.kind == ElementKind::Form
+        && let Some(action) = &elem.argument {
             out.push_str(" action=\"");
             out.push_str(&html_escape(action));
             out.push('"');
         }
-    }
 
     // Iframe src
-    if elem.kind == ElementKind::Iframe {
-        if let Some(src) = &elem.argument {
+    if elem.kind == ElementKind::Iframe
+        && let Some(src) = &elem.argument {
             out.push_str(" src=\"");
             out.push_str(&html_escape(src));
             out.push('"');
         }
-    }
 
     // Tooltip title
-    if elem.kind == ElementKind::Tooltip {
-        if let Some(text) = &elem.argument {
+    if elem.kind == ElementKind::Tooltip
+        && let Some(text) = &elem.argument {
             out.push_str(" title=\"");
             out.push_str(&html_escape(text));
             out.push('"');
         }
-    }
 
     // Time datetime
-    if elem.kind == ElementKind::Time {
-        if let Some(dt) = elem.attrs.iter().find(|a| a.key == "datetime") {
-            if let Some(val) = &dt.value {
+    if elem.kind == ElementKind::Time
+        && let Some(dt) = elem.attrs.iter().find(|a| a.key == "datetime")
+            && let Some(val) = &dt.value {
                 out.push_str(" datetime=\"");
                 out.push_str(&html_escape(val));
                 out.push('"');
             }
-        }
-    }
 
     // Critical CSS: inline styles directly instead of using a class
     let is_critical = elem.attrs.iter().any(|a| a.key == "critical");
@@ -1659,7 +1650,7 @@ fn generate_element(
             out.push('"');
         }
         // Still use class for non-base styles (pseudo, responsive, etc.)
-        if gen_class.as_deref().map_or(false, |c| !c.is_empty()) {
+        if gen_class.as_deref().is_some_and(|c| !c.is_empty()) {
             emit_class_attr(out, gen_class.as_deref(), user_class.as_deref());
         } else if let Some(ref uc) = user_class {
             emit_class_attr(out, None, Some(uc));
@@ -1710,11 +1701,10 @@ fn generate_element(
             | ElementKind::Tooltip
             | ElementKind::Chip
             | ElementKind::Tag
-    ) {
-        if let Some(text) = &elem.argument {
+    )
+        && let Some(text) = &elem.argument {
             out.push_str(&html_escape(text));
         }
-    }
 
     // Children
     ctx.depth += 1;
@@ -1809,10 +1799,10 @@ fn generate_self_closing(
     // Image optimization: auto-add loading="lazy" and decoding="async"
     if elem.kind == ElementKind::Image {
         // SVG inlining: @image [inline] logo.svg
-        if elem.attrs.iter().any(|a| a.key == "inline") {
-            if let Some(src) = &elem.argument {
-                if src.ends_with(".svg") {
-                    if let Ok(svg_content) = std::fs::read_to_string(src) {
+        if elem.attrs.iter().any(|a| a.key == "inline")
+            && let Some(src) = &elem.argument
+                && src.ends_with(".svg")
+                    && let Ok(svg_content) = std::fs::read_to_string(src) {
                         // Close the tag we opened, then emit inline SVG instead
                         out.truncate(out.rfind('<').unwrap_or(0));
                         out.push_str(&ctx.indent());
@@ -1820,13 +1810,10 @@ fn generate_self_closing(
                         out.push_str(ctx.nl());
                         return;
                     }
-                }
-            }
-        }
         // Responsive srcset: @image photo.jpg [responsive 400 800 1200]
         let responsive_attr = elem.attrs.iter().find(|a| a.key == "responsive");
-        if let Some(resp) = responsive_attr {
-            if let Some(ref sizes_str) = resp.value {
+        if let Some(resp) = responsive_attr
+            && let Some(ref sizes_str) = resp.value {
                 let widths: Vec<&str> = sizes_str.split_whitespace().collect();
                 if !widths.is_empty() {
                     let src = elem.argument.as_deref().unwrap_or("");
@@ -1849,15 +1836,14 @@ fn generate_self_closing(
                     }
                 }
             }
-        }
 
         // Auto image dimensions: read local image file to inject width/height + aspect-ratio
         let has_width = elem.attrs.iter().any(|a| a.key == "width");
         let has_height = elem.attrs.iter().any(|a| a.key == "height");
-        if !has_width || !has_height {
-            if let Some(ref src) = elem.argument {
-                if !src.starts_with("http://") && !src.starts_with("https://") && !src.starts_with("data:") {
-                    if let Some((w, h)) = read_image_dimensions(src) {
+        if (!has_width || !has_height)
+            && let Some(ref src) = elem.argument
+                && !src.starts_with("http://") && !src.starts_with("https://") && !src.starts_with("data:")
+                    && let Some((w, h)) = read_image_dimensions(src) {
                         if !has_width {
                             out.push_str(&format!(" width=\"{}\"", w));
                         }
@@ -1869,9 +1855,6 @@ fn generate_self_closing(
                             out.push_str(&format!(" style=\"aspect-ratio:{}/{}\"", w, h));
                         }
                     }
-                }
-            }
-        }
 
         // Smart image loading: first 3 images get fetchpriority="high" (above the fold),
         // subsequent images get loading="lazy" + decoding="async"
@@ -1965,19 +1948,18 @@ fn compute_class(
     // Collect has(...): dynamic pseudo selectors
     let mut has_prefixes: Vec<String> = Vec::new();
     for attr in attrs {
-        if attr.key.starts_with("has(") {
-            if let Some(close) = attr.key.find("):") {
+        if attr.key.starts_with("has(")
+            && let Some(close) = attr.key.find("):") {
                 let prefix = format!("{}:", &attr.key[..close + 1]);
                 if !has_prefixes.contains(&prefix) {
                     has_prefixes.push(prefix);
                 }
             }
-        }
     }
     for prefix in &has_prefixes {
         let inner = &prefix[4..prefix.len() - 2]; // extract selector from has(selector):
         let selector = format!(":has({})", inner);
-        let css = attrs_to_css(attrs, &prefix, kind, parent_kind);
+        let css = attrs_to_css(attrs, prefix, kind, parent_kind);
         if !css.is_empty() {
             pseudo.push((selector, css));
         }
@@ -3143,7 +3125,7 @@ fn css_px(value: &str) -> String {
 fn css_px_multi(value: &str) -> String {
     value
         .split_whitespace()
-        .map(|p| css_px(p))
+        .map(css_px)
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -3246,13 +3228,11 @@ fn read_svg_dimensions(text: &str) -> Option<(u32, u32)> {
         let rest = &text[vb_start + 9..];
         if let Some(end) = rest.find('"') {
             let parts: Vec<&str> = rest[..end].split_whitespace().collect();
-            if parts.len() == 4 {
-                if let (Ok(w), Ok(h)) = (parts[2].parse::<f64>(), parts[3].parse::<f64>()) {
-                    if w > 0.0 && h > 0.0 {
+            if parts.len() == 4
+                && let (Ok(w), Ok(h)) = (parts[2].parse::<f64>(), parts[3].parse::<f64>())
+                    && w > 0.0 && h > 0.0 {
                         return Some((w.round() as u32, h.round() as u32));
                     }
-                }
-            }
         }
     }
     // Fall back to width/height attributes on <svg>
@@ -3293,11 +3273,10 @@ fn read_avif_dimensions(data: &[u8]) -> Option<(u32, u32)> {
         // Recurse into container boxes (meta, iprp, ipco)
         if matches!(box_type, b"meta" | b"iprp" | b"ipco" | b"moov" | b"trak" | b"mdia") {
             let header_size = if box_type == b"meta" { 12 } else { 8 };
-            if i + header_size < box_end {
-                if let Some(dims) = read_avif_dimensions(&data[i + header_size..box_end]) {
+            if i + header_size < box_end
+                && let Some(dims) = read_avif_dimensions(&data[i + header_size..box_end]) {
                     return Some(dims);
                 }
-            }
         }
         i = box_end;
     }
@@ -3435,7 +3414,7 @@ fn collect_dns_prefetch(html: &str, dev: bool) -> String {
     while let Some(pos) = rest.find("https://") {
         let start = pos + 8; // skip "https://"
         rest = &rest[start..];
-        let end = rest.find(|c: char| c == '/' || c == '"' || c == '\'' || c == ' ' || c == '>' || c == ')').unwrap_or(rest.len());
+        let end = rest.find(['/', '"', '\'', ' ', '>', ')']).unwrap_or(rest.len());
         let domain = &rest[..end];
         if !domain.is_empty() && domain.contains('.') && !domains.contains(&domain.to_string()) {
             domains.push(domain.to_string());

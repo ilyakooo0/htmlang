@@ -386,7 +386,7 @@ pub(crate) fn path_completions(uri: &Url, position: Position) -> Vec<CompletionI
         None => return vec![],
     };
 
-    let col = position.character as u32;
+    let col = position.character;
     let edit_range = Range::new(Position::new(position.line, col), Position::new(position.line, col));
 
     let entries = match std::fs::read_dir(dir) {
@@ -397,8 +397,8 @@ pub(crate) fn path_completions(uri: &Url, position: Position) -> Vec<CompletionI
     let mut items = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("hl") {
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if path.extension().and_then(|e| e.to_str()) == Some("hl")
+            && let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 // Skip the current file itself
                 if Some(name) == file_path.file_name().and_then(|n| n.to_str()) {
                     continue;
@@ -414,7 +414,6 @@ pub(crate) fn path_completions(uri: &Url, position: Position) -> Vec<CompletionI
                     ..Default::default()
                 });
             }
-        }
     }
     items
 }
@@ -432,9 +431,9 @@ pub(crate) fn use_symbol_completions(uri: &Url, line: &str, position: Position) 
 
     // Extract the filename from @use "file.hl" or @use file.hl
     let after_use = &line.trim_start()[5..]; // skip "@use "
-    let filename = if after_use.starts_with('"') {
-        let end = after_use[1..].find('"').map(|i| i + 1).unwrap_or(after_use.len());
-        &after_use[1..end]
+    let filename = if let Some(after_quote) = after_use.strip_prefix('"') {
+        let end = after_quote.find('"').unwrap_or(after_quote.len());
+        &after_quote[..end]
     } else {
         after_use.split_whitespace().next().unwrap_or("")
     };
@@ -449,7 +448,7 @@ pub(crate) fn use_symbol_completions(uri: &Url, line: &str, position: Position) 
         Err(_) => return vec![],
     };
 
-    let col = position.character as u32;
+    let col = position.character;
     let edit_range = Range::new(Position::new(position.line, col), Position::new(position.line, col));
 
     let mut items = Vec::new();
@@ -489,8 +488,8 @@ pub(crate) fn use_symbol_completions(uri: &Url, line: &str, position: Position) 
                     ..Default::default()
                 });
             }
-        } else if let Some(rest) = trimmed.strip_prefix("@component ") {
-            if let Some(name) = rest.split_whitespace().next() {
+        } else if let Some(rest) = trimmed.strip_prefix("@component ")
+            && let Some(name) = rest.split_whitespace().next() {
                 items.push(CompletionItem {
                     label: name.to_string(),
                     kind: Some(CompletionItemKind::CLASS),
@@ -502,7 +501,6 @@ pub(crate) fn use_symbol_completions(uri: &Url, line: &str, position: Position) 
                     ..Default::default()
                 });
             }
-        }
     }
 
     items
@@ -986,8 +984,8 @@ fn variable_completions(text: &str, range: Range) -> Vec<CompletionItem> {
                     range,
                 ));
             }
-        } else if let Some(rest) = trimmed.strip_prefix("@define ") {
-            if let Some(bracket) = rest.find('[') {
+        } else if let Some(rest) = trimmed.strip_prefix("@define ")
+            && let Some(bracket) = rest.find('[') {
                 let name = rest[..bracket].trim();
                 items.push(item(
                     &format!("${}", name),
@@ -997,7 +995,6 @@ fn variable_completions(text: &str, range: Range) -> Vec<CompletionItem> {
                     range,
                 ));
             }
-        }
     }
 
     items

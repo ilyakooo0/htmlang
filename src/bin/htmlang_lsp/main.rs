@@ -203,8 +203,7 @@ impl LanguageServer for Backend {
                 }
             }
             // @use "file.hl" fn1, fn2 -- after the filename, suggest exported @fn names
-            if trimmed.starts_with("@use ") {
-                let after_use = &trimmed[5..];
+            if let Some(after_use) = trimmed.strip_prefix("@use ") {
                 // If we already have a filename (quoted or unquoted), suggest symbols from that file
                 let has_file = after_use.contains(".hl");
                 if has_file {
@@ -462,20 +461,19 @@ impl LanguageServer for Backend {
                     }
                     let path = entry.path();
                     // Skip hidden / vendor / build directories.
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name.starts_with('.')
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                        && (name.starts_with('.')
                             || name == "target"
                             || name == "node_modules"
-                            || name == "dist"
+                            || name == "dist")
                         {
                             continue;
                         }
-                    }
                     if path.is_dir() {
                         stack.push(path);
                         continue;
                     }
-                    if path.extension().map_or(false, |e| e == "hl")
+                    if path.extension().is_some_and(|e| e == "hl")
                         && !covered_files.contains(&path)
                     {
                         scanned += 1;
@@ -691,14 +689,13 @@ impl LanguageServer for Backend {
                 if let Some((n, _)) = rest.trim().split_once(' ') {
                     defs.push(Def { line: i as u32, name: n.to_string(), kind: "let" });
                 }
-            } else if let Some(rest) = trimmed.strip_prefix("@define ") {
-                if let Some(bracket) = rest.find('[') {
+            } else if let Some(rest) = trimmed.strip_prefix("@define ")
+                && let Some(bracket) = rest.find('[') {
                     let n = rest[..bracket].trim();
                     if !n.is_empty() {
                         defs.push(Def { line: i as u32, name: n.to_string(), kind: "define" });
                     }
                 }
-            }
         }
 
         let mut lenses = Vec::with_capacity(defs.len());

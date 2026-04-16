@@ -92,7 +92,7 @@ fn sort_attrs(attrs_str: &str) -> String {
     let mut parts: Vec<&str> = attrs_str.split(',').collect();
     // Preserve order within same category (stable sort)
     parts.sort_by_key(|part| {
-        let key = part.trim().split_whitespace().next().unwrap_or("");
+        let key = part.split_whitespace().next().unwrap_or("");
         attr_category(key)
     });
     parts.iter()
@@ -224,13 +224,12 @@ pub fn format(input: &str) -> String {
                     || (bracket_was_wrapped
                         && attrs_count > 1
                         && indented_len > WRAP_MIN_WIDTH);
-                if should_wrap {
-                    if let Some(wrapped) = wrap_attrs(&formatted, level) {
+                if should_wrap
+                    && let Some(wrapped) = wrap_attrs(&formatted, level) {
                         output.push_str(&wrapped);
                         bracket_was_wrapped = false;
                         continue;
                     }
-                }
                 output.push_str(&"  ".repeat(level));
                 output.push_str(&formatted);
                 if let Some(cmt) = pending_comment.take() {
@@ -275,8 +274,8 @@ pub fn format(input: &str) -> String {
 
         let indented_len = level * 2 + formatted.len();
         // Single-line emission — only wrap when we strictly exceed the ceiling.
-        if indented_len > MAX_LINE_WIDTH && formatted.contains('[') {
-            if let Some(mut wrapped) = wrap_attrs(&formatted, level) {
+        if indented_len > MAX_LINE_WIDTH && formatted.contains('[')
+            && let Some(mut wrapped) = wrap_attrs(&formatted, level) {
                 if let Some(cmt) = &trailing {
                     // Reattach comment on the final `]` line.
                     if wrapped.ends_with('\n') {
@@ -290,7 +289,6 @@ pub fn format(input: &str) -> String {
                 indent_stack.push(raw_indent);
                 continue;
             }
-        }
         let _ = attrs_count;
 
         output.push_str(&"  ".repeat(level));

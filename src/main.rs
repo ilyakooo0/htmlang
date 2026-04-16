@@ -218,8 +218,8 @@ fn bundle_assets(html: &str, base_dir: &Path) -> String {
                     && !path_str.is_empty()
                 {
                     let asset_path = base_dir.join(path_str);
-                    if asset_path.exists() {
-                        if let Ok(mut file) = std::fs::File::open(&asset_path) {
+                    if asset_path.exists()
+                        && let Ok(mut file) = std::fs::File::open(&asset_path) {
                             let mut buf = Vec::new();
                             if file.read_to_end(&mut buf).is_ok() {
                                 let mime = match asset_path.extension().and_then(|e| e.to_str()) {
@@ -246,7 +246,6 @@ fn bundle_assets(html: &str, base_dir: &Path) -> String {
                                 continue;
                             }
                         }
-                    }
                 }
                 // If we couldn't inline, keep original path
                 output.push_str(&remaining[..end]);
@@ -261,7 +260,7 @@ fn bundle_assets(html: &str, base_dir: &Path) -> String {
 
 fn base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;
         let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
@@ -293,7 +292,7 @@ fn copy_non_hl_recursive(base: &Path, dir: &Path, out_dir: &Path) {
             let path = entry.path();
             if path.is_dir() {
                 copy_non_hl_recursive(base, &path, out_dir);
-            } else if path.is_file() && path.extension().map_or(true, |e| e != "hl") {
+            } else if path.is_file() && path.extension().is_none_or(|e| e != "hl") {
                 let rel = path.strip_prefix(base).unwrap_or(&path);
                 let dest = out_dir.join(rel);
                 if let Some(parent) = dest.parent() {
@@ -362,12 +361,11 @@ h1{{color:#ff6b6b;margin-bottom:1rem;font-size:1.5rem}}
 
 fn init_project(dir: &str, template_name: Option<&str>) {
     let dir = Path::new(dir);
-    if dir.to_str() != Some(".") {
-        if let Err(e) = fs::create_dir_all(dir) {
+    if dir.to_str() != Some(".")
+        && let Err(e) = fs::create_dir_all(dir) {
             eprintln!("error: cannot create directory '{}': {}", dir.display(), e);
             process::exit(1);
         }
-    }
 
     let index_path = dir.join("index.hl");
     if index_path.exists() {
@@ -501,7 +499,7 @@ fn collect_hl_recursive_inner(dir: &Path, files: &mut Vec<PathBuf>) {
             let path = entry.path();
             if path.is_dir() {
                 collect_hl_recursive_inner(&path, files);
-            } else if path.is_file() && path.extension().map_or(false, |e| e == "hl") {
+            } else if path.is_file() && path.extension().is_some_and(|e| e == "hl") {
                 files.push(path);
             }
         }
@@ -627,28 +625,26 @@ fn lint_nodes(nodes: &[htmlang::ast::Node], path: &str, depth: usize, warnings: 
             }
 
             // @image without alt
-            if elem.kind == htmlang::ast::ElementKind::Image {
-                if !elem.attrs.iter().any(|a| a.key == "alt") {
+            if elem.kind == htmlang::ast::ElementKind::Image
+                && !elem.attrs.iter().any(|a| a.key == "alt") {
                     warnings.push(format!("{}:{}:lint: @image missing 'alt' attribute (accessibility)", path, elem.line_num));
                 }
-            }
 
             // @link without content or aria-label
             if elem.kind == htmlang::ast::ElementKind::Link {
                 let has_aria = elem.attrs.iter().any(|a| a.key == "aria-label");
                 let has_children = !elem.children.is_empty();
-                let has_arg_text = elem.argument.as_ref().map_or(false, |_| false);
+                let has_arg_text = elem.argument.as_ref().is_some_and(|_| false);
                 if !has_aria && !has_children && !has_arg_text {
                     warnings.push(format!("{}:{}:lint: @link has no visible text or aria-label (accessibility)", path, elem.line_num));
                 }
             }
 
             // @input without type
-            if elem.kind == htmlang::ast::ElementKind::Input {
-                if !elem.attrs.iter().any(|a| a.key == "type") {
+            if elem.kind == htmlang::ast::ElementKind::Input
+                && !elem.attrs.iter().any(|a| a.key == "type") {
                     warnings.push(format!("{}:{}:lint: @input missing 'type' attribute", path, elem.line_num));
                 }
-            }
 
             // Empty containers (no children, no text)
             if matches!(elem.kind,
@@ -664,11 +660,10 @@ fn lint_nodes(nodes: &[htmlang::ast::Node], path: &str, depth: usize, warnings: 
             }
 
             // @button without type
-            if elem.kind == htmlang::ast::ElementKind::Button {
-                if !elem.attrs.iter().any(|a| a.key == "type") {
+            if elem.kind == htmlang::ast::ElementKind::Button
+                && !elem.attrs.iter().any(|a| a.key == "type") {
                     warnings.push(format!("{}:{}:lint: @button missing 'type' attribute (defaults to submit)", path, elem.line_num));
                 }
-            }
 
             lint_nodes(&elem.children, path, depth + 1, warnings);
         }
@@ -736,17 +731,15 @@ fn count_elements(
             for attr in &elem.attrs {
                 let key = attr.key.as_str();
                 // Strip pseudo/media prefixes for color/font detection
-                let base_key = key.split(':').last().unwrap_or(key);
-                if matches!(base_key, "color" | "background") {
-                    if let Some(ref v) = attr.value {
+                let base_key = key.split(':').next_back().unwrap_or(key);
+                if matches!(base_key, "color" | "background")
+                    && let Some(ref v) = attr.value {
                         colors.insert(v.clone());
                     }
-                }
-                if base_key == "font" {
-                    if let Some(ref v) = attr.value {
+                if base_key == "font"
+                    && let Some(ref v) = attr.value {
                         fonts.insert(v.clone());
                     }
-                }
             }
             count_elements(&elem.children, count, colors, fonts);
         }
@@ -761,8 +754,8 @@ fn extract_shared_css(html_files: &[PathBuf], out_dir: &Path) {
     for file in html_files {
         if let Ok(html) = fs::read_to_string(file) {
             // Extract CSS between <style> and </style>
-            if let Some(start) = html.find("<style>") {
-                if let Some(end) = html[start..].find("</style>") {
+            if let Some(start) = html.find("<style>")
+                && let Some(end) = html[start..].find("</style>") {
                     let css = &html[start + 7..start + end];
                     // Extract individual rules (class-based)
                     let mut seen_in_file = std::collections::HashSet::new();
@@ -792,7 +785,6 @@ fn extract_shared_css(html_files: &[PathBuf], out_dir: &Path) {
                         }
                     }
                 }
-            }
         }
     }
     // Rules appearing in ALL files are shared
@@ -813,9 +805,9 @@ fn extract_shared_css(html_files: &[PathBuf], out_dir: &Path) {
 
     // Remove shared rules from individual files and inject <link> tag
     for file in html_files {
-        if let Ok(html) = fs::read_to_string(file) {
-            if let Some(style_start) = html.find("<style>") {
-                if let Some(style_end_rel) = html[style_start..].find("</style>") {
+        if let Ok(html) = fs::read_to_string(file)
+            && let Some(style_start) = html.find("<style>")
+                && let Some(style_end_rel) = html[style_start..].find("</style>") {
                     let css = &html[style_start + 7..style_start + style_end_rel];
                     // Rebuild CSS without shared rules
                     let mut filtered = String::new();
@@ -853,8 +845,6 @@ fn extract_shared_css(html_files: &[PathBuf], out_dir: &Path) {
                     );
                     let _ = fs::write(file, new_html);
                 }
-            }
-        }
     }
 }
 
@@ -1144,8 +1134,8 @@ fn main() {
                         let mut hasher = std::collections::hash_map::DefaultHasher::new();
                         content.hash(&mut hasher);
                         let current_hash = hasher.finish().to_string();
-                        if let Ok(cached_hash) = fs::read_to_string(&hash_path) {
-                            if cached_hash.trim() == current_hash {
+                        if let Ok(cached_hash) = fs::read_to_string(&hash_path)
+                            && cached_hash.trim() == current_hash {
                                 // Also verify output exists
                                 let out_exists = effective_out.as_ref().map_or(
                                     file.with_extension("html").exists(),
@@ -1156,7 +1146,6 @@ fn main() {
                                     return;
                                 }
                             }
-                        }
                         // Update hash cache after compilation
                         let _ = fs::write(&hash_path, &current_hash);
                     }
@@ -1301,7 +1290,7 @@ fn main() {
             match args[ci].as_str() {
                 "--format" => {
                     ci += 1;
-                    if args.get(ci).map_or(false, |v| v == "json") {
+                    if args.get(ci).is_some_and(|v| v == "json") {
                         check_format_json = true;
                     }
                 }
@@ -1340,11 +1329,10 @@ fn main() {
             });
             if has_errors { any_errors = true; }
         }
-        if check_format_json {
-            if let Some(collector) = json_collector {
+        if check_format_json
+            && let Some(collector) = json_collector {
                 print_json_diagnostics(&collector.lock().unwrap());
             }
-        }
         if any_errors { process::exit(1); }
         return;
     }
@@ -1683,7 +1671,7 @@ fn main() {
                 });
             }
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
-            let serve_dir = config.output.as_ref().map(|o| PathBuf::from(o)).unwrap_or_else(|| target_path.to_path_buf());
+            let serve_dir = config.output.as_ref().map(PathBuf::from).unwrap_or_else(|| target_path.to_path_buf());
             let index_path = serve_dir.join("index.html");
             let server_tx = tx.clone();
             let tls_for_thread = tls_config;
@@ -2036,11 +2024,10 @@ fn main() {
                         let name = name.trim_end_matches('[');
                         all_def_defs.push((name.to_string(), rel.clone(), line_num + 1));
                     }
-                } else if let Some(rest) = trimmed.strip_prefix("@let ") {
-                    if let Some(name) = rest.split_whitespace().next() {
+                } else if let Some(rest) = trimmed.strip_prefix("@let ")
+                    && let Some(name) = rest.split_whitespace().next() {
                         all_let_defs.push((name.to_string(), rel.clone(), line_num + 1));
                     }
-                }
                 // Collect references: @name calls and $name usages
                 if trimmed.starts_with('@') && !trimmed.starts_with("@fn ")
                     && !trimmed.starts_with("@let ") && !trimmed.starts_with("@define ")
@@ -2053,11 +2040,9 @@ fn main() {
                     && !trimmed.starts_with("@use ") && !trimmed.starts_with("@slot ")
                     && !trimmed.starts_with("@lang ") && !trimmed.starts_with("@favicon ")
                     && !trimmed.starts_with("--")
-                {
-                    if let Some(name) = trimmed[1..].split(|c: char| c == ' ' || c == '[').next() {
+                    && let Some(name) = trimmed[1..].split([' ', '[']).next() {
                         all_refs.insert(name.to_string());
                     }
-                }
                 // Collect $var references
                 let mut rest = trimmed;
                 while let Some(pos) = rest.find('$') {
@@ -2184,7 +2169,7 @@ fn main() {
             "netlify" => {
                 eprintln!("deploying to Netlify...");
                 let status = process::Command::new("npx")
-                    .args(&["netlify-cli", "deploy", "--prod", "--dir", &deploy_dir.to_string_lossy()])
+                    .args(["netlify-cli", "deploy", "--prod", "--dir", &deploy_dir.to_string_lossy()])
                     .status();
                 match status {
                     Ok(s) if s.success() => eprintln!("deployed to Netlify!"),
@@ -2198,7 +2183,7 @@ fn main() {
             "vercel" => {
                 eprintln!("deploying to Vercel...");
                 let status = process::Command::new("npx")
-                    .args(&["vercel", "--prod", &deploy_dir.to_string_lossy().to_string()])
+                    .args(["vercel", "--prod", deploy_dir.to_string_lossy().as_ref()])
                     .status();
                 match status {
                     Ok(s) if s.success() => eprintln!("deployed to Vercel!"),
@@ -2212,7 +2197,7 @@ fn main() {
             "cloudflare" => {
                 eprintln!("deploying to Cloudflare Pages...");
                 let status = process::Command::new("npx")
-                    .args(&["wrangler", "pages", "deploy", &deploy_dir.to_string_lossy().to_string()])
+                    .args(["wrangler", "pages", "deploy", deploy_dir.to_string_lossy().as_ref()])
                     .status();
                 match status {
                     Ok(s) if s.success() => eprintln!("deployed to Cloudflare Pages!"),
@@ -2229,7 +2214,7 @@ fn main() {
         // Deploy via gh-pages push
         let init_ok = matches!(
             process::Command::new("git")
-                .args(&["init"])
+                .args(["init"])
                 .current_dir(&deploy_dir)
                 .status(),
             Ok(s) if s.success()
@@ -2239,16 +2224,16 @@ fn main() {
             process::exit(1);
         }
         let _ = process::Command::new("git")
-            .args(&["checkout", "-b", "gh-pages"])
+            .args(["checkout", "-b", "gh-pages"])
             .current_dir(&deploy_dir)
             .status();
         let _ = process::Command::new("git")
-            .args(&["add", "."])
+            .args(["add", "."])
             .current_dir(&deploy_dir)
             .status();
         let commit_ok = matches!(
             process::Command::new("git")
-                .args(&["commit", "-m", "deploy"])
+                .args(["commit", "-m", "deploy"])
                 .current_dir(&deploy_dir)
                 .status(),
             Ok(s) if s.success()
@@ -2259,19 +2244,19 @@ fn main() {
         }
         // Check if remote origin exists in parent
         let remote_output = process::Command::new("git")
-            .args(&["remote", "get-url", "origin"])
+            .args(["remote", "get-url", "origin"])
             .output();
         if let Ok(output) = remote_output {
             if output.status.success() {
                 let remote_url = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 let _ = process::Command::new("git")
-                    .args(&["remote", "add", "origin", &remote_url])
+                    .args(["remote", "add", "origin", &remote_url])
                     .current_dir(&deploy_dir)
                     .status();
                 eprintln!("pushing to gh-pages branch at {}...", remote_url);
                 let push_ok = matches!(
                     process::Command::new("git")
-                        .args(&["push", "-f", "origin", "gh-pages"])
+                        .args(["push", "-f", "origin", "gh-pages"])
                         .current_dir(&deploy_dir)
                         .status(),
                     Ok(s) if s.success()
@@ -2612,12 +2597,11 @@ compile();
         }
         // Also remove sitemap.xml if present
         let sitemap = dir.join("sitemap.xml");
-        if sitemap.exists() {
-            if let Ok(()) = fs::remove_file(&sitemap) {
+        if sitemap.exists()
+            && let Ok(()) = fs::remove_file(&sitemap) {
                 eprintln!("removed {}", sitemap.display());
                 removed += 1;
             }
-        }
         eprintln!("cleaned {} file{}", removed, if removed == 1 { "" } else { "s" });
         return;
     }
@@ -2973,8 +2957,8 @@ compile();
         let html = htmlang::codegen::generate_dev(&result.document);
         // Extract CSS class mappings from <style> block
         let mut class_css: HashMap<String, String> = HashMap::new();
-        if let Some(style_start) = html.find("<style>") {
-            if let Some(style_end) = html[style_start..].find("</style>") {
+        if let Some(style_start) = html.find("<style>")
+            && let Some(style_end) = html[style_start..].find("</style>") {
                 let css_block = &html[style_start + 7..style_start + style_end];
                 // Parse each CSS rule: .className { rules }
                 let mut pos = 0;
@@ -3016,7 +3000,6 @@ compile();
                     }
                 }
             }
-        }
         // Extract data-hl-line attributes from dev HTML to map classes to source lines
         let mut line_classes: HashMap<usize, Vec<String>> = HashMap::new();
         let html_body = if let Some(body_start) = html.find("<body") {
@@ -3036,8 +3019,8 @@ compile();
                 // Extract data-hl-line
                 if let Some(hl_pos) = tag.find("data-hl-line=\"") {
                     let after = &tag[hl_pos + 14..];
-                    if let Some(end) = after.find('"') {
-                        if let Ok(ln) = after[..end].parse::<usize>() {
+                    if let Some(end) = after.find('"')
+                        && let Ok(ln) = after[..end].parse::<usize>() {
                             // Extract class
                             if let Some(cls_pos) = tag.find("class=\"") {
                                 let cls_after = &tag[cls_pos + 7..];
@@ -3048,7 +3031,6 @@ compile();
                                 }
                             }
                         }
-                    }
                 }
                 scan_pos = tag_end;
             } else {
@@ -3444,11 +3426,10 @@ compile();
             all_included.extend(included);
         }
 
-        if format_json {
-            if let Some(collector) = json_collector {
+        if format_json
+            && let Some(collector) = json_collector {
                 print_json_diagnostics(&collector.lock().unwrap());
             }
-        }
 
         if !watch {
             if any_errors {
@@ -3487,11 +3468,10 @@ compile();
         compat, strict, partial,
         ..Default::default()
     });
-    if format_json {
-        if let Some(ref collector) = json_collector_single {
+    if format_json
+        && let Some(ref collector) = json_collector_single {
             print_json_diagnostics(&collector.lock().unwrap());
         }
-    }
 
     if !watch {
         if has_errors {
@@ -3540,7 +3520,7 @@ fn collect_hl_files(dir: &Path) -> Vec<PathBuf> {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |e| e == "hl") {
+            if path.is_file() && path.extension().is_some_and(|e| e == "hl") {
                 files.push(path);
             }
         }
@@ -3549,6 +3529,7 @@ fn collect_hl_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
+#[allow(clippy::too_many_arguments)]
 fn watch_loop(
     watch_dir: &Path,
     source_files: &[PathBuf],
@@ -3639,24 +3620,21 @@ fn watch_loop(
         }
     }
 
-    loop {
-        match rx.recv() {
-            Ok(_) => {
-                // Drain additional events (debounce) with configurable delay
-                std::thread::sleep(std::time::Duration::from_millis(debounce_ms));
-                while rx.try_recv().is_ok() {}
+    while rx.recv().is_ok() {
+        // Drain additional events (debounce) with configurable delay
+        std::thread::sleep(std::time::Duration::from_millis(debounce_ms));
+        while rx.try_recv().is_ok() {}
 
                 // Collect which files actually changed (HashSet for O(1) lookups)
                 let mut changed_files: HashSet<PathBuf> = HashSet::new();
                 let check_path = |path: &Path,
                                    hashes: &mut HashMap<PathBuf, u64>|
                  -> bool {
-                    if let Some(h) = hash_file(path) {
-                        if hashes.get(path) != Some(&h) {
+                    if let Some(h) = hash_file(path)
+                        && hashes.get(path) != Some(&h) {
                             hashes.insert(path.to_path_buf(), h);
                             return true;
                         }
-                    }
                     false
                 };
 
@@ -3668,7 +3646,7 @@ fn watch_loop(
                 }
 
                 // Check included files for changes
-                for (_, deps) in &dep_map {
+                for deps in dep_map.values() {
                     for dep in deps {
                         if check_path(dep, &mut content_hashes) {
                             changed_files.insert(dep.clone());
@@ -3722,13 +3700,11 @@ fn watch_loop(
                         continue;
                     }
                     // Recompile if any of its dependencies changed
-                    if let Some(deps) = dep_map.get(source) {
-                        if deps.iter().any(|d| changed_files.contains(d)) {
-                            if !files_to_compile.contains(source) {
+                    if let Some(deps) = dep_map.get(source)
+                        && deps.iter().any(|d| changed_files.contains(d))
+                            && !files_to_compile.contains(source) {
                                 files_to_compile.push(source.clone());
                             }
-                        }
-                    }
                 }
 
                 // If no specific files identified (e.g., first run), compile all
@@ -3782,8 +3758,5 @@ fn watch_loop(
                 if let Some(ref tx) = reload_tx {
                     let _ = tx.send(());
                 }
-            }
-            Err(_) => break,
-        }
     }
 }

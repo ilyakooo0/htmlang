@@ -37,8 +37,8 @@ pub(crate) fn document_symbols(text: &str) -> Vec<SymbolInformation> {
         }
 
         // @let definitions
-        if let Some(rest) = trimmed.strip_prefix("@let ") {
-            if let Some((name, value)) = rest.trim().split_once(' ') {
+        if let Some(rest) = trimmed.strip_prefix("@let ")
+            && let Some((name, value)) = rest.trim().split_once(' ') {
                 symbols.push(SymbolInformation {
                     name: format!("${}", name),
                     kind: SymbolKind::VARIABLE,
@@ -51,11 +51,10 @@ pub(crate) fn document_symbols(text: &str) -> Vec<SymbolInformation> {
                     container_name: Some(format!("= {}", value.trim())),
                 });
             }
-        }
 
         // @define definitions
-        if let Some(rest) = trimmed.strip_prefix("@define ") {
-            if let Some(bracket) = rest.find('[') {
+        if let Some(rest) = trimmed.strip_prefix("@define ")
+            && let Some(bracket) = rest.find('[') {
                 let name = rest[..bracket].trim();
                 symbols.push(SymbolInformation {
                     name: format!("${}", name),
@@ -69,7 +68,6 @@ pub(crate) fn document_symbols(text: &str) -> Vec<SymbolInformation> {
                     container_name: Some("attribute bundle".to_string()),
                 });
             }
-        }
 
         // @keyframes definitions
         if let Some(rest) = trimmed.strip_prefix("@keyframes ") {
@@ -169,7 +167,7 @@ pub(crate) fn code_actions(
                 let trimmed = source_line.trim_start();
                 if trimmed.starts_with("@let ") {
                     let var_name = trimmed.strip_prefix("@let ")
-                        .and_then(|r| r.trim().split_whitespace().next())
+                        .and_then(|r| r.split_whitespace().next())
                         .unwrap_or("?");
                     let edit = TextEdit {
                         range: Range::new(
@@ -396,8 +394,8 @@ pub(crate) fn code_actions(
                         }),
                         ..Default::default()
                     }));
-                } else if source_line.contains("@input") {
-                    if let Some(pos) = source_line.find("@input") {
+                } else if source_line.contains("@input")
+                    && let Some(pos) = source_line.find("@input") {
                         let after = pos + "@input".len();
                         let edit = TextEdit {
                             range: Range::new(
@@ -419,7 +417,6 @@ pub(crate) fn code_actions(
                             ..Default::default()
                         }));
                     }
-                }
             }
         }
 
@@ -436,19 +433,19 @@ pub(crate) fn code_actions(
 
         // Quick-fix: auto-import suggestion for unknown element @name
         // Searches current directory and subdirectories for @fn definitions
-        if msg.contains("unknown element @") {
-            if let Some(fn_name) = extract_between(msg, "unknown element @", ",")
+        if msg.contains("unknown element @")
+            && let Some(fn_name) = extract_between(msg, "unknown element @", ",")
                 .or_else(|| extract_between(msg, "unknown element @", ""))
             {
                 let fn_name = fn_name.trim();
-                if !fn_name.is_empty() {
-                    if let Ok(file_path) = uri.to_file_path() {
-                        if let Some(dir) = file_path.parent() {
+                if !fn_name.is_empty()
+                    && let Ok(file_path) = uri.to_file_path()
+                        && let Some(dir) = file_path.parent() {
                             // Search current dir and subdirs for .hl files defining this function
                             let mut search_dirs = vec![dir.to_path_buf()];
                             // Also search parent dir's subdirs (for project-wide imports)
-                            if let Some(parent) = dir.parent() {
-                                if let Ok(entries) = std::fs::read_dir(parent) {
+                            if let Some(parent) = dir.parent()
+                                && let Ok(entries) = std::fs::read_dir(parent) {
                                     for entry in entries.flatten() {
                                         let p = entry.path();
                                         if p.is_dir() && p != dir {
@@ -456,7 +453,6 @@ pub(crate) fn code_actions(
                                         }
                                     }
                                 }
-                            }
                             for search_dir in &search_dirs {
                                 if let Ok(entries) = std::fs::read_dir(search_dir) {
                                     for entry in entries.flatten() {
@@ -539,10 +535,7 @@ pub(crate) fn code_actions(
                                 }
                             }
                         }
-                    }
-                }
             }
-        }
     }
 
     // Refactoring: extract selection to @fn
@@ -612,8 +605,8 @@ pub(crate) fn code_actions(
         let line_idx = selection.start.line as usize;
         if line_idx < lines.len() {
             let line = lines[line_idx];
-            if let Some(bracket_start) = line.find('[') {
-                if let Some(bracket_end) = line[bracket_start..].find(']') {
+            if let Some(bracket_start) = line.find('[')
+                && let Some(bracket_end) = line[bracket_start..].find(']') {
                     let attrs_str = &line[bracket_start + 1..bracket_start + bracket_end];
                     // Only offer if there are at least 2 attributes
                     let attr_count = attrs_str.split(',').count();
@@ -656,7 +649,6 @@ pub(crate) fn code_actions(
                         }));
                     }
                 }
-            }
         }
     }
 
@@ -709,8 +701,8 @@ pub(crate) fn find_colors(text: &str) -> Vec<ColorInformation> {
                 .unwrap_or(line.len());
             let hex = &line[hex_start..hex_end];
             let len = hex.len();
-            if len == 3 || len == 6 || len == 8 {
-                if let Some((r, g, b, a)) = parse_hex_color(hex) {
+            if (len == 3 || len == 6 || len == 8)
+                && let Some((r, g, b, a)) = parse_hex_color(hex) {
                     colors.push(ColorInformation {
                         range: Range::new(
                             Position::new(line_idx as u32, abs_pos as u32),
@@ -724,7 +716,6 @@ pub(crate) fn find_colors(text: &str) -> Vec<ColorInformation> {
                         },
                     });
                 }
-            }
             start = hex_end;
         }
         // Detect named CSS colors
@@ -911,38 +902,34 @@ pub(crate) fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
     let result = htmlang::parser::parse(text);
     let mut unused_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
     for d in &result.diagnostics {
-        if d.message.contains("unused variable '$") {
-            if let Some(start) = d.message.find("'$") {
+        if d.message.contains("unused variable '$")
+            && let Some(start) = d.message.find("'$") {
                 let rest = &d.message[start + 2..];
                 if let Some(end) = rest.find('\'') {
                     unused_vars.insert(rest[..end].to_string());
                 }
             }
-        }
-        if d.message.contains("unused function '@") {
-            if let Some(start) = d.message.find("'@") {
+        if d.message.contains("unused function '@")
+            && let Some(start) = d.message.find("'@") {
                 let rest = &d.message[start + 2..];
                 if let Some(end) = rest.find('\'') {
                     unused_vars.insert(format!("@{}", &rest[..end]));
                 }
             }
-        }
-        if d.message.contains("unused define '$") {
-            if let Some(start) = d.message.find("'$") {
+        if d.message.contains("unused define '$")
+            && let Some(start) = d.message.find("'$") {
                 let rest = &d.message[start + 2..];
                 if let Some(end) = rest.find('\'') {
                     unused_vars.insert(rest[..end].to_string());
                 }
             }
-        }
-        if d.message.contains("unused mixin '") {
-            if let Some(start) = d.message.find("unused mixin '") {
+        if d.message.contains("unused mixin '")
+            && let Some(start) = d.message.find("unused mixin '") {
                 let rest = &d.message[start + 14..];
                 if let Some(end) = rest.find('\'') {
                     unused_vars.insert(rest[..end].to_string());
                 }
             }
-        }
     }
 
     for (line_idx, line) in text.lines().enumerate() {
@@ -1023,6 +1010,7 @@ fn is_builtin_element(word: &str) -> bool {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_token(
     tokens: &mut Vec<SemanticToken>,
     prev_line: &mut u32,
@@ -1059,11 +1047,10 @@ pub(crate) fn inlay_hints(text: &str) -> Vec<InlayHint> {
     let mut vars: HashMap<&str, &str> = HashMap::new();
     for line in text.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("@let ") {
-            if let Some((name, value)) = rest.trim().split_once(' ') {
+        if let Some(rest) = trimmed.strip_prefix("@let ")
+            && let Some((name, value)) = rest.trim().split_once(' ') {
                 vars.insert(name, value.trim());
             }
-        }
     }
 
     let mut hints = Vec::new();
@@ -1168,7 +1155,7 @@ pub(crate) fn get_signature_help(text: &str, position: Position) -> Option<Signa
                 };
                 ParameterInformation {
                     label: ParameterLabel::Simple(label),
-                    documentation: doc.map(|d| Documentation::String(d)),
+                    documentation: doc.map(Documentation::String),
                 }
             }).collect();
 

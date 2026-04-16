@@ -6,10 +6,10 @@ pub(crate) fn hover_at(text: &str, position: Position) -> Option<Hover> {
     let col = (position.character as usize).min(line.len());
     let word = word_at(line, col)?;
 
-    let doc = if word.starts_with('$') {
-        hover_variable(text, &word[1..])
-    } else if word.starts_with('@') {
-        hover_user_fn(text, &word[1..]).or_else(|| hover_builtin(&word))
+    let doc = if let Some(var_name) = word.strip_prefix('$') {
+        hover_variable(text, var_name)
+    } else if let Some(fn_name) = word.strip_prefix('@') {
+        hover_user_fn(text, fn_name).or_else(|| hover_builtin(&word))
     } else {
         hover_builtin(&word)
     }?;
@@ -46,27 +46,24 @@ pub(crate) fn is_word_byte(c: u8) -> bool {
 fn hover_variable(text: &str, name: &str) -> Option<String> {
     for line in text.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("@let ") {
-            if let Some((n, v)) = rest.trim().split_once(' ') {
-                if n == name {
+        if let Some(rest) = trimmed.strip_prefix("@let ")
+            && let Some((n, v)) = rest.trim().split_once(' ')
+                && n == name {
                     return Some(format!("**${}** = `{}`", name, v.trim()));
                 }
-            }
-        }
     }
 
     for line in text.lines() {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("@define ") {
             let rest = rest.trim();
-            if let Some(bracket) = rest.find('[') {
-                if rest[..bracket].trim() == name {
+            if let Some(bracket) = rest.find('[')
+                && rest[..bracket].trim() == name {
                     return Some(format!(
                         "**${}** \u{2014} Attribute bundle\n\n`{}`",
                         name, trimmed
                     ));
                 }
-            }
         }
     }
 
@@ -108,8 +105,8 @@ fn hover_user_fn(text: &str, name: &str) -> Option<String> {
                     let prev = lines[j].trim();
                     if let Some(comment) = prev.strip_prefix("-- ") {
                         doc_lines.push(comment);
-                    } else if prev.starts_with("--") {
-                        doc_lines.push(&prev[2..]);
+                    } else if let Some(comment) = prev.strip_prefix("--") {
+                        doc_lines.push(comment);
                     } else {
                         break;
                     }

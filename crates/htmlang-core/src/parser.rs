@@ -230,9 +230,9 @@ fn collect_images_recursive(nodes: &[Node], hints: &mut Vec<crate::ast::PreloadH
     for node in nodes {
         if hints.len() >= max { return; }
         if let Node::Element(elem) = node {
-            if elem.kind == ElementKind::Image {
-                if let Some(ref src) = elem.argument {
-                    if !src.is_empty()
+            if elem.kind == ElementKind::Image
+                && let Some(ref src) = elem.argument
+                    && !src.is_empty()
                         && !src.starts_with("data:")
                         && !src.starts_with('#')
                     {
@@ -242,8 +242,6 @@ fn collect_images_recursive(nodes: &[Node], hints: &mut Vec<crate::ast::PreloadH
                             crossorigin: false,
                         });
                     }
-                }
-            }
             collect_images_recursive(&elem.children, hints, max);
         }
     }
@@ -270,11 +268,9 @@ fn preprocess(input: &str) -> Vec<Line> {
         let indent = line.len() - line.trim_start().len();
 
         // Handle @raw """..."""
-        if trimmed.starts_with("@raw") {
-            let after_raw = trimmed[4..].trim_start();
-            if after_raw.starts_with("\"\"\"") {
-                let after_open = &after_raw[3..];
-
+        if let Some(raw_rest) = trimmed.strip_prefix("@raw") {
+            let after_raw = raw_rest.trim_start();
+            if let Some(after_open) = after_raw.strip_prefix("\"\"\"") {
                 // Single-line: @raw """content"""
                 if after_open.ends_with("\"\"\"") && after_open.len() >= 3 {
                     let content = &after_open[..after_open.len() - 3];
@@ -443,8 +439,8 @@ impl Parser {
             if let Some((name, value)) = rest.split_once(' ') {
                 let value = value.trim();
                 // Support @let name = expr syntax (strip leading =)
-                let value = if value.starts_with("= ") {
-                    value[2..].trim()
+                let value = if let Some(after_eq) = value.strip_prefix("= ") {
+                    after_eq.trim()
                 } else if value == "=" {
                     ""
                 } else {
@@ -453,8 +449,7 @@ impl Parser {
 
                 // Multi-line @let with triple quotes: @let name """..."""
                 let value_str;
-                let value = if value.starts_with("\"\"\"") {
-                    let after_open = &value[3..];
+                let value = if let Some(after_open) = value.strip_prefix("\"\"\"") {
                     if after_open.ends_with("\"\"\"") && after_open.len() >= 3 {
                         // Single-line triple-quote: @let name """value"""
                         value_str = after_open[..after_open.len()-3].to_string();
@@ -1024,11 +1019,10 @@ impl Parser {
                     .cloned()
                     .collect();
                 for name in new_var_keys {
-                    if let Some(val) = ctx.variables.remove(&name) {
-                        if !name.starts_with("__") {
+                    if let Some(val) = ctx.variables.remove(&name)
+                        && !name.starts_with("__") {
                             ctx.variables.insert(format!("{}.{}", prefix, name), val);
                         }
-                    }
                 }
             } else {
                 // Parse the file but discard DOM nodes — only keep definitions
@@ -1063,8 +1057,8 @@ impl Parser {
                 (rest, None)
             };
             let env_val = std::env::var(var_name).ok().or_else(|| default_val.map(|d| {
-                let d = substitute_vars(d, &ctx.variables);
-                d
+                
+                substitute_vars(d, &ctx.variables)
             }));
             match env_val {
                 Some(val) => {
@@ -1357,10 +1351,10 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@use ") {
             let rest = rest.trim();
             // @use "./file.hl" fn1, fn2, define1
-            let (filename, names_str) = if rest.starts_with('"') {
-                if let Some(end_quote) = rest[1..].find('"') {
-                    let filename = &rest[1..end_quote + 1];
-                    let names = rest[end_quote + 2..].trim();
+            let (filename, names_str) = if let Some(after_quote) = rest.strip_prefix('"') {
+                if let Some(end_quote) = after_quote.find('"') {
+                    let filename = &after_quote[..end_quote];
+                    let names = after_quote[end_quote + 1..].trim();
                     (filename.to_string(), names.to_string())
                 } else {
                     return Err(ParseError {
@@ -1529,14 +1523,13 @@ impl Parser {
             ctx.variables.insert(var_name.clone(), stems.join(" "));
             // Also parse each JSON file and store keys as prefix_stem_key
             for (stem, text) in &items {
-                if let Some(json) = parse_json(text.trim()) {
-                    if let JsonValue::Object(ref obj) = json {
+                if let Some(json) = parse_json(text.trim())
+                    && let JsonValue::Object(ref obj) = json {
                         for (key, val) in obj {
                             let var_key = format!("{}_{}", stem, key);
                             ctx.variables.insert(var_key, json_value_to_string(val));
                         }
                     }
-                }
             }
 
             return Ok(None);
@@ -1734,7 +1727,7 @@ impl Parser {
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(1);
                     let total_items = items.len();
-                    let total_pages = (total_items + size - 1) / size;
+                    let total_pages = total_items.div_ceil(size);
                     let start = (current_page - 1) * size;
                     let end = (start + size).min(total_items);
                     let page_items: Vec<String> = if start < total_items {
@@ -1757,17 +1750,15 @@ impl Parser {
 
             // Check for @else block (empty-state fallback)
             let mut else_lines = Vec::new();
-            if self.pos < self.lines.len() && self.lines[self.pos].indent == current_indent {
-                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
-                    if s.trim() == "@else" {
+            if self.pos < self.lines.len() && self.lines[self.pos].indent == current_indent
+                && let LineContent::Normal(ref s) = self.lines[self.pos].content
+                    && s.trim() == "@else" {
                         self.pos += 1; // consume @else
                         while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
                             else_lines.push(self.lines[self.pos].clone());
                             self.pos += 1;
                         }
                     }
-                }
-            }
 
             if body_lines.is_empty() {
                 return Ok(None);
@@ -1817,7 +1808,7 @@ impl Parser {
             }
 
             let has_extra_vars = var_names.len() > 2
-                || (var_names.len() == 2 && items.first().map_or(false, |it| it.contains(' ')));
+                || (var_names.len() == 2 && items.first().is_some_and(|it| it.contains(' ')));
 
             for (i, item) in items.iter().enumerate() {
                 // Always expose $_index for the current iteration
@@ -2018,9 +2009,7 @@ impl Parser {
             };
 
             // Also emit the IntersectionObserver script as a sibling raw node
-            let script = Node::Raw(format!(
-                "<script>(function(){{var d=document.querySelectorAll('[data-hl-defer]');if(!d.length)return;var o=new IntersectionObserver(function(e){{e.forEach(function(i){{if(i.isIntersecting){{i.target.removeAttribute('hidden');i.target.classList.remove('hl-defer-placeholder');o.unobserve(i.target)}}}});}},{{rootMargin:'200px'}});d.forEach(function(el){{o.observe(el)}})}})()</script>"
-            ));
+            let script = Node::Raw("<script>(function(){var d=document.querySelectorAll('[data-hl-defer]');if(!d.length)return;var o=new IntersectionObserver(function(e){e.forEach(function(i){if(i.isIntersecting){i.target.removeAttribute('hidden');i.target.classList.remove('hl-defer-placeholder');o.unobserve(i.target)}});},{rootMargin:'200px'});d.forEach(function(el){o.observe(el)})})()</script>".to_string());
 
             return Ok(Some(vec![Node::Element(wrapper), script]));
         }
@@ -2410,7 +2399,7 @@ impl Parser {
                         let value = substitute_vars(value.trim(), &ctx.variables);
                         ctx.translations
                             .entry(current_locale.clone())
-                            .or_insert_with(HashMap::new)
+                            .or_default()
                             .insert(key, value);
                     }
                 }
@@ -2435,16 +2424,14 @@ impl Parser {
         if let Some(rest) = content.strip_prefix("@deprecated ") {
             let message = rest.trim().to_string();
             // Peek at the next line to get the function name
-            if self.pos < self.lines.len() {
-                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
-                    if let Some(fn_rest) = s.trim().strip_prefix("@fn ") {
+            if self.pos < self.lines.len()
+                && let LineContent::Normal(ref s) = self.lines[self.pos].content
+                    && let Some(fn_rest) = s.trim().strip_prefix("@fn ") {
                         let parts: Vec<&str> = fn_rest.split_whitespace().collect();
                         if let Some(&fn_name) = parts.first() {
                             ctx.deprecated_fns.insert(fn_name.to_string(), message);
                         }
                     }
-                }
-            }
             return Ok(None);
         }
 
@@ -2640,14 +2627,13 @@ impl Parser {
             let mut in_style = false;
             let mut style_indent = 0;
             while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
-                if let LineContent::Normal(ref s) = self.lines[self.pos].content {
-                    if s.trim() == "@style" {
+                if let LineContent::Normal(ref s) = self.lines[self.pos].content
+                    && s.trim() == "@style" {
                         in_style = true;
                         style_indent = self.lines[self.pos].indent;
                         self.pos += 1;
                         continue;
                     }
-                }
                 if in_style && self.lines[self.pos].indent > style_indent {
                     style_lines.push(self.lines[self.pos].clone());
                 } else {
@@ -2805,14 +2791,12 @@ impl Parser {
         let mut slot_contents: HashMap<String, Vec<Node>> = HashMap::new();
         let mut caller_children = Vec::new();
         for child in all_caller_children {
-            if let Node::Element(ref elem) = child {
-                if let ElementKind::Slot(ref slot_name) = elem.kind {
-                    if !slot_name.is_empty() {
+            if let Node::Element(ref elem) = child
+                && let ElementKind::Slot(ref slot_name) = elem.kind
+                    && !slot_name.is_empty() {
                         slot_contents.entry(slot_name.clone()).or_default().extend(elem.children.clone());
                         continue;
                     }
-                }
-            }
             caller_children.push(child);
         }
 
@@ -2956,7 +2940,7 @@ fn replace_children_and_slots(
 
 fn extract_element_name(content: &str) -> &str {
     let without_at = &content[1..];
-    match without_at.find(|c: char| c == ' ' || c == '[') {
+    match without_at.find([' ', '[']) {
         Some(i) => &without_at[..i],
         None => without_at,
     }
@@ -2970,9 +2954,8 @@ fn parse_single_element(
     let (kind, rest) = if content.starts_with('[') {
         // Implicit @el
         (ElementKind::El, content.to_string())
-    } else if content.starts_with('@') {
-        let without_at = &content[1..];
-        match without_at.find(|c: char| c == ' ' || c == '[') {
+    } else if let Some(without_at) = content.strip_prefix('@') {
+        match without_at.find([' ', '[']) {
             Some(i) => {
                 let kind_str = &without_at[..i];
                 let rest = if without_at.as_bytes()[i] == b'[' {
@@ -3313,8 +3296,8 @@ fn check_undefined_vars(input: &str, vars: &HashMap<String, String>, line_num: u
                 end -= 1;
             }
             let name: String = chars[start..end].iter().collect();
-            if !name.is_empty() && !vars.contains_key(&name) {
-                if let Some(closest) = suggest_var_name(&name, vars) {
+            if !name.is_empty() && !vars.contains_key(&name)
+                && let Some(closest) = suggest_var_name(&name, vars) {
                     warnings.push(Diagnostic {
                         line: line_num,
                         column: Some(col),
@@ -3323,7 +3306,6 @@ fn check_undefined_vars(input: &str, vars: &HashMap<String, String>, line_num: u
                         source_line: Some(input.to_string()),
                     });
                 }
-            }
             i = end;
         } else {
             i += 1;
@@ -3777,8 +3759,7 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
         }
 
         // ...$name spread — expand mixin or define attributes
-        if part.starts_with("...$") {
-            let name = &part[4..];
+        if let Some(name) = part.strip_prefix("...$") {
             if let Some(mixin_attrs) = ctx.mixins.get(name) {
                 ctx.used_mixins.insert(name.to_string());
                 attrs.extend(mixin_attrs.clone());
@@ -3792,8 +3773,7 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
         }
 
         // $define reference — expand
-        if part.starts_with('$') {
-            let name = &part[1..];
+        if let Some(name) = part.strip_prefix('$') {
             if let Some(define_attrs) = ctx.defines.get(name) {
                 ctx.used_defines.insert(name.to_string());
                 attrs.extend(define_attrs.clone());
@@ -3877,9 +3857,9 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
             }
 
             // Color validation for hex colors
-            if matches!(strip_all_prefixes(&attr.key), "background" | "color") {
-                if let Some(ref val) = attr.value {
-                    if val.starts_with('#') && !is_valid_hex_color(val) {
+            if matches!(strip_all_prefixes(&attr.key), "background" | "color")
+                && let Some(ref val) = attr.value
+                    && val.starts_with('#') && !is_valid_hex_color(val) {
                         ctx.diagnostics.push(Diagnostic {
                             line: line_num,
                             column: None,
@@ -3888,8 +3868,6 @@ fn parse_attr_list(input: &str, line_num: usize, ctx: &mut ParseContext, validat
                             source_line: None,
                         });
                     }
-                }
-            }
         }
 
         // Warn on unknown attributes
@@ -4251,8 +4229,7 @@ fn strip_all_prefixes(key: &str) -> &str {
         .or_else(|| key.strip_prefix("invalid:"))
         .or_else(|| {
             // Handle nth:EXPR: prefix (e.g., nth:3:background -> background)
-            if key.starts_with("nth:") {
-                let rest = &key[4..];
+            if let Some(rest) = key.strip_prefix("nth:") {
                 rest.find(':').map(|pos| &rest[pos + 1..])
             } else {
                 None
@@ -4288,13 +4265,13 @@ fn strip_all_prefixes(key: &str) -> &str {
         .or_else(|| key.strip_prefix("portrait:"))
         .unwrap_or(key);
     // Strip container query prefixes (cq-sm:, cq-md:, etc.)
-    let key = key.strip_prefix("cq-sm:")
+    
+    (key.strip_prefix("cq-sm:")
         .or_else(|| key.strip_prefix("cq-md:"))
         .or_else(|| key.strip_prefix("cq-lg:"))
         .or_else(|| key.strip_prefix("cq-xl:"))
         .or_else(|| key.strip_prefix("cq-2xl:"))
-        .unwrap_or(key);
-    key
+        .unwrap_or(key)) as _
 }
 
 /// Attributes that only make sense on container elements (@row, @column, @el).
@@ -4409,8 +4386,8 @@ fn validate_tree(
         if let Node::Element(elem) = node {
             for attr in &elem.attrs {
                 let base = strip_all_prefixes(&attr.key);
-                if base == "width" && attr.value.as_deref() == Some("fill") {
-                    if !matches!(parent_kind, Some(ElementKind::Row)) {
+                if base == "width" && attr.value.as_deref() == Some("fill")
+                    && !matches!(parent_kind, Some(ElementKind::Row)) {
                         diagnostics.push(Diagnostic {
                             line: elem.line_num,
                             column: None,
@@ -4420,9 +4397,8 @@ fn validate_tree(
                             source_line: None,
                         });
                     }
-                }
-                if base == "height" && attr.value.as_deref() == Some("fill") {
-                    if !matches!(parent_kind, Some(ElementKind::Column)) {
+                if base == "height" && attr.value.as_deref() == Some("fill")
+                    && !matches!(parent_kind, Some(ElementKind::Column)) {
                         diagnostics.push(Diagnostic {
                             line: elem.line_num,
                             column: None,
@@ -4433,7 +4409,6 @@ fn validate_tree(
                             source_line: None,
                         });
                     }
-                }
 
                 // Container-only attributes on non-container elements
                 if CONTAINER_ONLY_ATTRS.contains(&base) && !is_container(&elem.kind) {
@@ -4526,8 +4501,8 @@ fn validate_tree(
                 }
             }
             // Missing alt text on @image
-            if matches!(elem.kind, ElementKind::Image) {
-                if !elem.attrs.iter().any(|a| a.key == "alt") {
+            if matches!(elem.kind, ElementKind::Image)
+                && !elem.attrs.iter().any(|a| a.key == "alt") {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
                         column: None,
@@ -4536,9 +4511,8 @@ fn validate_tree(
                         source_line: None,
                     });
                 }
-            }
-            if matches!(elem.kind, ElementKind::Input) {
-                if !elem.attrs.iter().any(|a| a.key == "type") {
+            if matches!(elem.kind, ElementKind::Input)
+                && !elem.attrs.iter().any(|a| a.key == "type") {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
                         column: None,
@@ -4547,7 +4521,6 @@ fn validate_tree(
                         source_line: None,
                     });
                 }
-            }
             if matches!(elem.kind, ElementKind::Link) {
                 // For @link, argument is the URL, not text content
                 let has_text = !elem.children.is_empty();
@@ -4570,8 +4543,8 @@ fn validate_tree(
                 let fg_color = elem.attrs.iter()
                     .find(|a| strip_all_prefixes(&a.key) == "color")
                     .and_then(|a| a.value.as_deref());
-                if let (Some(bg), Some(fg)) = (bg_color, fg_color) {
-                    if let (Some(bg_rgb), Some(fg_rgb)) = (parse_hex_rgb(bg), parse_hex_rgb(fg)) {
+                if let (Some(bg), Some(fg)) = (bg_color, fg_color)
+                    && let (Some(bg_rgb), Some(fg_rgb)) = (parse_hex_rgb(bg), parse_hex_rgb(fg)) {
                         let ratio = contrast_ratio(bg_rgb, fg_rgb);
                         if ratio < 4.5 {
                             diagnostics.push(Diagnostic {
@@ -4586,7 +4559,6 @@ fn validate_tree(
                             });
                         }
                     }
-                }
             }
 
             // @form inputs should have associated @label
@@ -4610,8 +4582,8 @@ fn validate_tree(
             }
 
             // @iframe should have title attribute
-            if matches!(elem.kind, ElementKind::Iframe) {
-                if !elem.attrs.iter().any(|a| a.key == "title") {
+            if matches!(elem.kind, ElementKind::Iframe)
+                && !elem.attrs.iter().any(|a| a.key == "title") {
                     diagnostics.push(Diagnostic {
                         line: elem.line_num,
                         column: None,
@@ -4620,7 +4592,6 @@ fn validate_tree(
                         source_line: None,
                     });
                 }
-            }
 
             // @button should have accessible text
             if matches!(elem.kind, ElementKind::Button) {
@@ -4655,10 +4626,10 @@ fn validate_tree(
             }
 
             // Tabindex > 0 is an anti-pattern
-            if let Some(tabindex_attr) = elem.attrs.iter().find(|a| a.key == "tabindex") {
-                if let Some(ref val) = tabindex_attr.value {
-                    if let Ok(n) = val.parse::<i32>() {
-                        if n > 0 {
+            if let Some(tabindex_attr) = elem.attrs.iter().find(|a| a.key == "tabindex")
+                && let Some(ref val) = tabindex_attr.value
+                    && let Ok(n) = val.parse::<i32>()
+                        && n > 0 {
                             diagnostics.push(Diagnostic {
                                 line: elem.line_num,
                                 column: None,
@@ -4667,9 +4638,6 @@ fn validate_tree(
                                 source_line: None,
                             });
                         }
-                    }
-                }
-            }
 
             validate_tree(&elem.children, Some(&elem.kind), diagnostics);
         }
@@ -4875,11 +4843,10 @@ fn replace_extends_slots(
 
 fn apply_filter(value: &str, filter: &str) -> String {
     if let Some(arg) = filter.strip_prefix("truncate:") {
-        if let Ok(n) = arg.parse::<usize>() {
-            if value.len() > n {
+        if let Ok(n) = arg.parse::<usize>()
+            && value.len() > n {
                 return format!("{}...", &value[..n]);
             }
-        }
         return value.to_string();
     }
     if let Some(rest) = filter.strip_prefix("replace:") {
@@ -4896,37 +4863,34 @@ fn apply_filter(value: &str, filter: &str) -> String {
     }
     // Color functions: lighten:N, darken:N, alpha:N, mix:COLOR:N
     if let Some(arg) = filter.strip_prefix("lighten:") {
-        if let Ok(amount) = arg.parse::<f64>() {
-            if let Some(rgb) = parse_hex_rgb(value) {
+        if let Ok(amount) = arg.parse::<f64>()
+            && let Some(rgb) = parse_hex_rgb(value) {
                 let (r, g, b) = lighten_color(rgb, amount / 100.0);
                 return format!("#{:02x}{:02x}{:02x}", r, g, b);
             }
-        }
         return value.to_string();
     }
     if let Some(arg) = filter.strip_prefix("darken:") {
-        if let Ok(amount) = arg.parse::<f64>() {
-            if let Some(rgb) = parse_hex_rgb(value) {
+        if let Ok(amount) = arg.parse::<f64>()
+            && let Some(rgb) = parse_hex_rgb(value) {
                 let (r, g, b) = darken_color(rgb, amount / 100.0);
                 return format!("#{:02x}{:02x}{:02x}", r, g, b);
             }
-        }
         return value.to_string();
     }
     if let Some(arg) = filter.strip_prefix("alpha:") {
-        if let Ok(a) = arg.parse::<f64>() {
-            if let Some((r, g, b)) = parse_hex_rgb(value) {
+        if let Ok(a) = arg.parse::<f64>()
+            && let Some((r, g, b)) = parse_hex_rgb(value) {
                 let a8 = (a.clamp(0.0, 1.0) * 255.0) as u8;
                 return format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a8);
             }
-        }
         return value.to_string();
     }
     if let Some(arg) = filter.strip_prefix("mix:") {
         // mix:COLOR:PERCENTAGE (e.g., mix:#ffffff:50)
         let parts: Vec<&str> = arg.splitn(2, ':').collect();
-        if parts.len() == 2 {
-            if let (Some(c1), Some(c2), Ok(pct)) = (
+        if parts.len() == 2
+            && let (Some(c1), Some(c2), Ok(pct)) = (
                 parse_hex_rgb(value),
                 parse_hex_rgb(parts[0]),
                 parts[1].parse::<f64>(),
@@ -4934,7 +4898,6 @@ fn apply_filter(value: &str, filter: &str) -> String {
                 let (r, g, b) = mix_colors(c1, c2, pct / 100.0);
                 return format!("#{:02x}{:02x}{:02x}", r, g, b);
             }
-        }
         return value.to_string();
     }
     match filter {
@@ -5309,7 +5272,7 @@ fn flatten_json(prefix: &str, value: &JsonValue, vars: &mut HashMap<String, Stri
                 vars.insert(prefix.to_string(), csv.join(","));
             } else {
                 // Primitive array: comma-separated
-                let csv: Vec<String> = items.iter().map(|v| json_value_to_string(v)).collect();
+                let csv: Vec<String> = items.iter().map(json_value_to_string).collect();
                 vars.insert(prefix.to_string(), csv.join(","));
             }
             // Also set indexed access: prefix.0, prefix.1, etc.
@@ -5390,14 +5353,13 @@ fn fetch_url_blocking(url: &str) -> Result<String, String> {
         let body = &response_str[body_start + 4..];
 
         // Check status code
-        if let Some(first_line) = headers.lines().next() {
-            if let Some(code_str) = first_line.split_whitespace().nth(1) {
+        if let Some(first_line) = headers.lines().next()
+            && let Some(code_str) = first_line.split_whitespace().nth(1) {
                 let code: u16 = code_str.parse().unwrap_or(0);
                 if code >= 400 {
                     return Err(format!("HTTP {}", code));
                 }
             }
-        }
 
         // Handle chunked transfer encoding
         if headers.to_lowercase().contains("transfer-encoding: chunked") {
@@ -5503,7 +5465,7 @@ fn markdown_to_html(lines: &[String]) -> String {
         let trimmed = line.trim();
 
         // Fenced code blocks
-        if trimmed.starts_with("```") {
+        if let Some(after_fence) = trimmed.strip_prefix("```") {
             if in_code_block {
                 html.push_str("<pre><code");
                 if !code_lang.is_empty() {
@@ -5517,7 +5479,7 @@ fn markdown_to_html(lines: &[String]) -> String {
                 in_code_block = false;
             } else {
                 flush_para(&mut para_buf, &mut html);
-                code_lang = trimmed[3..].trim().to_string();
+                code_lang = after_fence.trim().to_string();
                 in_code_block = true;
             }
             continue;
@@ -5565,15 +5527,14 @@ fn markdown_to_html(lines: &[String]) -> String {
         }
 
         // Ordered list items
-        if let Some(dot_pos) = trimmed.find(". ") {
-            if dot_pos <= 3 && trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit()) {
+        if let Some(dot_pos) = trimmed.find(". ")
+            && dot_pos <= 3 && trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit()) {
                 flush_para(&mut para_buf, &mut html);
                 if in_list { html.push_str("</ul>\n"); in_list = false; }
                 // We use <ol> but just emit <li> for simplicity
                 html.push_str(&format!("<li>{}</li>\n", md_inline(&trimmed[dot_pos + 2..])));
                 continue;
             }
-        }
 
         // Horizontal rule
         if trimmed == "---" || trimmed == "***" || trimmed == "___" {
@@ -5584,9 +5545,9 @@ fn markdown_to_html(lines: &[String]) -> String {
         }
 
         // Blockquote
-        if trimmed.starts_with("> ") {
+        if let Some(quote_content) = trimmed.strip_prefix("> ") {
             flush_para(&mut para_buf, &mut html);
-            html.push_str(&format!("<blockquote><p>{}</p></blockquote>\n", md_inline(&trimmed[2..])));
+            html.push_str(&format!("<blockquote><p>{}</p></blockquote>\n", md_inline(quote_content)));
             continue;
         }
 
@@ -5635,8 +5596,8 @@ fn md_inline(text: &str) -> String {
             }
         }
         // Inline code: `text`
-        if chars[i] == '`' {
-            if let Some(end) = chars[i+1..].iter().position(|&c| c == '`') {
+        if chars[i] == '`'
+            && let Some(end) = chars[i+1..].iter().position(|&c| c == '`') {
                 let inner: String = chars[i+1..i+1+end].iter().collect();
                 result.push_str("<code>");
                 result.push_str(&html_escape_md(&inner));
@@ -5644,22 +5605,19 @@ fn md_inline(text: &str) -> String {
                 i = i + 2 + end;
                 continue;
             }
-        }
         // Links: [text](url)
-        if chars[i] == '[' {
-            if let Some(close_bracket) = chars[i+1..].iter().position(|&c| c == ']') {
+        if chars[i] == '['
+            && let Some(close_bracket) = chars[i+1..].iter().position(|&c| c == ']') {
                 let after = i + 1 + close_bracket + 1;
-                if after < chars.len() && chars[after] == '(' {
-                    if let Some(close_paren) = chars[after+1..].iter().position(|&c| c == ')') {
+                if after < chars.len() && chars[after] == '('
+                    && let Some(close_paren) = chars[after+1..].iter().position(|&c| c == ')') {
                         let text: String = chars[i+1..i+1+close_bracket].iter().collect();
                         let url: String = chars[after+1..after+1+close_paren].iter().collect();
                         result.push_str(&format!("<a href=\"{}\">{}</a>", html_escape_md(&url), md_inline(&text)));
                         i = after + 2 + close_paren;
                         continue;
                     }
-                }
             }
-        }
         result.push(chars[i]);
         i += 1;
     }
@@ -5679,12 +5637,7 @@ fn find_closing_double(chars: &[char], start: usize, marker: char) -> Option<usi
 }
 
 fn find_closing_single(chars: &[char], start: usize, marker: char) -> Option<usize> {
-    for i in start..chars.len() {
-        if chars[i] == marker {
-            return Some(i);
-        }
-    }
-    None
+    (start..chars.len()).find(|&i| chars[i] == marker)
 }
 
 /// Simple glob matching supporting `*` as wildcard for any characters and `?` for a single character.

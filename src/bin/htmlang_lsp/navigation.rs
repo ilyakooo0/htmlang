@@ -37,11 +37,9 @@ pub(crate) fn definition_at(text: &str, position: Position, uri: &Url) -> Option
     let word = word_at(line, col)?;
 
     // Find definition location
-    let (def_line, def_col, def_len) = if word.starts_with('$') {
-        let name = &word[1..];
+    let (def_line, def_col, def_len) = if let Some(name) = word.strip_prefix('$') {
         find_definition(text, name)?
-    } else if word.starts_with('@') {
-        let name = &word[1..];
+    } else if let Some(name) = word.strip_prefix('@') {
         find_fn_definition(text, name)?
     } else {
         return None;
@@ -62,14 +60,12 @@ pub(crate) fn find_definition(text: &str, name: &str) -> Option<(u32, u32, u32)>
         let trimmed = line.trim();
         let offset = (line.len() - trimmed.len()) as u32;
 
-        if let Some(rest) = trimmed.strip_prefix("@let ") {
-            if let Some((n, _)) = rest.trim().split_once(' ') {
-                if n == name {
+        if let Some(rest) = trimmed.strip_prefix("@let ")
+            && let Some((n, _)) = rest.trim().split_once(' ')
+                && n == name {
                     let col = offset + "@let ".len() as u32;
                     return Some((i as u32, col, n.len() as u32));
                 }
-            }
-        }
 
         if let Some(rest) = trimmed.strip_prefix("@define ") {
             let rest = rest.trim();
@@ -179,10 +175,10 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
 
         if is_var {
             // Rename @let definition
-            if let Some(rest) = trimmed.strip_prefix("@let ") {
-                if let Some((n, _)) = rest.trim().split_once(' ') {
-                    if n == name {
-                        if let Some(pos) = line.find(n) {
+            if let Some(rest) = trimmed.strip_prefix("@let ")
+                && let Some((n, _)) = rest.trim().split_once(' ')
+                    && n == name
+                        && let Some(pos) = line.find(n) {
                             edits.push(TextEdit {
                                 range: Range::new(
                                     Position::new(line_num, pos as u32),
@@ -191,17 +187,14 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
                                 new_text: new_base.to_string(),
                             });
                         }
-                    }
-                }
-            }
 
             // Rename @define definition
             if let Some(rest) = trimmed.strip_prefix("@define ") {
                 let rest_trimmed = rest.trim();
                 if let Some(bracket) = rest_trimmed.find('[') {
                     let n = rest_trimmed[..bracket].trim();
-                    if n == name {
-                        if let Some(pos) = line.find(n) {
+                    if n == name
+                        && let Some(pos) = line.find(n) {
                             edits.push(TextEdit {
                                 range: Range::new(
                                     Position::new(line_num, pos as u32),
@@ -211,7 +204,6 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
                             });
                             continue; // Don't also match $ references on this line
                         }
-                    }
                 }
             }
 
@@ -220,8 +212,8 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 for param in &parts[1..] {
                     let p = param.strip_prefix('$').unwrap_or(param);
-                    if p == name {
-                        if let Some(pos) = line.find(param) {
+                    if p == name
+                        && let Some(pos) = line.find(param) {
                             let prefix = if param.starts_with('$') { "$" } else { "" };
                             edits.push(TextEdit {
                                 range: Range::new(
@@ -231,7 +223,6 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
                                 new_text: format!("{}{}", prefix, new_base),
                             });
                         }
-                    }
                 }
             }
 
@@ -262,8 +253,8 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
             // Rename @fn definition
             if let Some(rest) = trimmed.strip_prefix("@fn ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
-                if parts.first() == Some(&name) {
-                    if let Some(pos) = line.find(&format!("@fn {}", name)) {
+                if parts.first() == Some(&name)
+                    && let Some(pos) = line.find(&format!("@fn {}", name)) {
                         let start = pos + 4; // skip "@fn "
                         edits.push(TextEdit {
                             range: Range::new(
@@ -273,7 +264,6 @@ pub(crate) fn rename_at(text: &str, position: Position, new_name: &str, uri: &Ur
                             new_text: new_base.to_string(),
                         });
                     }
-                }
             }
 
             // Rename @name function calls
