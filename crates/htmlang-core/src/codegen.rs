@@ -153,7 +153,7 @@ impl StyleCollector {
 
     fn to_css_formatted(&self, dev: bool, use_layer: bool) -> String {
         let mut css = String::new();
-        let (sp, nl) = if dev { (" ", "\n") } else { ("", "") };
+        let inner_indent = if use_layer && dev { "  " } else { "" };
 
         // Wrap in @layer for specificity management
         if use_layer {
@@ -164,226 +164,178 @@ impl StyleCollector {
             }
         }
 
-        // Non-responsive rules
+        // Non-responsive rules. Base and pseudo rules are merged separately by
+        // identical body so that e.g. `.a,.b{display:flex;flex-direction:column;}`
+        // replaces two identical rules. Pseudo variants are grouped per selector
+        // suffix (`:hover` with `:hover`, etc.) to keep each pseudo's cascade
+        // position independent of others.
+        let mut base_pairs: Vec<(&str, &str)> = Vec::with_capacity(self.entries.len());
         for e in &self.entries {
             if !e.base.is_empty() {
-                if use_layer && dev {
-                    css.push_str(&format!("  .{}{sp}{{{}}}{nl}", e.class_name, e.base));
-                } else {
-                    css.push_str(&format!(".{}{sp}{{{}}}{nl}", e.class_name, e.base));
-                }
+                base_pairs.push((e.class_name.as_str(), e.base.as_str()));
             }
-            for (selector, pseudo_css) in &e.pseudo {
-                if !pseudo_css.is_empty() {
-                    if use_layer && dev {
-                        css.push_str(&format!(
-                            "  .{}{}{sp}{{{}}}{nl}",
-                            e.class_name, selector, pseudo_css
-                        ));
-                    } else {
-                        css.push_str(&format!(
-                            ".{}{}{sp}{{{}}}{nl}",
-                            e.class_name, selector, pseudo_css
-                        ));
-                    }
+        }
+        emit_grouped_rules(&mut css, &base_pairs, "", inner_indent, dev);
+
+        // Collect pseudo rules grouped by selector suffix, preserving the order
+        // in which suffixes first appear across entries.
+        let mut pseudo_order: Vec<&str> = Vec::new();
+        let mut pseudo_buckets: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
+        for e in &self.entries {
+            for (selector, body) in &e.pseudo {
+                if body.is_empty() {
+                    continue;
                 }
+                let key = selector.as_str();
+                if !pseudo_buckets.contains_key(key) {
+                    pseudo_order.push(key);
+                }
+                pseudo_buckets
+                    .entry(key)
+                    .or_default()
+                    .push((e.class_name.as_str(), body.as_str()));
+            }
+        }
+        for selector in &pseudo_order {
+            if let Some(pairs) = pseudo_buckets.get(selector) {
+                emit_grouped_rules(&mut css, pairs, selector, inner_indent, dev);
             }
         }
 
         // Responsive rules grouped by breakpoint
         for &(bp_name, bp_width) in BREAKPOINTS {
-            let mut bp_css = String::new();
+            let mut bp_pairs: Vec<(&str, &str)> = Vec::new();
             for e in &self.entries {
                 for (bp, rule_css) in &e.responsive {
                     if bp == bp_name && !rule_css.is_empty() {
-                        if dev {
-                            bp_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, rule_css));
-                        } else {
-                            bp_css.push_str(&format!(".{}{{{}}}", e.class_name, rule_css));
-                        }
+                        bp_pairs.push((e.class_name.as_str(), rule_css.as_str()));
                     }
                 }
             }
-            if !bp_css.is_empty() {
-                if dev {
-                    css.push_str(&format!(
-                        "@media (min-width: {}) {{\n{}}}\n",
-                        bp_width, bp_css
-                    ));
-                } else {
-                    css.push_str(&format!("@media(min-width:{}){{{}}}", bp_width, bp_css));
-                }
-            }
+            emit_media_block(
+                &mut css,
+                &format!("@media (min-width: {})", bp_width),
+                &format!("@media(min-width:{})", bp_width),
+                &bp_pairs,
+                "",
+                dev,
+            );
         }
 
         // Dark mode rules
-        let mut dark_css = String::new();
-        for e in &self.entries {
-            if !e.dark.is_empty() {
-                if dev {
-                    dark_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.dark));
-                } else {
-                    dark_css.push_str(&format!(".{}{{{}}}", e.class_name, e.dark));
-                }
-            }
-        }
-        if !dark_css.is_empty() {
-            if dev {
-                css.push_str(&format!(
-                    "@media (prefers-color-scheme: dark) {{\n{}}}\n",
-                    dark_css
-                ));
-            } else {
-                css.push_str(&format!(
-                    "@media(prefers-color-scheme:dark){{{}}}",
-                    dark_css
-                ));
-            }
-        }
+        let dark_pairs: Vec<(&str, &str)> = self
+            .entries
+            .iter()
+            .filter(|e| !e.dark.is_empty())
+            .map(|e| (e.class_name.as_str(), e.dark.as_str()))
+            .collect();
+        emit_media_block(
+            &mut css,
+            "@media (prefers-color-scheme: dark)",
+            "@media(prefers-color-scheme:dark)",
+            &dark_pairs,
+            "",
+            dev,
+        );
 
         // Print rules
-        let mut print_css = String::new();
-        for e in &self.entries {
-            if !e.print.is_empty() {
-                if dev {
-                    print_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.print));
-                } else {
-                    print_css.push_str(&format!(".{}{{{}}}", e.class_name, e.print));
-                }
-            }
-        }
-        if !print_css.is_empty() {
-            if dev {
-                css.push_str(&format!("@media print {{\n{}}}\n", print_css));
-            } else {
-                css.push_str(&format!("@media print{{{}}}", print_css));
-            }
-        }
+        let print_pairs: Vec<(&str, &str)> = self
+            .entries
+            .iter()
+            .filter(|e| !e.print.is_empty())
+            .map(|e| (e.class_name.as_str(), e.print.as_str()))
+            .collect();
+        emit_media_block(
+            &mut css,
+            "@media print",
+            "@media print",
+            &print_pairs,
+            "",
+            dev,
+        );
 
         // Motion safe rules
-        let mut motion_safe_css = String::new();
-        for e in &self.entries {
-            if !e.motion_safe.is_empty() {
-                if dev {
-                    motion_safe_css
-                        .push_str(&format!("  .{} {{{}}}\n", e.class_name, e.motion_safe));
-                } else {
-                    motion_safe_css.push_str(&format!(".{}{{{}}}", e.class_name, e.motion_safe));
-                }
-            }
-        }
-        if !motion_safe_css.is_empty() {
-            if dev {
-                css.push_str(&format!(
-                    "@media (prefers-reduced-motion: no-preference) {{\n{}}}\n",
-                    motion_safe_css
-                ));
-            } else {
-                css.push_str(&format!(
-                    "@media(prefers-reduced-motion:no-preference){{{}}}",
-                    motion_safe_css
-                ));
-            }
-        }
+        let motion_safe_pairs: Vec<(&str, &str)> = self
+            .entries
+            .iter()
+            .filter(|e| !e.motion_safe.is_empty())
+            .map(|e| (e.class_name.as_str(), e.motion_safe.as_str()))
+            .collect();
+        emit_media_block(
+            &mut css,
+            "@media (prefers-reduced-motion: no-preference)",
+            "@media(prefers-reduced-motion:no-preference)",
+            &motion_safe_pairs,
+            "",
+            dev,
+        );
 
         // Motion reduce rules
-        let mut motion_reduce_css = String::new();
-        for e in &self.entries {
-            if !e.motion_reduce.is_empty() {
-                if dev {
-                    motion_reduce_css
-                        .push_str(&format!("  .{} {{{}}}\n", e.class_name, e.motion_reduce));
-                } else {
-                    motion_reduce_css
-                        .push_str(&format!(".{}{{{}}}", e.class_name, e.motion_reduce));
-                }
-            }
-        }
-        if !motion_reduce_css.is_empty() {
-            if dev {
-                css.push_str(&format!(
-                    "@media (prefers-reduced-motion: reduce) {{\n{}}}\n",
-                    motion_reduce_css
-                ));
-            } else {
-                css.push_str(&format!(
-                    "@media(prefers-reduced-motion:reduce){{{}}}",
-                    motion_reduce_css
-                ));
-            }
-        }
+        let motion_reduce_pairs: Vec<(&str, &str)> = self
+            .entries
+            .iter()
+            .filter(|e| !e.motion_reduce.is_empty())
+            .map(|e| (e.class_name.as_str(), e.motion_reduce.as_str()))
+            .collect();
+        emit_media_block(
+            &mut css,
+            "@media (prefers-reduced-motion: reduce)",
+            "@media(prefers-reduced-motion:reduce)",
+            &motion_reduce_pairs,
+            "",
+            dev,
+        );
 
         // Landscape rules
-        let mut landscape_css = String::new();
-        for e in &self.entries {
-            if !e.landscape.is_empty() {
-                if dev {
-                    landscape_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.landscape));
-                } else {
-                    landscape_css.push_str(&format!(".{}{{{}}}", e.class_name, e.landscape));
-                }
-            }
-        }
-        if !landscape_css.is_empty() {
-            if dev {
-                css.push_str(&format!(
-                    "@media (orientation: landscape) {{\n{}}}\n",
-                    landscape_css
-                ));
-            } else {
-                css.push_str(&format!(
-                    "@media(orientation:landscape){{{}}}",
-                    landscape_css
-                ));
-            }
-        }
+        let landscape_pairs: Vec<(&str, &str)> = self
+            .entries
+            .iter()
+            .filter(|e| !e.landscape.is_empty())
+            .map(|e| (e.class_name.as_str(), e.landscape.as_str()))
+            .collect();
+        emit_media_block(
+            &mut css,
+            "@media (orientation: landscape)",
+            "@media(orientation:landscape)",
+            &landscape_pairs,
+            "",
+            dev,
+        );
 
         // Portrait rules
-        let mut portrait_css = String::new();
-        for e in &self.entries {
-            if !e.portrait.is_empty() {
-                if dev {
-                    portrait_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, e.portrait));
-                } else {
-                    portrait_css.push_str(&format!(".{}{{{}}}", e.class_name, e.portrait));
-                }
-            }
-        }
-        if !portrait_css.is_empty() {
-            if dev {
-                css.push_str(&format!(
-                    "@media (orientation: portrait) {{\n{}}}\n",
-                    portrait_css
-                ));
-            } else {
-                css.push_str(&format!("@media(orientation:portrait){{{}}}", portrait_css));
-            }
-        }
+        let portrait_pairs: Vec<(&str, &str)> = self
+            .entries
+            .iter()
+            .filter(|e| !e.portrait.is_empty())
+            .map(|e| (e.class_name.as_str(), e.portrait.as_str()))
+            .collect();
+        emit_media_block(
+            &mut css,
+            "@media (orientation: portrait)",
+            "@media(orientation:portrait)",
+            &portrait_pairs,
+            "",
+            dev,
+        );
 
         // Container query rules grouped by breakpoint
         for &(bp_name, bp_width) in BREAKPOINTS {
-            let mut cq_css = String::new();
+            let mut cq_pairs: Vec<(&str, &str)> = Vec::new();
             for e in &self.entries {
                 for (bp, rule_css) in &e.container {
                     if bp == bp_name && !rule_css.is_empty() {
-                        if dev {
-                            cq_css.push_str(&format!("  .{} {{{}}}\n", e.class_name, rule_css));
-                        } else {
-                            cq_css.push_str(&format!(".{}{{{}}}", e.class_name, rule_css));
-                        }
+                        cq_pairs.push((e.class_name.as_str(), rule_css.as_str()));
                     }
                 }
             }
-            if !cq_css.is_empty() {
-                if dev {
-                    css.push_str(&format!(
-                        "@container (min-width: {}) {{\n{}}}\n",
-                        bp_width, cq_css
-                    ));
-                } else {
-                    css.push_str(&format!("@container(min-width:{}){{{}}}", bp_width, cq_css));
-                }
-            }
+            emit_media_block(
+                &mut css,
+                &format!("@container (min-width: {})", bp_width),
+                &format!("@container(min-width:{})", bp_width),
+                &cq_pairs,
+                "",
+                dev,
+            );
         }
 
         // Close @layer
@@ -396,6 +348,80 @@ impl StyleCollector {
         }
 
         css
+    }
+}
+
+/// Emit CSS rules from `(class_name, body)` pairs, merging identical bodies
+/// into a single selector-list rule (e.g. `.a,.b{body}`). The first occurrence
+/// of each distinct body determines ordering, so output stays deterministic
+/// across runs. `selector_suffix` is appended to each class (e.g. `":hover"`,
+/// or `""` for plain class rules). `indent` is prepended to each rule line.
+fn emit_grouped_rules(
+    out: &mut String,
+    pairs: &[(&str, &str)],
+    selector_suffix: &str,
+    indent: &str,
+    dev: bool,
+) {
+    if pairs.is_empty() {
+        return;
+    }
+    // Group in first-occurrence order.
+    let mut order: Vec<&str> = Vec::new();
+    let mut groups: HashMap<&str, Vec<&str>> = HashMap::new();
+    for &(name, body) in pairs {
+        if body.is_empty() {
+            continue;
+        }
+        if !groups.contains_key(body) {
+            order.push(body);
+        }
+        groups.entry(body).or_default().push(name);
+    }
+    let sp = if dev { " " } else { "" };
+    let nl = if dev { "\n" } else { "" };
+    for body in &order {
+        let names = &groups[body];
+        out.push_str(indent);
+        for (i, n) in names.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push('.');
+            out.push_str(n);
+            out.push_str(selector_suffix);
+        }
+        out.push_str(sp);
+        out.push('{');
+        out.push_str(body);
+        out.push('}');
+        out.push_str(nl);
+    }
+}
+
+/// Emit an `@media` / `@container` block containing grouped class rules.
+/// Skips the block entirely if no non-empty bodies are present.
+fn emit_media_block(
+    out: &mut String,
+    header_dev: &str,
+    header_min: &str,
+    pairs: &[(&str, &str)],
+    selector_suffix: &str,
+    dev: bool,
+) {
+    if pairs.iter().all(|(_, body)| body.is_empty()) {
+        return;
+    }
+    let mut inner = String::new();
+    let inner_indent = if dev { "  " } else { "" };
+    emit_grouped_rules(&mut inner, pairs, selector_suffix, inner_indent, dev);
+    if inner.is_empty() {
+        return;
+    }
+    if dev {
+        out.push_str(&format!("{} {{\n{}}}\n", header_dev, inner));
+    } else {
+        out.push_str(&format!("{}{{{}}}", header_min, inner));
     }
 }
 
@@ -747,41 +773,17 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
 
     let mut element_css = String::new();
 
-    // CSS custom properties (includes @theme runtime tokens)
-    let has_theme_tokens = !doc.theme_tokens.is_empty();
-    if !doc.css_vars.is_empty() || has_theme_tokens {
-        if dev {
-            element_css.push_str(":root {\n");
-            for (name, value) in &doc.css_vars {
-                element_css.push_str(&format!("  {}: {};\n", name, value));
-            }
-            // @theme tokens as runtime CSS custom properties
-            for (name, value) in &doc.theme_tokens {
-                let css_name = format!("--{}", name);
-                // Only emit if not already in css_vars
-                if !doc.css_vars.iter().any(|(n, _)| *n == css_name) {
-                    element_css.push_str(&format!("  {}: {};\n", css_name, value));
-                }
-            }
-            element_css.push_str("}\n");
-        } else {
-            element_css.push_str(":root{");
-            for (name, value) in &doc.css_vars {
-                element_css.push_str(name);
-                element_css.push(':');
-                element_css.push_str(value);
-                element_css.push(';');
-            }
-            for (name, value) in &doc.theme_tokens {
-                let css_name = format!("--{}", name);
-                if !doc.css_vars.iter().any(|(n, _)| *n == css_name) {
-                    element_css.push_str(&css_name);
-                    element_css.push(':');
-                    element_css.push_str(value);
-                    element_css.push(';');
-                }
-            }
-            element_css.push('}');
+    // Collect all CSS custom properties (explicit `@let --name` / `@theme`
+    // tokens, plus any auto-extracted repeats) so they can be emitted in a
+    // single `:root` block below.
+    let mut root_vars: Vec<(String, String)> = Vec::new();
+    for (name, value) in &doc.css_vars {
+        root_vars.push((name.clone(), value.clone()));
+    }
+    for (name, value) in &doc.theme_tokens {
+        let css_name = format!("--{}", name);
+        if !root_vars.iter().any(|(n, _)| *n == css_name) {
+            root_vars.push((css_name, value.clone()));
         }
     }
 
@@ -791,7 +793,40 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
     // `var(--name)` references so the generated CSS actually uses the
     // custom properties emitted in `:root`. Saves bytes and makes runtime
     // theming take effect.
-    let styles_css = substitute_css_vars(&styles_css, &doc.css_vars);
+    let styles_css = substitute_css_vars(&styles_css, &root_vars);
+    // Further compress the CSS by auto-extracting any remaining literal
+    // values that appear often enough for `var(--hN)` references to come out
+    // shorter overall. Disabled in dev mode to keep the generated CSS
+    // readable.
+    let styles_css = if dev {
+        styles_css
+    } else {
+        let (new_css, auto_vars) = auto_extract_repeats(&styles_css, &root_vars);
+        root_vars.extend(auto_vars);
+        new_css
+    };
+
+    // Emit the (possibly extended) :root block first so the cascade picks up
+    // the custom properties before the class rules consume them.
+    if !root_vars.is_empty() {
+        if dev {
+            element_css.push_str(":root {\n");
+            for (name, value) in &root_vars {
+                element_css.push_str(&format!("  {}: {};\n", name, value));
+            }
+            element_css.push_str("}\n");
+        } else {
+            element_css.push_str(":root{");
+            for (name, value) in &root_vars {
+                element_css.push_str(name);
+                element_css.push(':');
+                element_css.push_str(value);
+                element_css.push(';');
+            }
+            element_css.push('}');
+        }
+    }
+
     element_css.push_str(&styles_css);
 
     // @keyframes
@@ -1266,43 +1301,46 @@ fn generate_partial_inner(doc: &Document, dev: bool) -> String {
     let has_custom_css = !doc.custom_css.is_empty();
     let mut element_css = String::new();
 
-    // CSS custom properties
-    if !doc.css_vars.is_empty() || !doc.theme_tokens.is_empty() {
+    let mut root_vars: Vec<(String, String)> = Vec::new();
+    for (name, value) in &doc.css_vars {
+        root_vars.push((name.clone(), value.clone()));
+    }
+    for (name, value) in &doc.theme_tokens {
+        let css_name = format!("--{}", name);
+        if !root_vars.iter().any(|(n, _)| *n == css_name) {
+            root_vars.push((css_name, value.clone()));
+        }
+    }
+
+    let styles_css = styles.to_css_formatted(dev, !has_custom_css);
+    let styles_css = substitute_css_vars(&styles_css, &root_vars);
+    let styles_css = if dev {
+        styles_css
+    } else {
+        let (new_css, auto_vars) = auto_extract_repeats(&styles_css, &root_vars);
+        root_vars.extend(auto_vars);
+        new_css
+    };
+
+    if !root_vars.is_empty() {
         if dev {
             element_css.push_str(":root {\n");
-            for (name, value) in &doc.css_vars {
+            for (name, value) in &root_vars {
                 element_css.push_str(&format!("  {}: {};\n", name, value));
-            }
-            for (name, value) in &doc.theme_tokens {
-                let css_name = format!("--{}", name);
-                if !doc.css_vars.iter().any(|(n, _)| *n == css_name) {
-                    element_css.push_str(&format!("  {}: {};\n", css_name, value));
-                }
             }
             element_css.push_str("}\n");
         } else {
             element_css.push_str(":root{");
-            for (name, value) in &doc.css_vars {
+            for (name, value) in &root_vars {
                 element_css.push_str(name);
                 element_css.push(':');
                 element_css.push_str(value);
                 element_css.push(';');
             }
-            for (name, value) in &doc.theme_tokens {
-                let css_name = format!("--{}", name);
-                if !doc.css_vars.iter().any(|(n, _)| *n == css_name) {
-                    element_css.push_str(&css_name);
-                    element_css.push(':');
-                    element_css.push_str(value);
-                    element_css.push(';');
-                }
-            }
             element_css.push('}');
         }
     }
 
-    let styles_css = styles.to_css_formatted(dev, !has_custom_css);
-    let styles_css = substitute_css_vars(&styles_css, &doc.css_vars);
     element_css.push_str(&styles_css);
 
     for (name, kf_body) in &doc.keyframes {
@@ -2458,6 +2496,19 @@ fn is_prefixed_attr(key: &str) -> bool {
         || key.starts_with("has(")
 }
 
+/// `display:flex;flex-direction:column;` — base layout for `@el` and every
+/// semantic wrapper that behaves like a column.
+const FLEX_COLUMN: &str = "display:flex;flex-direction:column;";
+
+/// Font stack shared by `@pre`, `@code`, `@kbd`.
+const MONOSPACE_STACK: &str = "font-family:ui-monospace,monospace;";
+
+/// Declarations common to `@badge` and `@tag`. They differ only in
+/// `border-radius` (and `@badge` additionally centers content / pins
+/// line-height:1), so keeping the shared base here avoids drift.
+const PILL_BASE: &str =
+    "display:inline-flex;align-items:center;padding:2px 8px;font-size:0.75rem;font-weight:600;";
+
 fn attrs_to_css(
     attrs: &[Attribute],
     state_prefix: &str,
@@ -2470,43 +2521,61 @@ fn attrs_to_css(
     if state_prefix.is_empty() {
         match kind {
             ElementKind::Row => css.push_str("display:flex;flex-direction:row;"),
-            ElementKind::Column => css.push_str("display:flex;flex-direction:column;"),
-            ElementKind::El => css.push_str("display:flex;flex-direction:column;"),
-            ElementKind::Paragraph => css.push_str("margin:0;"),
+            ElementKind::Column
+            | ElementKind::El
             // Semantic elements get flex column layout like @el
-            ElementKind::Nav | ElementKind::Header | ElementKind::Footer
-            | ElementKind::Main | ElementKind::Section | ElementKind::Article
-            | ElementKind::Aside => css.push_str("display:flex;flex-direction:column;"),
+            | ElementKind::Nav
+            | ElementKind::Header
+            | ElementKind::Footer
+            | ElementKind::Main
+            | ElementKind::Section
+            | ElementKind::Article
+            | ElementKind::Aside
+            | ElementKind::ListItem
+            | ElementKind::Form
+            | ElementKind::Details
+            | ElementKind::Dialog => css.push_str(FLEX_COLUMN),
+            ElementKind::Paragraph => css.push_str("margin:0;"),
             // Lists: reset browser defaults
             ElementKind::List => css.push_str("margin:0;padding-left:0;list-style:none;"),
-            ElementKind::ListItem => css.push_str("display:flex;flex-direction:column;"),
-            // Form: flex column like @el
-            ElementKind::Form => css.push_str("display:flex;flex-direction:column;"),
-            // Details: flex column
-            ElementKind::Details => css.push_str("display:flex;flex-direction:column;"),
-            // Figure: flex column
-            ElementKind::Figure => css.push_str("display:flex;flex-direction:column;margin:0;"),
-            // Blockquote: flex column, reset browser margin
-            ElementKind::Blockquote => css.push_str("display:flex;flex-direction:column;margin:0;"),
+            // Figure / Blockquote: flex column with browser margin reset
+            ElementKind::Figure | ElementKind::Blockquote => {
+                css.push_str(FLEX_COLUMN);
+                css.push_str("margin:0;");
+            }
             // Pre: preserve whitespace
-            ElementKind::Pre => css.push_str("margin:0;white-space:pre;font-family:ui-monospace,monospace;"),
-            // Code: monospace font
-            ElementKind::Code => css.push_str("font-family:ui-monospace,monospace;"),
-            // New elements
-            ElementKind::Dialog => css.push_str("display:flex;flex-direction:column;"),
+            ElementKind::Pre => {
+                css.push_str("margin:0;white-space:pre;");
+                css.push_str(MONOSPACE_STACK);
+            }
+            // Code / Kbd: monospace font
+            ElementKind::Code | ElementKind::Kbd => css.push_str(MONOSPACE_STACK),
             ElementKind::DefinitionList => css.push_str("margin:0;"),
-            ElementKind::DefinitionDescription => css.push_str("margin:0;display:flex;flex-direction:column;"),
-            ElementKind::Fieldset => css.push_str("display:flex;flex-direction:column;border:1px solid currentColor;padding:0.5em;margin:0;"),
-            ElementKind::Kbd => css.push_str("font-family:ui-monospace,monospace;"),
+            ElementKind::DefinitionDescription => {
+                css.push_str("margin:0;");
+                css.push_str(FLEX_COLUMN);
+            }
+            ElementKind::Fieldset => {
+                css.push_str(FLEX_COLUMN);
+                // Align padding to the px-based scale used by Badge/Tag/Chip
+                // rather than the old 0.5em (which depended on font-size).
+                css.push_str("border:1px solid currentColor;padding:8px;margin:0;");
+            }
             ElementKind::Grid => css.push_str("display:grid;"),
             ElementKind::Stack => css.push_str("position:relative;"),
-            ElementKind::Badge => css.push_str("display:inline-flex;align-items:center;justify-content:center;padding:2px 8px;border-radius:9999px;font-size:0.75rem;font-weight:600;line-height:1;"),
+            ElementKind::Badge => {
+                css.push_str(PILL_BASE);
+                css.push_str("justify-content:center;border-radius:9999px;line-height:1;");
+            }
+            ElementKind::Tag => {
+                css.push_str(PILL_BASE);
+                css.push_str("border-radius:4px;");
+            }
             ElementKind::Tooltip => css.push_str("position:relative;cursor:help;"),
             ElementKind::Spacer => css.push_str("flex:1;"),
             ElementKind::Avatar => css.push_str("display:inline-flex;align-items:center;justify-content:center;border-radius:9999px;overflow:hidden;flex-shrink:0;"),
             ElementKind::Carousel => css.push_str("display:flex;flex-direction:row;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;"),
             ElementKind::Chip => css.push_str("display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:9999px;font-size:0.875rem;border:1px solid currentColor;"),
-            ElementKind::Tag => css.push_str("display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;"),
             _ => {}
         }
         // Children of @carousel get scroll-snap-align and flex-shrink
@@ -2545,14 +2614,15 @@ fn attrs_to_css(
             }
             "padding-x" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "padding-left", &css_px(v));
-                    push_css(&mut css, "padding-right", &css_px(v));
+                    // Logical property covers both inline sides in one
+                    // declaration; for symmetric values this is visually
+                    // identical to padding-left/right in LTR and RTL.
+                    push_css(&mut css, "padding-inline", &css_px(v));
                 }
             }
             "padding-y" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "padding-top", &css_px(v));
-                    push_css(&mut css, "padding-bottom", &css_px(v));
+                    push_css(&mut css, "padding-block", &css_px(v));
                 }
             }
 
@@ -3035,14 +3105,12 @@ fn attrs_to_css(
             }
             "margin-x" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "margin-left", &css_px(v));
-                    push_css(&mut css, "margin-right", &css_px(v));
+                    push_css(&mut css, "margin-inline", &css_px(v));
                 }
             }
             "margin-y" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "margin-top", &css_px(v));
-                    push_css(&mut css, "margin-bottom", &css_px(v));
+                    push_css(&mut css, "margin-block", &css_px(v));
                 }
             }
 
@@ -3717,6 +3785,129 @@ fn substitute_css_vars(css: &str, vars: &[(String, String)]) -> String {
         prev = bytes.get(i - 1).copied();
     }
     out
+}
+
+/// Scan generated CSS for literal property values that repeat often enough
+/// that substituting them with an auto-named custom property would reduce
+/// total byte count. Returns the rewritten CSS and any new vars that should
+/// be appended to `:root`.
+///
+/// The algorithm only promotes a value if it strictly saves bytes after
+/// accounting for the `--xN:value;` declaration overhead plus the
+/// `var(--xN)` reference cost at each call site. Values that are already
+/// `var(...)` references or contain `var(` calls are skipped so we never
+/// nest references. Names avoid collisions with `existing_vars`.
+fn auto_extract_repeats(
+    css: &str,
+    existing_vars: &[(String, String)],
+) -> (String, Vec<(String, String)>) {
+    if css.is_empty() {
+        return (css.to_string(), Vec::new());
+    }
+    // Count occurrences of each distinct property value (the text between
+    // `:` and the next `;` or `}` at the top level of a declaration block,
+    // ignoring balanced parentheses so that e.g. `rgba(...)` stays intact).
+    let bytes = css.as_bytes();
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut depth: i32 = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => {
+                depth += 1;
+                i += 1;
+                continue;
+            }
+            b'}' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+        if depth > 0 && bytes[i] == b':' {
+            // Skip past `:` then walk to the terminator.
+            let start = i + 1;
+            let mut end = start;
+            let mut pdepth = 0i32;
+            while end < bytes.len() {
+                match bytes[end] {
+                    b'(' => pdepth += 1,
+                    b')' => {
+                        if pdepth > 0 {
+                            pdepth -= 1;
+                        }
+                    }
+                    b';' | b'}' if pdepth == 0 => break,
+                    b'{' if pdepth == 0 => break,
+                    _ => {}
+                }
+                end += 1;
+            }
+            let val = css[start..end].trim();
+            if !val.is_empty() && !val.starts_with("var(") && !val.contains("var(") {
+                *counts.entry(val.to_string()).or_default() += 1;
+            }
+            i = end;
+            continue;
+        }
+        i += 1;
+    }
+
+    // Decide which values are worth extracting. A value of length L appearing
+    // N times costs N*L bytes inline; promoting it costs (L + 6) for the
+    // `--hK:V;` declaration plus N * ref_len for the call sites. We estimate
+    // ref_len optimistically as `var(--h0)` (9 bytes) and fall back to 10 for
+    // two-digit indices, which only affects very large extraction counts.
+    let existing: std::collections::HashSet<&str> =
+        existing_vars.iter().map(|(n, _)| n.as_str()).collect();
+    let mut candidates: Vec<(String, usize)> = counts
+        .into_iter()
+        .filter(|(_, n)| *n >= 2)
+        .collect();
+    // Stable, deterministic ordering — longest values first, tiebreak by text.
+    candidates.sort_by(|a, b| {
+        b.0.len()
+            .cmp(&a.0.len())
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    let mut extracted: Vec<(String, String)> = Vec::new();
+    let mut next_idx: usize = 0;
+    for (value, n) in candidates {
+        let l = value.len();
+        // Allocate the next unused `--hN` name.
+        let (name, ref_len) = loop {
+            let candidate = format!("--h{}", next_idx);
+            next_idx += 1;
+            let rl = candidate.len() + 6; // `var(` + name + `)`
+            if !existing.contains(candidate.as_str())
+                && !extracted.iter().any(|(n, _)| *n == candidate)
+            {
+                break (candidate, rl);
+            }
+        };
+        // Skip if promotion would not strictly reduce byte count.
+        // Before: n * l bytes. After: (l + name.len() + 2) for the :root
+        // declaration (`<name>:<value>;`) plus n * ref_len for the sites.
+        let decl_overhead = l + name.len() + 2;
+        let before = n * l;
+        let after = decl_overhead + n * ref_len;
+        if after < before {
+            extracted.push((name, value));
+        } else {
+            // Rewind the index so the next value can reuse this slot.
+            next_idx -= 1;
+        }
+    }
+
+    if extracted.is_empty() {
+        return (css.to_string(), Vec::new());
+    }
+    let new_css = substitute_css_vars(css, &extracted);
+    (new_css, extracted)
 }
 
 /// Format a `line-height` value. CSS accepts either a unitless multiplier

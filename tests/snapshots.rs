@@ -1297,16 +1297,16 @@ fn css_margin() {
 
 #[test]
 fn css_margin_x() {
+    // margin-x emits the `margin-inline` logical shorthand (single property,
+    // covers both inline sides, stays symmetric under RTL).
     let output = compile("@page T\n@el [margin-x 10]");
-    assert!(output.contains("margin-left:10px"));
-    assert!(output.contains("margin-right:10px"));
+    assert!(output.contains("margin-inline:10px"));
 }
 
 #[test]
 fn css_margin_y() {
     let output = compile("@page T\n@el [margin-y 10]");
-    assert!(output.contains("margin-top:10px"));
-    assert!(output.contains("margin-bottom:10px"));
+    assert!(output.contains("margin-block:10px"));
 }
 
 #[test]
