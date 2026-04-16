@@ -1,168 +1,330 @@
-@page htmlang Showcase
+-- A comprehensive tour of htmlang: layout, style, components, and control flow.
+@page htmlang Demo
 @lang en
+@meta description A one-page tour of htmlang.
+@og title htmlang
+@og type website
 
--- Design tokens
-@let primary #3b82f6
-@let accent #ec4899
-@let ink #0f172a
-@let muted #64748b
-@let surface white
-@let bg #f8fafc
-@let radius 10
+-- Design tokens become both $vars and CSS custom properties
+@theme
+  primary #3b82f6
+  ink #0f172a
+  muted #64748b
+  subtle #f8fafc
+
+-- Computed @let with arithmetic
 @let base 8
 @let gap = $base * 2
+@let gutter = $gap + $base
 
--- Style presets
+-- Reusable attribute bundle
 @define card [
-  padding 24, background $surface, rounded $radius,
-  border 1 #e2e8f0,
-  dark:background #1e293b, dark:border 1 #334155
+  padding $gap,
+  background white,
+  rounded $base,
+  border 1 #e5e7eb,
+  shadow 0 1px 3px rgba(0,0,0,0.05)
 ]
 
-@mixin lift [
-  transition all 0.2s ease,
-  hover:shadow 0 12px 24px rgba(0,0,0,0.08)
+-- Composable style group (used with spread)
+@mixin interactive [
+  cursor pointer,
+  hover:shadow 0 4px 12px rgba(0,0,0,0.08),
+  transition all 0.2s ease
 ]
 
--- Components (functions with parameters, defaults, and slots)
-@fn button $label $variant=primary
-  @el [
-    padding 10 20, rounded 8, cursor pointer, bold,
-    background if($variant == primary, $primary, transparent),
-    color if($variant == primary, white, $primary),
-    border 1 $primary, transition all 0.15s ease,
-    hover:opacity 0.9, active:opacity 0.8
-  ]
-    @text $label
+-- Keyframes using attribute syntax
+@keyframes fade-up
+  from [opacity 0, transform translateY(8px)]
+  to [opacity 1, transform translateY(0)]
 
-@fn feature $title $emoji
-  @el [$card, ...$lift, spacing 10]
-    @text [size 32] $emoji
-    @text [bold, size 18, color $ink, dark:color #f1f5f9] $title
-    @paragraph [color $muted, line-height 1.6]
-      @children
+-- Raw HTML escape hatch
+@raw """
+<noscript><style>.needs-js{display:none}</style></noscript>
+"""
 
-@fn stat $value $label
-  @column [spacing 4, text-align center, padding 12]
-    @text [bold, size 40, color $primary] $value
-    @text [color $muted, size 12, text-transform uppercase, letter-spacing 2] $label
+-- Component with default parameter + @children slot
+@fn card $title $icon=◆
+  @article [$card, ...$interactive, animate fade-up 0.3s ease]
+    @row [spacing 10, align-items center]
+      @text [size 20, color $primary] $icon
+      @text [bold, size 16, color $ink] $title
+    @children
 
--- Page
-@column [background $bg, dark:background #0f172a, min-height 100vh]
+-- Component that wraps children in a titled section (function + slot)
+@fn titled $title
+  @section [spacing 12, padding-y $base]
+    @text [bold, size 22, color $ink] $title
+    @children
 
-  -- Header
-  @header [
-    padding 16 32, background $surface, dark:background #1e293b,
-    border-bottom 1 #e2e8f0, dark:border-bottom 1 #334155
-  ]
-    @row [center-y, max-width 1100, center-x, width 100%]
-      @text [bold, size 18, color $ink, dark:color #f1f5f9] htmlang
-      @el [width fill]
-      @row [spacing 24]
-        @link [color $muted, hover:color $primary] #docs Docs
-        @link [color $muted, hover:color $primary] #blog Blog
-        @link [color $muted, hover:color $primary] #github GitHub
+-- Top-level layout
+@column [
+  max-width 960,
+  center-x,
+  padding 32,
+  spacing $gutter,
+  background white,
+  dark:background #0b1220,
+  dark:color #e2e8f0
+]
 
-  -- Hero
-  @section [padding 80 32, max-width 900, center-x, text-align center, spacing 20]
-    @el [
-      padding 6 14, rounded 999,
-      background $primary|alpha:0.12, color $primary,
-      bold, size 12, text-transform uppercase, letter-spacing 2,
-      before:content "* "
-    ]
-      Built with htmlang
-    @text [bold, size 56, color $ink, dark:color #f1f5f9, line-height 1.1]
-      Layouts that just {@text [italic, color $primary] make sense}.
-    @paragraph [max-width 600, center-x, color $muted, line-height 1.7, size 18]
-      A minimalist DSL that compiles to a single static HTML file.
-      No cascade, no JavaScript, no build chain.
-    @row [center-x, spacing 12, wrap]
-      @button [label Get Started]
-      @button [label Star on GitHub, variant ghost]
+  -- Header: nav + hero
+  @header [spacing $base]
+    @nav [spacing 6, color $muted, size 13]
+      @row [spacing 6, align-items center]
+        @link [color $muted] / Home
+        @text /
+        @link [color $muted] /demos Demos
+        @text /
+        @text [color $ink] htmlang
 
-  -- Stats (each iteration could go here too)
-  @section [padding 24 32, max-width 800, center-x]
-    @row [wrap, center-x, spacing 20]
-      @stat [value 0kb, label JavaScript]
-      @stat [value 1, label HTML File]
-      @stat [value 100%, label Static]
+    @row [spacing $gap, align-items center]
+      @column [width fill, spacing 6]
+        @text [bold, size 40, color $ink, dark:color white] Welcome to htmlang
+        @paragraph [line-height 1.6, color $muted]
+          A minimalist layout language that compiles to
+          {@text [bold, color $primary] static HTML} — no JS, no build step.
+          Visit the {@link [color $primary, underline] https://github.com repo} for more.
+      @image [width 72, height 72, rounded 36, alt "Avatar"] https://picsum.photos/72
 
-  -- Features (grid layout)
-  @section [padding 64 32, max-width 1100, center-x, spacing 24]
-    @column [spacing 8, text-align center]
-      @text [bold, size 32, color $ink, dark:color #f1f5f9] Why htmlang?
-      @text [color $muted] Primitives over CSS quirks.
+  @hr [border-top 1 #e5e7eb]
 
-    @el [grid, grid-cols 3, gap $gap]
-      @feature [title Composable, emoji X]
-        Functions, mixins, and slots make components first-class.
-      @feature [title Predictable, emoji Y]
-        Flex-based layout - no cascade, no surprises.
-      @feature [title Static, emoji Z]
-        One file out. Deploy anywhere. Loads instantly.
+  -- Feature grid using @card + @titled components
+  @titled [title Features]
+    @row [wrap, gap $base]
+      @card [title Simple, icon ✦]
+        Write layouts without CSS classes.
+      @card [title Fast, icon ⚡]
+        Compiles to a single self-contained HTML file.
+      @card [title Minimal, icon ○]
+        Zero runtime JavaScript by default.
+      @card [title Typed]
+        LSP with diagnostics and go-to-definition.
 
-  -- Quote (semantic blockquote + cite)
-  @section [padding 32, max-width 720, center-x]
+  -- Typography showcase: inline elements, blockquote, code
+  @titled [title Typography]
+    @paragraph [line-height 1.7]
+      A quick brown fox jumps over {@text [bold] the lazy} {@text [italic] dog}.
+      Press {@kbd [
+        padding 2 6, background #f1f5f9, rounded 4,
+        font monospace, size 13
+      ] Ctrl+K} to search. {@mark [background #fef08a] Highlighted} uses mark.
+      {@abbr [title HyperText Markup Language + language] htmlang} is an abbreviation.
+
     @blockquote [
-      padding 24 32, background $surface, dark:background #1e293b,
-      border-left 4 $primary, rounded $radius, italic,
-      color $ink, dark:color #f1f5f9, line-height 1.7, size 18
+      padding-inline-start $gap, border-left 3 $primary,
+      color $muted, italic
     ]
-      "I want to lay out an interface, not argue with the cascade."
-      @cite [color $muted, size 13, italic]
-        - every frontend dev, eventually
+      Layout is code. Style is code. Everything should compose.
+      @cite — Anonymous
 
-  -- Team (each + destructuring)
-  @section [padding 48 32, max-width 1100, center-x, spacing 16]
-    @text [bold, size 24, color $ink, dark:color #f1f5f9] The team
+    @pre [
+      background #0f172a, color #e2e8f0,
+      padding 16, rounded 8, font monospace, size 13,
+      overflow-x auto
+    ]
+      @raw """
+@fn button $label
+  @el [padding 12, background blue]
+    @text $label
+"""
 
-    @row [wrap, spacing 12]
-      @each $name, $role in Ada Engineer, Grace Architect, Linus Maintainer, Ken Researcher
-        @column [$card, ...$lift, spacing 6, width 200, text-align center]
-          @text [bold, color $ink, dark:color #f1f5f9] $name
-          @text [color $muted, size 13] $role
+  -- Control flow: @each, @else, @repeat, @for, @match, if()
+  @titled [title Control flow]
+    @column [spacing 6]
+      @each $name, $role in Alice Engineer, Bob Designer, Carol PM
+        @row [spacing 10, align-items baseline]
+          @text [bold, min-width 80] $name
+          @text [color $muted] $role
 
-  -- FAQ (native disclosure widget + inline elements)
-  @section [padding 48 32, max-width 720, center-x, spacing 12]
-    @text [bold, size 24, color $ink, dark:color #f1f5f9] FAQ
+    -- @each ... @else fallback for empty list
+    @let nothing ""
+    @each $x in $nothing
+      @text $x
+    @else
+      @text [color $muted, italic, data-state $nothing] (Nothing — @each ... @else fallback)
 
-    @details [$card]
-      @summary [bold, color $ink, dark:color #f1f5f9, cursor pointer]
-        Does it support dark mode?
-      @paragraph [color $muted, line-height 1.7]
-        Yes - prefix any style with {@code [background $bg, padding 2 6, rounded 4, color $accent] dark:} and it generates a media query.
+    -- @repeat
+    @row [spacing 6]
+      @repeat 6
+        @el [width 18, height 18, rounded 9, background $primary, opacity 0.4]
 
-    @details [$card]
-      @summary [bold, color $ink, dark:color #f1f5f9, cursor pointer]
-        How do reusable components work?
-      @paragraph [color $muted, line-height 1.7]
-        Use {@code [background $bg, padding 2 6, rounded 4, color $accent] @fn} for parameters and {@code [background $bg, padding 2 6, rounded 4, color $accent] @children} as a slot.
+    -- @for range
+    @row [spacing 4]
+      @for $i in 1..6
+        @el [
+          width 24, height 24, rounded 4,
+          background $primary, color white,
+          text-align center, size 12, bold, line-height 24
+        ]
+          $i
 
-  -- Native widgets (progress + meter)
-  @section [padding 48 32, max-width 720, center-x, spacing 16]
-    @text [bold, size 24, color $ink, dark:color #f1f5f9] Native widgets
+    -- @if / @else if / @else (with @assert to verify at compile time)
+    @let count 3
+    @assert $count == 3
+    @row [spacing 6, align-items center]
+      @text [bold, min-width 64] Count:
+      @if $count == 0
+        @text [color $muted] Empty
+      @else if $count == 1
+        @text [color $primary] Exactly one
+      @else
+        @text [color $primary, bold] $count items
 
-    @column [$card, spacing 16]
-      @column [spacing 6]
-        @row [center-y, spacing 12]
-          @text [color $ink, dark:color #f1f5f9] Coverage
-          @el [width fill]
-          @text [color $muted, size 13] 70%
-        @progress [value 70, max 100, width 100%]
+    -- @match
+    @let status ready
+    @match $status
+      @case pending
+        @text [color #f59e0b] Pending…
+      @case ready
+        @text [color #10b981, bold] ✓ Ready
+      @case error
+        @text [color #ef4444] Error
+      @default
+        @text Unknown
 
-      @column [spacing 6]
-        @text [color $ink, dark:color #f1f5f9] Battery
-        @meter [value 6, min 0, max 10, low 3, high 8, width 100%]
+    -- Conditional attribute value + before: pseudo-element
+    @let emphasized true
+    @el [
+      padding 12, rounded 6,
+      background if($emphasized, $primary, #e5e7eb),
+      color if($emphasized, white, $ink),
+      before:content "→ ", before:bold
+    ]
+      Conditional styling via {@code if(cond, a, b)}.
 
-  -- Footer (hr divider + breadcrumb)
-  @hr [border-top 1 #e2e8f0, dark:border-top 1 #334155]
-  @footer [padding 32, max-width 1100, center-x]
-    @row [center-y, wrap, spacing 16, width 100%]
-      @text [color $muted, size 13]
-        Made with htmlang.
+  -- Forms + pseudo-states
+  @titled [title Forms]
+    @form [spacing 10, max-width 420] /subscribe
+      @label [bold, size 13, for email] Email
+      @input [
+        id email, type email, name email,
+        placeholder you@example.com, required,
+        padding 10, border 1 #e5e7eb, rounded 6,
+        focus:border 1 $primary,
+        valid:border 1 #10b981,
+        invalid:border 1 #ef4444,
+        transition border 0.15s ease
+      ]
+      @label [bold, size 13, for role] Role
+      @select [id role, name role, padding 10, border 1 #e5e7eb, rounded 6]
+        @option [value dev] Developer
+        @option [value designer] Designer
+        @option [value other] Other
+      @label [bold, size 13, for msg] Message
+      @textarea [
+        id msg, name msg, rows 3,
+        padding 10, border 1 #e5e7eb, rounded 6
+      ]
+      @row [spacing 8]
+        @button [
+          type submit,
+          padding 10 16, background $primary, color white, bold,
+          rounded 6, border 0,
+          hover:background $primary|darken:10,
+          active:background $primary|darken:20,
+          transition background 0.15s ease,
+          cursor pointer
+        ] Subscribe
+        @button [
+          type reset,
+          padding 10 16, background white,
+          border 1 #e5e7eb, rounded 6, cursor pointer
+        ] Reset
+      @progress [value 60, max 100]
+
+  -- Lists and tables
+  @titled [title Data]
+    @row [gap $gap, wrap]
+      @column [width fill, spacing $base, min-width 240]
+        @text [bold] Unordered
+        @list [spacing 4, list-style disc, padding-inline-start 20]
+          @item [display list-item] Composable with @each
+          @item [display list-item] Indent to nest children
+          @item [display list-item] Bold list items work too
+        @text [bold] Ordered
+        @list [ordered, list-style decimal, padding-inline-start 20]
+          @item [display list-item] First
+          @item [display list-item] Second
+          @item [display list-item] Third
+
+      @column [width fill, spacing $base, min-width 240]
+        @text [bold] Table
+        @table
+          @thead
+            @tr
+              @th [text-align left, padding 8] Item
+              @th [text-align right, padding 8] Qty
+          @tbody
+            @tr
+              @td [padding 8, border-top 1 #e5e7eb] Widgets
+              @td [padding 8, border-top 1 #e5e7eb, text-align right] 12
+            @tr
+              @td [padding 8, border-top 1 #e5e7eb] Gadgets
+              @td [padding 8, border-top 1 #e5e7eb, text-align right] 7
+
+    @figure [spacing 6]
+      @image [alt "A random placeholder", rounded 8] https://picsum.photos/640/200
+      @figcaption [color $muted, size 13, text-align center]
+        A placeholder image.
+
+  -- Disclosure + named grid areas
+  @titled [title Disclosure + grid areas]
+    @details [padding 12, border 1 #e5e7eb, rounded 6, background $subtle]
+      @summary [bold, cursor pointer] What is htmlang?
+      @paragraph [color $muted, line-height 1.6, padding-block-start 6]
+        htmlang is a layout-first language that compiles to a single,
+        self-contained HTML file with embedded CSS.
+
+    -- Implicit @el via bare [attrs] line
+    [
+      grid,
+      grid-template-columns 1fr 2fr,
+      grid-template-areas "h h" "s m" "f f",
+      gap $base,
+      padding $base, background $subtle, rounded 8
+    ]
+      @el [grid-area h, padding 10, background $primary, color white, rounded 6, text-align center]
+        Header
+      @el [grid-area s, padding 10, background white, rounded 6, border 1 #e5e7eb]
+        Sidebar
+      @el [grid-area m, padding 10, background white, rounded 6, border 1 #e5e7eb]
+        Main
+      @el [grid-area f, padding 10, background $ink, color white, rounded 6, text-align center]
+        Footer
+
+  -- Misc: address, time, meter
+  @titled [title Misc]
+    @address [spacing 4, font-style normal]
+      @text [bold] htmlang HQ
+      @text 123 Flexbox Avenue
+      @link [color $primary] mailto:hi@htmlang.dev hi@htmlang.dev
+    @row [spacing 10, align-items center]
+      @text [size 13, color $muted] Published
+      @time [datetime 2026-04-16, size 13] April 16 2026
+    @row [spacing 10, align-items center]
+      @text [size 13, color $muted] Confidence
+      @meter [value 8, min 0, max 10, low 3, high 7] 8/10
+
+  -- Footer: hover/active button, visited link, print-hidden
+  @footer [
+    padding-block-start $gutter, margin-block-start $gutter,
+    border-top 1 #e5e7eb, spacing $base,
+    print:display none
+  ]
+    @row [spacing $base, align-items center]
+      @el [
+        padding 12 20, background $primary, color white, bold, rounded 8,
+        hover:background $primary|darken:10,
+        active:background $primary|darken:20,
+        transition all 0.15s ease,
+        cursor pointer
+      ] > @link https://github.com
+        Get Started
+      @link [
+        color $primary,
+        visited:color #8b5cf6,
+        hover:underline
+      ] https://github.com Browse source
       @el [width fill]
-      @breadcrumb [spacing 8]
-        @link [color $muted, hover:color $primary] / Home
-        @link [color $muted, hover:color $primary] /docs Docs
-        @text [color $muted, size 13] v1.0
+      @text [color $muted, size 13] © 2026 htmlang
