@@ -1,8 +1,49 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio::sync::broadcast;
+use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio_rustls::TlsAcceptor;
+
+/// TLS configuration for the dev server. Load with `load_tls_config` and pass
+/// to `run_https` / `run_dir_https`.
+pub struct TlsConfig {
+    pub acceptor: TlsAcceptor,
+}
+
+/// Load a PEM-encoded certificate chain and private key into a `TlsConfig`.
+/// Supports PKCS#8, RSA, and SEC1-encoded private keys.
+pub fn load_tls_config(
+    cert_path: &Path,
+    key_path: &Path,
+) -> Result<TlsConfig, Box<dyn std::error::Error + Send + Sync>> {
+    let cert_bytes = std::fs::read(cert_path)?;
+    let key_bytes = std::fs::read(key_path)?;
+
+    let certs: Vec<CertificateDer<'static>> =
+        rustls_pemfile::certs(&mut cert_bytes.as_slice()).collect::<Result<Vec<_>, _>>()?;
+    if certs.is_empty() {
+        return Err(format!("no certificates found in {}", cert_path.display()).into());
+    }
+
+    let key: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_bytes.as_slice())?
+        .ok_or_else(|| format!("no private key found in {}", key_path.display()))?;
+
+    // rustls requires a crypto provider to be installed globally; install the
+    // default ring-based provider once. Subsequent calls are no-ops.
+    let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+
+    let config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)?;
+
+    Ok(TlsConfig {
+        acceptor: TlsAcceptor::from(Arc::new(config)),
+    })
+}
 
 const RELOAD_SCRIPT: &str =
     r#"<script>new EventSource("/_events").onmessage=()=>location.reload()</script>"#;
@@ -23,6 +64,39 @@ pub async fn run(port: u16, html_path: PathBuf, reload: broadcast::Sender<()>) {
             let rx = reload.subscribe();
             tokio::spawn(async move {
                 let _ = handle(stream, path, None, rx).await;
+            });
+        }
+    }
+}
+
+/// Same as [`run`], but wraps each accepted connection in TLS.
+pub async fn run_https(
+    port: u16,
+    html_path: PathBuf,
+    reload: broadcast::Sender<()>,
+    tls: TlsConfig,
+) {
+    let listener = match TcpListener::bind(("127.0.0.1", port)).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("error: failed to bind to port {}: {}", port, e);
+            return;
+        }
+    };
+
+    let acceptor = tls.acceptor;
+    loop {
+        if let Ok((stream, _)) = listener.accept().await {
+            let path = html_path.clone();
+            let rx = reload.subscribe();
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                match acceptor.accept(stream).await {
+                    Ok(tls_stream) => {
+                        let _ = handle(tls_stream, path, None, rx).await;
+                    }
+                    Err(e) => eprintln!("tls handshake failed: {}", e),
+                }
             });
         }
     }
@@ -49,11 +123,48 @@ pub async fn run_dir(port: u16, root_dir: PathBuf, reload: broadcast::Sender<()>
     }
 }
 
-async fn handle_dir_request(
-    mut stream: TcpStream,
+/// Same as [`run_dir`], but wraps each accepted connection in TLS.
+pub async fn run_dir_https(
+    port: u16,
+    root_dir: PathBuf,
+    reload: broadcast::Sender<()>,
+    tls: TlsConfig,
+) {
+    let listener = match TcpListener::bind(("127.0.0.1", port)).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("error: failed to bind to port {}: {}", port, e);
+            return;
+        }
+    };
+
+    let acceptor = tls.acceptor;
+    loop {
+        if let Ok((stream, _)) = listener.accept().await {
+            let dir = root_dir.clone();
+            let rx = reload.subscribe();
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                match acceptor.accept(stream).await {
+                    Ok(tls_stream) => {
+                        let _ = handle_dir_request(tls_stream, dir, rx).await;
+                    }
+                    Err(e) => eprintln!("tls handshake failed: {}", e),
+                }
+            });
+        }
+    }
+}
+
+
+async fn handle_dir_request<S>(
+    mut stream: S,
     root_dir: PathBuf,
     reload_rx: broadcast::Receiver<()>,
-) -> std::io::Result<()> {
+) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+{
     let mut buf = [0u8; 4096];
     let n = stream.read(&mut buf).await?;
     if n == 0 {
@@ -202,12 +313,15 @@ fn collect_html_pages(base: &Path, dir: &Path, pages: &mut Vec<String>) {
     }
 }
 
-async fn handle(
-    mut stream: TcpStream,
+async fn handle<S>(
+    mut stream: S,
     html_path: PathBuf,
     root_dir: Option<&Path>,
     reload_rx: broadcast::Receiver<()>,
-) -> std::io::Result<()> {
+) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+{
     let mut buf = [0u8; 4096];
     let n = stream.read(&mut buf).await?;
     if n == 0 {
@@ -228,37 +342,63 @@ async fn handle(
     }
 }
 
-async fn handle_sse(
-    mut stream: TcpStream,
+async fn handle_sse<S>(
+    mut stream: S,
     mut rx: broadcast::Receiver<()>,
-) -> std::io::Result<()> {
+) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+{
     let headers = "HTTP/1.1 200 OK\r\n\
                    Content-Type: text/event-stream\r\n\
                    Cache-Control: no-cache\r\n\
-                   Connection: keep-alive\r\n\r\n";
+                   Connection: keep-alive\r\n\
+                   X-Accel-Buffering: no\r\n\r\n";
     stream.write_all(headers.as_bytes()).await?;
+    // Send retry hint (ms) so browsers reconnect quickly after a drop, plus an
+    // initial comment line that flushes headers through proxies.
+    if stream.write_all(b"retry: 1000\n: connected\n\n").await.is_err() {
+        return Ok(());
+    }
+
+    // Periodic keepalive comment lines are sent every 15s; intervening channel
+    // events cause an immediate reload dispatch. `select!` multiplexes the two.
+    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
+    heartbeat.tick().await; // consume immediate first tick
 
     loop {
-        match rx.recv().await {
-            Ok(()) => {
-                if stream.write_all(b"data: reload\n\n").await.is_err() {
+        tokio::select! {
+            msg = rx.recv() => match msg {
+                Ok(()) => {
+                    if stream.write_all(b"data: reload\n\n").await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            },
+            _ = heartbeat.tick() => {
+                // Comment line (starts with `:`) — keeps the connection alive
+                // through proxies and surfaces dead peers as a write error.
+                if stream.write_all(b": keepalive\n\n").await.is_err() {
                     break;
                 }
             }
-            Err(broadcast::error::RecvError::Lagged(_)) => continue,
-            Err(broadcast::error::RecvError::Closed) => break,
         }
     }
 
     Ok(())
 }
 
-async fn handle_file(
-    mut stream: TcpStream,
+async fn handle_file<S>(
+    mut stream: S,
     html_path: &Path,
     root_dir: Option<&Path>,
     request_path: &str,
-) -> std::io::Result<()> {
+) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+{
     if request_path.contains("..") {
         stream
             .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
@@ -299,7 +439,10 @@ async fn handle_file(
     Ok(())
 }
 
-async fn send_404(stream: &mut TcpStream, path: &str) -> std::io::Result<()> {
+async fn send_404<S>(stream: &mut S, path: &str) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+{
     let body = format!(
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>404</title>\
          <style>*{{margin:0;box-sizing:border-box}}body{{font-family:system-ui,-apple-system,sans-serif;\

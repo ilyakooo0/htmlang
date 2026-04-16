@@ -38,12 +38,46 @@ cargo install --path .
 
 ## Usage
 
+Everyday workflow:
+
 ```
 htmlang init                 # scaffold a new project
-htmlang page.hl              # writes page.html
+htmlang page.hl              # compile page.hl -> page.html
 htmlang --watch page.hl      # recompile on change
-htmlang fmt page.hl          # format a file
+htmlang serve .              # dev server with live reload
+htmlang serve --https --cert cert.pem --key key.pem .
+htmlang fmt page.hl          # format a file in place
+htmlang check page.hl        # parse only, report diagnostics
 ```
+
+More commands (run with `--help` for flags):
+
+| Command            | Purpose                                        |
+|--------------------|------------------------------------------------|
+| `build [dir]`      | Compile every `.hl` under a directory          |
+| `watch [path]`     | Watch mode without a server                    |
+| `serve [path]`     | Dev server with live reload (`--https` ready)  |
+| `convert file.html`| Convert HTML back to htmlang                   |
+| `new name`         | Scaffold a new page from a template            |
+| `components`       | List `@fn` / `@component` definitions          |
+| `deps file.hl`     | Print the include / import graph               |
+| `dead-code [dir]`  | Report unused `@fn` / `@let` / `@define`       |
+| `feed [dir]`       | Generate an Atom feed from `@article` pages    |
+| `sitemap [dir]`    | Generate `sitemap.xml`                         |
+| `lint [path]`      | Run warnings-only checks, optional JSON output |
+| `stats file.hl`    | Compile-time statistics                        |
+| `preview file.hl`  | Open a one-off preview                         |
+| `diff a.hl b.hl`   | Diff two files at the AST level                |
+| `export file.hl`   | Export to plain HTML (`--format pdf` planned)  |
+| `repl`             | Interactive REPL for expressions               |
+| `deploy`           | Preset-driven deploy helper                    |
+| `playground`       | Write a self-contained playground HTML         |
+| `clean [dir]`      | Remove generated `.html` files                 |
+| `upgrade`          | Apply mechanical migrations to out-of-date `.hl` |
+| `outline file.hl`  | Print the document tree                        |
+| `explain CODE`     | Longer explanation of a diagnostic code        |
+| `lsp`              | Launch the language server (stdio)             |
+| `benchmark [dir]`  | Measure parse / codegen timing                 |
 
 ## Editor support
 

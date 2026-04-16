@@ -59,6 +59,8 @@ fn compile(input_path: &str, cfg: &CompileConfig) -> (bool, Vec<PathBuf>) {
                 let severity = match d.severity {
                     htmlang::parser::Severity::Error => "error",
                     htmlang::parser::Severity::Warning => "warning",
+                    htmlang::parser::Severity::Info => "info",
+                    htmlang::parser::Severity::Help => "help",
                 };
                 collected.push(DiagnosticJson {
                     file: input_path.to_string(),
@@ -73,6 +75,8 @@ fn compile(input_path: &str, cfg: &CompileConfig) -> (bool, Vec<PathBuf>) {
             let prefix = match d.severity {
                 htmlang::parser::Severity::Error => "error",
                 htmlang::parser::Severity::Warning => "warning",
+                htmlang::parser::Severity::Info => "info",
+                htmlang::parser::Severity::Help => "help",
             };
             if let Some(col) = d.column {
                 eprintln!("{}: line {}:{}: {}", prefix, d.line, col, d.message);
@@ -312,15 +316,31 @@ fn generate_error_overlay(diagnostics: &[htmlang::parser::Diagnostic], file: &st
         let prefix = match d.severity {
             htmlang::parser::Severity::Error => "error",
             htmlang::parser::Severity::Warning => "warning",
+            htmlang::parser::Severity::Info => "info",
+            htmlang::parser::Severity::Help => "help",
         };
         let escaped = d.message
             .replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('>', "&gt;");
+        let location = match d.column {
+            Some(col) => format!("line {}:{}", d.line, col),
+            None => format!("line {}", d.line),
+        };
         errors.push_str(&format!(
-            "<div class=\"entry\"><span class=\"badge {}\">{}</span> line {}: {}</div>",
-            prefix, prefix, d.line, escaped
+            "<div class=\"entry\"><span class=\"badge {}\">{}</span> <span class=\"loc\">{}</span> {}",
+            prefix, prefix, location, escaped
         ));
+        if let Some(ref src) = d.source_line {
+            let src_esc = src.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+            errors.push_str(&format!("<pre class=\"src\">{}</pre>", src_esc));
+            if let Some(col) = d.column {
+                // Render a caret indicator underneath the source line.
+                let caret = format!("{}^", " ".repeat(col));
+                errors.push_str(&format!("<pre class=\"caret\">{}</pre>", caret));
+            }
+        }
+        errors.push_str("</div>");
     }
     format!(
         r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>Build Error</title><style>
@@ -328,10 +348,15 @@ fn generate_error_overlay(diagnostics: &[htmlang::parser::Diagnostic], file: &st
 body{{background:#1a1a2e;color:#eee;font-family:ui-monospace,monospace;padding:2rem}}
 h1{{color:#ff6b6b;margin-bottom:1rem;font-size:1.5rem}}
 .file{{color:#888;margin-bottom:1.5rem;font-size:0.9rem}}
-.entry{{padding:0.5rem 0;border-bottom:1px solid #333}}
+.entry{{padding:0.75rem 0;border-bottom:1px solid #333}}
+.loc{{color:#9ca3af;margin-right:6px}}
 .badge{{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.8rem;margin-right:8px}}
 .badge.error{{background:#c0392b;color:white}}
 .badge.warning{{background:#f39c12;color:white}}
+.badge.info{{background:#2563eb;color:white}}
+.badge.help{{background:#16a34a;color:white}}
+.src{{margin-top:0.5rem;padding:0.4rem 0.6rem;background:#0f0f1e;border-radius:4px;color:#ddd;white-space:pre-wrap}}
+.caret{{margin:0;padding:0 0.6rem;color:#ff6b6b;white-space:pre}}
 </style></head><body>
 <h1>Build Error</h1>
 <div class="file">{file}</div>
@@ -594,6 +619,8 @@ fn lint_file(path: &str) -> Vec<String> {
         let prefix = match d.severity {
             htmlang::parser::Severity::Error => "error",
             htmlang::parser::Severity::Warning => "warning",
+            htmlang::parser::Severity::Info => "info",
+            htmlang::parser::Severity::Help => "help",
         };
         warnings.push(format!("{}:{}:{}: {}", path, d.line, prefix, d.message));
     }
@@ -1578,6 +1605,9 @@ fn main() {
         let mut serve_target = None;
         let mut serve_port: u16 = 3000;
         let mut serve_open = false;
+        let mut serve_https = false;
+        let mut cert_path: Option<String> = None;
+        let mut key_path: Option<String> = None;
         let mut _proxy_routes: Vec<(String, String)> = Vec::new();
         let mut si = 2;
         while si < args.len() {
@@ -1587,6 +1617,15 @@ fn main() {
                     serve_port = args.get(si).and_then(|p| p.parse().ok()).unwrap_or(3000);
                 }
                 "--open" => serve_open = true,
+                "--https" => serve_https = true,
+                "--cert" => {
+                    si += 1;
+                    cert_path = args.get(si).cloned();
+                }
+                "--key" => {
+                    si += 1;
+                    key_path = args.get(si).cloned();
+                }
                 "--proxy" => {
                     // --proxy /api http://localhost:3001
                     si += 1;
@@ -1612,6 +1651,32 @@ fn main() {
         let config = load_config(target_path);
         let effective_port = if serve_port != 3000 { serve_port } else { config.port };
 
+        // Resolve optional TLS config. Without both --cert and --key, --https is
+        // an error — we intentionally do not generate self-signed certificates
+        // to avoid surprising the user with unpinned trust anchors.
+        let tls_config = if serve_https {
+            let cert = cert_path.clone().unwrap_or_else(|| {
+                eprintln!("error: --https requires --cert <path> and --key <path>");
+                eprintln!("  generate a dev cert with: mkcert localhost 127.0.0.1");
+                process::exit(1);
+            });
+            let key = key_path.clone().unwrap_or_else(|| {
+                eprintln!("error: --https requires --cert <path> and --key <path>");
+                process::exit(1);
+            });
+            match htmlang::serve::load_tls_config(Path::new(&cert), Path::new(&key)) {
+                Ok(cfg) => Some(cfg),
+                Err(e) => {
+                    eprintln!("error: failed to load TLS config: {}", e);
+                    process::exit(1);
+                }
+            }
+        } else {
+            None
+        };
+        let scheme = if tls_config.is_some() { "https" } else { "http" };
+        let _ = scheme; // announced by watch_loop / open_in_browser downstream
+
         // Do initial compile
         if target_path.is_dir() {
             let hl_files = collect_hl_files_recursive(target_path);
@@ -1633,9 +1698,13 @@ fn main() {
             let serve_dir = config.output.as_ref().map(|o| PathBuf::from(o)).unwrap_or_else(|| target_path.to_path_buf());
             let index_path = serve_dir.join("index.html");
             let server_tx = tx.clone();
+            let tls_for_thread = tls_config;
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
-                rt.block_on(htmlang::serve::run(effective_port, index_path, server_tx));
+                match tls_for_thread {
+                    Some(tls) => rt.block_on(htmlang::serve::run_https(effective_port, index_path, server_tx, tls)),
+                    None => rt.block_on(htmlang::serve::run(effective_port, index_path, server_tx)),
+                }
             });
             if serve_open { open_in_browser(effective_port); }
             watch_loop(target_path, &hl_files, &[], true, true, Some(tx), effective_port, config.debounce_ms);
@@ -1647,9 +1716,13 @@ fn main() {
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
             let out_path = Path::new(&target).with_extension("html");
             let server_tx = tx.clone();
+            let tls_for_thread = tls_config;
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
-                rt.block_on(htmlang::serve::run(effective_port, out_path, server_tx));
+                match tls_for_thread {
+                    Some(tls) => rt.block_on(htmlang::serve::run_https(effective_port, out_path, server_tx, tls)),
+                    None => rt.block_on(htmlang::serve::run(effective_port, out_path, server_tx)),
+                }
             });
             if serve_open { open_in_browser(effective_port); }
             let files = vec![PathBuf::from(&target)];
@@ -1748,6 +1821,8 @@ fn main() {
                 let prefix = match d.severity {
                     htmlang::parser::Severity::Error => "error",
                     htmlang::parser::Severity::Warning => "warning",
+                    htmlang::parser::Severity::Info => "info",
+                    htmlang::parser::Severity::Help => "help",
                 };
                 eprintln!("{}: line {}: {}", prefix, d.line, d.message);
             }
@@ -2753,6 +2828,8 @@ compile();
             let prefix = match d.severity {
                 htmlang::parser::Severity::Error => "error",
                 htmlang::parser::Severity::Warning => "warning",
+                htmlang::parser::Severity::Info => "info",
+                htmlang::parser::Severity::Help => "help",
             };
             eprintln!("{}: line {}: {}", prefix, d.line, d.message);
         }
@@ -3384,8 +3461,12 @@ fn watch_loop(
 
     // Track content hashes for incremental rebuilds
     let mut content_hashes: HashMap<PathBuf, u64> = HashMap::new();
-    // Dependency map: source file -> list of included/imported files
+    // Dependency map: source file -> list of included/imported files. Maintained
+    // across rebuilds so we always know the current dep graph.
     let mut dep_map: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+    // Set of currently-watched include paths. Used to unwatch files that are
+    // no longer referenced after a rebuild changes the dep graph.
+    let mut watched_includes: HashSet<PathBuf> = HashSet::new();
 
     fn hash_file(path: &Path) -> Option<u64> {
         let content = fs::read(path).ok()?;
@@ -3401,9 +3482,26 @@ fn watch_loop(
             content_hashes.insert(canonical, h);
         }
     }
-    for inc in included_files {
+    // Seed dep_map from the initial compile's include list so that the first
+    // change event correctly picks up include-file modifications even before
+    // the first recompile replaces the entry.
+    let initial_includes_canonical: Vec<PathBuf> = included_files
+        .iter()
+        .map(|p| fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
+        .collect();
+    for inc in &initial_includes_canonical {
         if let Some(h) = hash_file(inc) {
             content_hashes.insert(inc.clone(), h);
+        }
+        watched_includes.insert(inc.clone());
+    }
+    // Attach the initial include list to every source file so a change to any
+    // of them triggers a rebuild of any source. Per-file dep refinement happens
+    // on the next recompile.
+    if !initial_includes_canonical.is_empty() {
+        for file in source_files {
+            let canonical = fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+            dep_map.insert(canonical, initial_includes_canonical.clone());
         }
     }
 
@@ -3517,12 +3615,32 @@ fn watch_loop(
                         .map(|p| fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
                         .collect();
                     for inc in &canonical_deps {
-                        let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
+                        if watched_includes.insert(inc.clone()) {
+                            let _ = watcher.watch(inc, RecursiveMode::NonRecursive);
+                        }
                         if let Some(h) = hash_file(inc) {
                             content_hashes.insert(inc.clone(), h);
                         }
                     }
                     dep_map.insert(file.clone(), canonical_deps);
+                }
+
+                // Unwatch include files that are no longer referenced by any
+                // source. Prevents file-descriptor leaks when @include edges
+                // are removed mid-session.
+                let still_needed: HashSet<PathBuf> = dep_map
+                    .values()
+                    .flatten()
+                    .cloned()
+                    .collect();
+                let to_drop: Vec<PathBuf> = watched_includes
+                    .difference(&still_needed)
+                    .cloned()
+                    .collect();
+                for path in to_drop {
+                    let _ = watcher.unwatch(&path);
+                    watched_includes.remove(&path);
+                    content_hashes.remove(&path);
                 }
 
                 eprintln!("recompiled {} file(s)", recompiled);

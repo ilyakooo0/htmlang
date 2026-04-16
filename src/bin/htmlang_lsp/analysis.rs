@@ -1129,10 +1129,14 @@ pub(crate) fn get_signature_help(text: &str, position: Position) -> Option<Signa
         .unwrap_or(after_at.len());
     let fn_name = &after_at[..name_end];
 
-    // Must be inside brackets
-    if !in_brackets(before) {
+    // Prefer to surface signature help inside an argument list, but don't hide
+    // the signature from callers who trigger explicitly (e.g. hover over the
+    // function name itself). We still need the cursor to be on or after the
+    // `@name` token — `fn_name` being non-empty is the check for that.
+    if fn_name.is_empty() {
         return None;
     }
+    let inside_args = in_brackets(before);
 
     // Find the @fn definition
     for (line_idx, line_text) in text.lines().enumerate() {
@@ -1170,10 +1174,16 @@ pub(crate) fn get_signature_help(text: &str, position: Position) -> Option<Signa
 
             let sig_label = format!("@{} {}", fn_name, params.join(" "));
 
-            // Determine active parameter by counting commas before cursor inside brackets
-            let bracket_start = before.rfind('[').unwrap_or(0);
-            let inside = &before[bracket_start..];
-            let active_param = inside.matches(',').count() as u32;
+            // Determine active parameter by counting commas before cursor inside
+            // brackets. When the cursor hasn't entered the argument list yet,
+            // highlight the first parameter.
+            let active_param = if inside_args {
+                let bracket_start = before.rfind('[').unwrap_or(0);
+                let inside = &before[bracket_start..];
+                inside.matches(',').count() as u32
+            } else {
+                0
+            };
 
             return Some(SignatureHelp {
                 signatures: vec![SignatureInformation {

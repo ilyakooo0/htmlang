@@ -40,6 +40,8 @@ impl Backend {
                 let severity = match d.severity {
                     htmlang::parser::Severity::Error => DiagnosticSeverity::ERROR,
                     htmlang::parser::Severity::Warning => DiagnosticSeverity::WARNING,
+                    htmlang::parser::Severity::Info => DiagnosticSeverity::INFORMATION,
+                    htmlang::parser::Severity::Help => DiagnosticSeverity::HINT,
                 };
                 let line = d.line.saturating_sub(1) as u32;
                 let col_start = d.column.unwrap_or(0) as u32;
@@ -129,11 +131,19 @@ impl LanguageServer for Backend {
                     LinkedEditingRangeServerCapabilities::Simple(true),
                 ),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                document_range_formatting_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 signature_help_provider: Some(SignatureHelpOptions {
                     trigger_characters: Some(vec!["[".into(), ",".into()]),
                     retrigger_characters: Some(vec![",".into()]),
                     work_done_progress_options: Default::default(),
+                }),
+                document_link_provider: Some(DocumentLinkOptions {
+                    resolve_provider: Some(false),
+                    work_done_progress_options: Default::default(),
+                }),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
                 }),
                 ..Default::default()
             },
@@ -411,19 +421,79 @@ impl LanguageServer for Backend {
     ) -> Result<Option<Vec<SymbolInformation>>> {
         let query = params.query.to_lowercase();
         let docs = self.documents.read().await;
-        let mut all_symbols = Vec::new();
+        let mut all_symbols: Vec<SymbolInformation> = Vec::new();
+        let mut covered_files: std::collections::HashSet<std::path::PathBuf> =
+            std::collections::HashSet::new();
+
+        // Open documents first — their in-memory text may be newer than what
+        // is on disk.
         for (uri, text) in docs.iter() {
-            let symbols = document_symbols(text);
-            for mut sym in symbols {
+            if let Ok(path) = uri.to_file_path() {
+                covered_files.insert(path);
+            }
+            for mut sym in document_symbols(text) {
                 sym.location.uri = uri.clone();
-                if query.is_empty()
-                    || sym.name.to_lowercase().contains(&query)
-                {
+                if query.is_empty() || sym.name.to_lowercase().contains(&query) {
                     all_symbols.push(sym);
                 }
             }
         }
         drop(docs);
+
+        // Extend search to .hl files on disk. The workspace root is not given
+        // via a workspace folder, so derive it from the first open document's
+        // path (common case: editor opened a folder containing one open file).
+        let workspace_root: Option<std::path::PathBuf> = {
+            let docs = self.documents.read().await;
+            docs.keys()
+                .next()
+                .and_then(|u| u.to_file_path().ok())
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        };
+        if let Some(root) = workspace_root {
+            let mut stack = vec![root];
+            let max_files = 500; // safety cap for huge workspaces
+            let mut scanned = 0usize;
+            while let Some(dir) = stack.pop() {
+                let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+                for entry in entries.flatten() {
+                    if scanned >= max_files {
+                        break;
+                    }
+                    let path = entry.path();
+                    // Skip hidden / vendor / build directories.
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with('.')
+                            || name == "target"
+                            || name == "node_modules"
+                            || name == "dist"
+                        {
+                            continue;
+                        }
+                    }
+                    if path.is_dir() {
+                        stack.push(path);
+                        continue;
+                    }
+                    if path.extension().map_or(false, |e| e == "hl")
+                        && !covered_files.contains(&path)
+                    {
+                        scanned += 1;
+                        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+                        let Ok(file_uri) = Url::from_file_path(&path) else { continue };
+                        for mut sym in document_symbols(&text) {
+                            sym.location.uri = file_uri.clone();
+                            if query.is_empty()
+                                || sym.name.to_lowercase().contains(&query)
+                            {
+                                all_symbols.push(sym);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(if all_symbols.is_empty() {
             None
         } else {
@@ -467,6 +537,223 @@ impl LanguageServer for Backend {
             range: Range::new(Position::new(0, 0), Position::new(last_line, last_col)),
             new_text: formatted,
         }]))
+    }
+
+    async fn range_formatting(
+        &self,
+        params: DocumentRangeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let uri = &params.text_document.uri;
+        let range = params.range;
+        let docs = self.documents.read().await;
+        let text = match docs.get(uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        // Extract the selection (snapping to whole lines — htmlang is
+        // indent-sensitive, so partial-line formatting is meaningless).
+        let lines: Vec<&str> = text.lines().collect();
+        let start_line = range.start.line as usize;
+        let end_line = (range.end.line as usize).min(lines.len().saturating_sub(1));
+        if start_line > end_line {
+            return Ok(None);
+        }
+
+        let selection: String = lines[start_line..=end_line].join("\n");
+        let formatted = htmlang::fmt::format(&selection);
+        let formatted = formatted.trim_end_matches('\n').to_string();
+        if formatted == selection {
+            return Ok(None);
+        }
+
+        let last_col = lines[end_line].len() as u32;
+        Ok(Some(vec![TextEdit {
+            range: Range::new(
+                Position::new(start_line as u32, 0),
+                Position::new(end_line as u32, last_col),
+            ),
+            new_text: formatted,
+        }]))
+    }
+
+    async fn document_link(
+        &self,
+        params: DocumentLinkParams,
+    ) -> Result<Option<Vec<DocumentLink>>> {
+        let uri = params.text_document.uri.clone();
+        let docs = self.documents.read().await;
+        let text = match docs.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        let Ok(this_path) = uri.to_file_path() else {
+            return Ok(None);
+        };
+        let Some(dir) = this_path.parent() else {
+            return Ok(None);
+        };
+
+        let mut links = Vec::new();
+        for (i, raw_line) in text.lines().enumerate() {
+            let trimmed = raw_line.trim_start();
+            let indent = raw_line.len() - trimmed.len();
+            let (prefix, filename) = if let Some(rest) = trimmed.strip_prefix("@include ") {
+                ("@include ", rest)
+            } else if let Some(rest) = trimmed.strip_prefix("@import ") {
+                ("@import ", rest)
+            } else if let Some(rest) = trimmed.strip_prefix("@use ") {
+                // @use "file.hl" fn1, fn2 — only the filename token is linkable.
+                ("@use ", rest)
+            } else if let Some(rest) = trimmed.strip_prefix("@extends ") {
+                ("@extends ", rest)
+            } else {
+                continue;
+            };
+
+            // Pull the filename token (stop at whitespace or `,`).
+            let name_token: &str = filename
+                .trim_start_matches('"')
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('"');
+            if name_token.is_empty() {
+                continue;
+            }
+            // Ignore glob patterns — they don't resolve to a single path.
+            if name_token.contains('*') || name_token.contains('?') {
+                continue;
+            }
+
+            let target = dir.join(name_token);
+            if !target.exists() {
+                continue;
+            }
+            let Ok(target_uri) = Url::from_file_path(&target) else {
+                continue;
+            };
+
+            // Locate the token in the original line so the link highlights the
+            // filename rather than the whole directive.
+            let scan_from = indent + prefix.len();
+            let Some(rel_start) = raw_line[scan_from..].find(name_token) else {
+                continue;
+            };
+            let start_col = (scan_from + rel_start) as u32;
+            let end_col = start_col + name_token.len() as u32;
+
+            links.push(DocumentLink {
+                range: Range::new(
+                    Position::new(i as u32, start_col),
+                    Position::new(i as u32, end_col),
+                ),
+                target: Some(target_uri),
+                tooltip: Some(format!("Open {}", name_token)),
+                data: None,
+            });
+        }
+
+        Ok(if links.is_empty() { None } else { Some(links) })
+    }
+
+    async fn code_lens(
+        &self,
+        params: CodeLensParams,
+    ) -> Result<Option<Vec<CodeLens>>> {
+        let uri = params.text_document.uri.clone();
+        let docs = self.documents.read().await;
+        let text = match docs.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        // Build a simple usage counter by scanning the whole document. For each
+        // definition (@fn name / @let name / @define name) we emit a lens that
+        // reports how many bare `@name` or `$name` call sites exist.
+        let lines: Vec<&str> = text.lines().collect();
+
+        #[derive(Clone)]
+        struct Def { line: u32, name: String, kind: &'static str }
+        let mut defs: Vec<Def> = Vec::new();
+
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed.strip_prefix("@fn ") {
+                if let Some(n) = rest.split_whitespace().next() {
+                    defs.push(Def { line: i as u32, name: n.to_string(), kind: "fn" });
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("@let ") {
+                if let Some((n, _)) = rest.trim().split_once(' ') {
+                    defs.push(Def { line: i as u32, name: n.to_string(), kind: "let" });
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("@define ") {
+                if let Some(bracket) = rest.find('[') {
+                    let n = rest[..bracket].trim();
+                    if !n.is_empty() {
+                        defs.push(Def { line: i as u32, name: n.to_string(), kind: "define" });
+                    }
+                }
+            }
+        }
+
+        let mut lenses = Vec::with_capacity(defs.len());
+        for def in &defs {
+            // Count references: for @fn, look for `@name` at start-of-token;
+            // for @let / @define, look for `$name`.
+            let mut count: usize = 0;
+            let needle = match def.kind {
+                "fn" => format!("@{}", def.name),
+                _ => format!("${}", def.name),
+            };
+            for (i, line) in lines.iter().enumerate() {
+                if i as u32 == def.line {
+                    continue;
+                }
+                let mut from = 0;
+                while let Some(idx) = line[from..].find(&needle) {
+                    let pos = from + idx;
+                    // Guard: the char right after the match must not be a valid
+                    // identifier continuation, so `$foo` doesn't match `$foobar`.
+                    let after = line.as_bytes().get(pos + needle.len()).copied();
+                    let ok = match after {
+                        None => true,
+                        Some(c) => !(c.is_ascii_alphanumeric() || c == b'_' || c == b'-'),
+                    };
+                    if ok {
+                        count += 1;
+                    }
+                    from = pos + needle.len();
+                }
+            }
+
+            let title = if count == 1 {
+                "1 reference".to_string()
+            } else {
+                format!("{} references", count)
+            };
+            lenses.push(CodeLens {
+                range: Range::new(
+                    Position::new(def.line, 0),
+                    Position::new(def.line, 0),
+                ),
+                // Non-executable lens: clients display the title without an
+                // associated command action. Leaving `command` as None yields an
+                // informational lens in most editors.
+                command: Some(Command {
+                    title,
+                    command: String::new(),
+                    arguments: None,
+                }),
+                data: None,
+            });
+        }
+
+        Ok(if lenses.is_empty() { None } else { Some(lenses) })
     }
 
     async fn references(

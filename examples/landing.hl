@@ -1,0 +1,71 @@
+-- A marketing landing page: hero, feature grid, CTA.
+@page Launchpad
+@lang en
+@let primary #2563eb
+@let ink #0f172a
+@let muted #64748b
+@let bg-subtle #f8fafc
+
+@fn feature $title $body
+  @column [padding 24, background white, rounded 12, border 1 #e2e8f0, spacing 8]
+    @text [bold, size 18, color $ink] $title
+    @paragraph [color $muted, line-height 1.6]
+      $body
+
+@column [spacing 0]
+  -- Hero
+  @section [
+    padding 80,
+    padding-x 24,
+    background $bg-subtle,
+    text-align center,
+    spacing 24
+  ]
+    @text [bold, size 48, color $ink] Build faster with less CSS.
+    @paragraph [max-width 560, center-x, color $muted, line-height 1.6, size 18]
+      Launchpad turns your static pages into a polished product in minutes.
+      Ship faster, iterate smaller, sleep at night.
+    @row [center-x, spacing 12]
+      @link [
+        padding 14, padding-x 24, rounded 8,
+        background $primary, color white, bold,
+        transition all 0.15s ease
+      ] /signup
+        Start free
+      @link [
+        padding 14, padding-x 24, rounded 8,
+        border 1 #e2e8f0, color $ink, bold,
+        transition all 0.15s ease
+      ] /demo
+        Watch demo
+
+  -- Features
+  @section [padding 80, padding-x 24, max-width 1100, center-x, spacing 40]
+    @column [spacing 8, text-align center]
+      @text [bold, size 32, color $ink] Everything you need
+      @text [color $muted] Opinionated where it matters, flexible where it counts.
+    @row [wrap, gap 20]
+      @feature [
+        title Zero-config dev server,
+        body "Live reload, asset pipeline, HTTPS, and auto-routing out of the box."
+      ]
+      @feature [
+        title First-class LSP,
+        body "Goto-definition, rename, diagnostics, hover docs, and code lens — all built in."
+      ]
+      @feature [
+        title Static by default,
+        body "Compiles to a single HTML file. Deploy anywhere, no JS runtime needed."
+      ]
+
+  -- CTA
+  @section [padding 60, padding-x 24, background $primary, color white, text-align center, spacing 16]
+    @text [bold, size 28] Ready to launch?
+    @paragraph [max-width 520, center-x, line-height 1.6]
+      Join thousands of teams building their marketing sites with htmlang.
+    @link [
+      padding 14, padding-x 28, rounded 8,
+      background white, color $primary, bold,
+      transition all 0.15s ease
+    ] /signup
+      Start for free

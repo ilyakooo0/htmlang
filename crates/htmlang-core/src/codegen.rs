@@ -16,7 +16,7 @@ const BREAKPOINTS: &[(&str, &str)] = &[
 ];
 
 /// Generate short CSS class names: a, b, ..., z, a0, a1, ..., z9, aa, ab, ...
-fn short_class_name(idx: usize) -> String {
+pub(crate) fn short_class_name(idx: usize) -> String {
     if idx < 26 {
         return String::from((b'a' + idx as u8) as char);
     }

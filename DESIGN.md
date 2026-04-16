@@ -1218,3 +1218,70 @@ A VS Code extension is available in `editors/vscode/` with:
   - Code folding and document symbols
   - Semantic tokens for syntax highlighting
   - VS Code snippets for common patterns (`@fn`, `@each`, `@grid`, `@form`, etc.)
+
+## Additional directives reference
+
+The compiler recognizes a number of directives that are documented only briefly
+above. A concise reference:
+
+### Content generation
+
+- `@markdown` — indented body is parsed as Markdown and emitted as HTML.
+- `@raw """..."""` — embed verbatim HTML / CSS / JS.
+- `@svg path/to/icon.svg` — inline an SVG file's contents.
+- `@fetch url -> $name` — fetch a JSON payload at build time and bind it.
+- `@data name path.json` — load a JSON file for iteration with `@each`.
+
+### Metadata & head
+
+- `@lang en` — set `<html lang>`.
+- `@favicon /favicon.png` — inject a favicon link.
+- `@meta name value` — add a `<meta>` tag.
+- `@og key value` — add an Open Graph `<meta property="og:key">` tag.
+- `@canonical https://…` — set `<link rel="canonical">`.
+- `@base /base/path/` — set `<base href>`.
+- `@manifest [Name]` — emit a PWA `manifest.json` reference and body.
+- `@breakpoint name width` — register a custom responsive prefix.
+
+### Styling
+
+- `@style` — indented body is raw CSS injected into `<style>`.
+- `@scope (selector)` — wrap body in CSS `@scope` for scoped styles.
+- `@starting-style` — CSS entry-animation starting values.
+- `@font-face name url` — register a web font.
+- `@theme` — design tokens emitted as CSS custom properties.
+- `@keyframes name` — define keyframe animations.
+- `@css-property name syntax value` — register a typed custom property.
+
+### Control flow
+
+- `@if cond` / `@unless cond` / `@else` / `@else if`.
+- `@match $value` / `@switch $value` — exhaustive branching.
+- `@each item in list` / `@each item, $_index in list` — iterate.
+- `@for $i in 0..10 [step 2]` — numeric ranges.
+- `@repeat N` — repeat a block N times.
+- `@defer` — defer block rendering below the fold.
+
+### Module system
+
+- `@include file.hl` — paste file contents here.
+- `@import file.hl` — import @fn / @let / @define (with optional `as` alias).
+- `@use "file.hl" fn1, fn2` — import a named subset.
+- `@extends template.hl` — template inheritance; override with `@slot`.
+- `@layout path.hl` — wrap output in a layout template.
+- `@collection path/ -> $items` — iterate over a directory.
+
+### Functions & composition
+
+- `@fn name $p1 $p2` — define a function; body uses `@children` / `@slot`.
+- `@component name $p` — like `@fn` but emits a scoped wrapper class.
+- `@mixin name [...attrs]` — attribute bundle you can merge elsewhere.
+- `@define name [...attrs]` — named attribute preset, used as `[$name]`.
+- `@with $source as $alias` — temporarily rebind a variable.
+
+### Debugging
+
+- `@assert cond [message]` — emit an error if a boolean check fails.
+- `@warn message` / `@debug expr` / `@log message` — compile-time output.
+- `@deprecated name [reason]` — mark a function as deprecated.
+- `@translations locale` — bind i18n strings available as `$t.key`.

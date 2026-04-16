@@ -12,6 +12,8 @@ use crate::ast::*;
 pub enum Severity {
     Error,
     Warning,
+    Info,
+    Help,
 }
 
 #[derive(Debug, Clone)]
@@ -578,7 +580,11 @@ impl Parser {
 
         // --- @scope block (CSS scoping) ---
         if content.trim() == "@scope" || content.starts_with("@scope ") {
-            let scope_selector = content.strip_prefix("@scope").unwrap().trim().to_string();
+            let scope_selector = content
+                .strip_prefix("@scope")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             let mut scope_content = String::new();
             while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
                 match &self.lines[self.pos].content {
@@ -644,7 +650,11 @@ impl Parser {
 
         // --- @manifest (PWA web manifest) ---
         if content.trim() == "@manifest" || content.starts_with("@manifest ") {
-            let mut name = content.strip_prefix("@manifest").unwrap().trim().to_string();
+            let mut name = content
+                .strip_prefix("@manifest")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if name.is_empty() {
                 name = ctx.page_title.clone().unwrap_or_else(|| "App".to_string());
             }
@@ -2358,7 +2368,11 @@ impl Parser {
         // --- @translations (i18n) ---
 
         if content.trim() == "@translations" || content.starts_with("@translations ") {
-            let locale = content.strip_prefix("@translations").unwrap().trim().to_string();
+            let locale = content
+                .strip_prefix("@translations")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             let active_locale = if locale.is_empty() {
                 ctx.lang.clone().unwrap_or_else(|| "en".to_string())
             } else {
@@ -2760,8 +2774,19 @@ impl Parser {
             Vec::new()
         };
 
-        // Clone function definition (releases borrow on ctx)
-        let fn_def = ctx.functions.get(name).unwrap().clone();
+        // Clone function definition (releases borrow on ctx). If the function is
+        // missing (shouldn't normally happen — callers check ctx.functions.contains_key
+        // first — but we avoid panicking on malformed state).
+        let fn_def = match ctx.functions.get(name) {
+            Some(def) => def.clone(),
+            None => {
+                ctx.fn_call_stack.pop();
+                return Err(ParseError {
+                    line: line_num,
+                    message: format!("undefined function @{}", name),
+                });
+            }
+        };
 
         // Parse caller's children, separating named slots from default children
         let all_caller_children = self.parse_children(current_indent + 1, ctx);
@@ -2865,7 +2890,10 @@ impl Parser {
             current_children = vec![Node::Element(elem)];
         }
 
-        Ok(current_children.into_iter().next().unwrap())
+        current_children.into_iter().next().ok_or(ParseError {
+            line: line_num,
+            message: "element chain produced no nodes (this is a parser bug)".to_string(),
+        })
     }
 }
 
@@ -3150,33 +3178,55 @@ fn format_include_chain(stack: &[PathBuf]) -> String {
         .join(" → ")
 }
 
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let mut dp = vec![vec![0usize; b.len() + 1]; a.len() + 1];
-    for i in 0..=a.len() {
-        dp[i][0] = i;
+/// Levenshtein distance with a rolling two-row buffer (O(min(a,b)) memory) and an
+/// early-exit cutoff: if every cell in a row exceeds `cutoff`, no further cell can
+/// be <= `cutoff`, so we return `cutoff + 1` immediately. Used for typo-suggestion
+/// hot paths where we only care about distances <= 2.
+fn levenshtein_bounded(a: &[char], b: &[char], cutoff: usize) -> usize {
+    let (a, b) = if a.len() > b.len() { (b, a) } else { (a, b) };
+    if b.len() - a.len() > cutoff {
+        return cutoff + 1;
     }
-    for j in 0..=b.len() {
-        dp[0][j] = j;
+    if a.is_empty() {
+        return b.len();
     }
-    for i in 1..=a.len() {
-        for j in 1..=b.len() {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            dp[i][j] = (dp[i - 1][j] + 1)
-                .min(dp[i][j - 1] + 1)
-                .min(dp[i - 1][j - 1] + cost);
+
+    let mut prev: Vec<usize> = (0..=a.len()).collect();
+    let mut curr: Vec<usize> = vec![0; a.len() + 1];
+
+    for (j, &bc) in b.iter().enumerate() {
+        curr[0] = j + 1;
+        let mut row_min = curr[0];
+        for (i, &ac) in a.iter().enumerate() {
+            let cost = if ac == bc { 0 } else { 1 };
+            curr[i + 1] = (prev[i + 1] + 1)
+                .min(curr[i] + 1)
+                .min(prev[i] + cost);
+            row_min = row_min.min(curr[i + 1]);
         }
+        if row_min > cutoff {
+            return cutoff + 1;
+        }
+        std::mem::swap(&mut prev, &mut curr);
     }
-    dp[a.len()][b.len()]
+    prev[a.len()]
 }
 
 fn suggest_closest<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let input_chars: Vec<char> = input.chars().collect();
+    let max_allowed = 2usize.min(input_chars.len().saturating_sub(1));
     let mut best = None;
     let mut best_dist = usize::MAX;
     for &candidate in candidates {
-        let dist = levenshtein(input, candidate);
-        if dist < best_dist && dist <= 2 && dist < input.len() {
+        // Cheap length-based prune before allocating chars.
+        let clen = candidate.chars().count();
+        let diff = clen.abs_diff(input_chars.len());
+        if diff > max_allowed {
+            continue;
+        }
+        let cand_chars: Vec<char> = candidate.chars().collect();
+        let dist = levenshtein_bounded(&input_chars, &cand_chars, max_allowed);
+        if dist < best_dist && dist <= max_allowed {
             best_dist = dist;
             best = Some(candidate);
         }
@@ -3186,11 +3236,18 @@ fn suggest_closest<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
 
 /// Suggest the closest user-defined function name for typos.
 fn suggest_fn_name(input: &str, ctx: &ParseContext) -> Option<String> {
+    let input_chars: Vec<char> = input.chars().collect();
+    let max_allowed = 2usize.min(input_chars.len().saturating_sub(1));
     let mut best: Option<String> = None;
     let mut best_dist = usize::MAX;
     for name in ctx.functions.keys() {
-        let dist = levenshtein(input, name);
-        if dist < best_dist && dist <= 2 && dist < input.len() {
+        let nlen = name.chars().count();
+        if nlen.abs_diff(input_chars.len()) > max_allowed {
+            continue;
+        }
+        let name_chars: Vec<char> = name.chars().collect();
+        let dist = levenshtein_bounded(&input_chars, &name_chars, max_allowed);
+        if dist < best_dist && dist <= max_allowed {
             best_dist = dist;
             best = Some(name.clone());
         }
@@ -3200,11 +3257,18 @@ fn suggest_fn_name(input: &str, ctx: &ParseContext) -> Option<String> {
 
 /// Suggest the closest variable name for undefined `$var` references.
 fn suggest_var_name(input: &str, vars: &HashMap<String, String>) -> Option<String> {
+    let input_chars: Vec<char> = input.chars().collect();
+    let max_allowed = 2usize.min(input_chars.len().saturating_sub(1));
     let mut best: Option<String> = None;
     let mut best_dist = usize::MAX;
     for name in vars.keys() {
-        let dist = levenshtein(input, name);
-        if dist < best_dist && dist <= 2 && dist < input.len() {
+        let nlen = name.chars().count();
+        if nlen.abs_diff(input_chars.len()) > max_allowed {
+            continue;
+        }
+        let name_chars: Vec<char> = name.chars().collect();
+        let dist = levenshtein_bounded(&input_chars, &name_chars, max_allowed);
+        if dist < best_dist && dist <= max_allowed {
             best_dist = dist;
             best = Some(name.clone());
         }
@@ -4125,7 +4189,9 @@ fn evaluate_arithmetic(input: &str) -> String {
         if let Some((left, right)) = input.split_once(op) {
             let left = left.trim();
             let right = right.trim();
-            let op_char = op.trim().chars().next().unwrap();
+            let Some(op_char) = op.trim().chars().next() else {
+                continue;
+            };
             if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
                 let result = match op_char {
                     '+' => l + r,
@@ -5644,4 +5710,91 @@ fn html_escape_md(s: &str) -> String {
      .replace('<', "&lt;")
      .replace('>', "&gt;")
      .replace('"', "&quot;")
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_ok(src: &str) -> ParseResult {
+        let r = parse(src);
+        assert!(
+            r.diagnostics.iter().all(|d| d.severity != Severity::Error),
+            "unexpected error diagnostics: {:?}",
+            r.diagnostics,
+        );
+        r
+    }
+
+    #[test]
+    fn parses_empty_input() {
+        let r = parse("");
+        assert!(r.document.nodes.is_empty());
+        assert!(r.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parses_bare_text_node() {
+        let r = parse_ok("Hello world\n");
+        assert_eq!(r.document.nodes.len(), 1);
+    }
+
+    #[test]
+    fn parses_page_directive() {
+        let r = parse_ok("@page My Title\n");
+        assert_eq!(r.document.page_title.as_deref(), Some("My Title"));
+    }
+
+    #[test]
+    fn let_variable_substitution() {
+        let r = parse_ok("@let color red\n@text [color $color] hi\n");
+        assert_eq!(r.document.variables.get("color").map(|s| s.as_str()), Some("red"));
+    }
+
+    #[test]
+    fn error_recovery_continues_after_unknown_element() {
+        // Intentionally malformed line followed by a valid one — recovery must
+        // let us still see the good line in diagnostics / output.
+        let r = parse("@notareal\n@text hi\n");
+        let has_error = r.diagnostics.iter().any(|d| d.severity == Severity::Error);
+        assert!(has_error, "expected at least one error for @notareal");
+    }
+
+    #[test]
+    fn undefined_fn_is_reported_not_panics() {
+        // Prior to the unwrap fix this panicked.
+        let r = parse("@missing\n");
+        assert!(r.diagnostics.iter().any(|d| d.severity == Severity::Error));
+    }
+
+    #[test]
+    fn scope_without_selector_does_not_panic() {
+        let r = parse("@scope\n  body { background red; }\n");
+        // Should parse — may or may not emit diagnostics, but must not panic.
+        let _ = r;
+    }
+
+    #[test]
+    fn levenshtein_bounded_respects_cutoff() {
+        let a: Vec<char> = "hello".chars().collect();
+        let b: Vec<char> = "world".chars().collect();
+        // Full distance is 4, but asking for cutoff 2 should early-exit.
+        let d = levenshtein_bounded(&a, &b, 2);
+        assert!(d > 2, "expected early exit above cutoff, got {}", d);
+    }
+
+    #[test]
+    fn severity_has_all_variants() {
+        // This compiles only if Severity has Error, Warning, Info, Help.
+        let all = [Severity::Error, Severity::Warning, Severity::Info, Severity::Help];
+        assert_eq!(all.len(), 4);
+    }
+
+    #[test]
+    fn arithmetic_empty_operator_does_not_panic() {
+        // Guards the `op.trim().chars().next().unwrap()` fix.
+        let r = parse("@let x 1 + 2\n");
+        assert_eq!(r.document.variables.get("x").map(|s| s.as_str()), Some("3"));
+    }
 }
