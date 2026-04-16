@@ -786,7 +786,13 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
     }
 
     let has_custom_css = !doc.custom_css.is_empty();
-    element_css.push_str(&styles.to_css_formatted(dev, !has_custom_css));
+    let styles_css = styles.to_css_formatted(dev, !has_custom_css);
+    // Fold literal values declared via `@theme` / `@let --name` back into
+    // `var(--name)` references so the generated CSS actually uses the
+    // custom properties emitted in `:root`. Saves bytes and makes runtime
+    // theming take effect.
+    let styles_css = substitute_css_vars(&styles_css, &doc.css_vars);
+    element_css.push_str(&styles_css);
 
     // @keyframes
     for (name, kf_body) in &doc.keyframes {
@@ -1295,7 +1301,9 @@ fn generate_partial_inner(doc: &Document, dev: bool) -> String {
         }
     }
 
-    element_css.push_str(&styles.to_css_formatted(dev, !has_custom_css));
+    let styles_css = styles.to_css_formatted(dev, !has_custom_css);
+    let styles_css = substitute_css_vars(&styles_css, &doc.css_vars);
+    element_css.push_str(&styles_css);
 
     for (name, kf_body) in &doc.keyframes {
         if dev {
@@ -1495,10 +1503,31 @@ fn emit_html_passthrough_attrs(out: &mut String, attrs: &[Attribute]) {
             out.push(' ');
             out.push_str(key);
             out.push_str("=\"");
-            out.push_str(&html_escape(val));
+            out.push_str(&html_escape(strip_string_quotes(val)));
             out.push('"');
         }
     }
+}
+
+/// If the value is wrapped in a single pair of matching quotes (e.g.
+/// `"Avatar"`), return the inner content. Quotes act as source-level
+/// delimiters in the `.hl` syntax and shouldn't leak into HTML attribute
+/// values. Multi-quoted values like `"h h" "s m"` are left unchanged —
+/// those are real string tokens (used e.g. by CSS `grid-template-areas`).
+fn strip_string_quotes(val: &str) -> &str {
+    let bytes = val.as_bytes();
+    if bytes.len() < 2 {
+        return val;
+    }
+    let first = bytes[0];
+    let last = bytes[bytes.len() - 1];
+    if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+        let inner = &val[1..val.len() - 1];
+        if !inner.as_bytes().contains(&first) {
+            return inner;
+        }
+    }
+    val
 }
 
 fn generate_element(
@@ -1864,16 +1893,6 @@ fn generate_element(
     {
         out.push_str(" title=\"");
         out.push_str(&html_escape(text));
-        out.push('"');
-    }
-
-    // Time datetime
-    if elem.kind == ElementKind::Time
-        && let Some(dt) = elem.attrs.iter().find(|a| a.key == "datetime")
-        && let Some(val) = &dt.value
-    {
-        out.push_str(" datetime=\"");
-        out.push_str(&html_escape(val));
         out.push('"');
     }
 
@@ -2257,6 +2276,30 @@ fn compute_class(
     let landscape = attrs_to_css(attrs, "landscape:", kind, parent_kind);
     let portrait = attrs_to_css(attrs, "portrait:", kind, parent_kind);
 
+    // Dedupe: if a property is declared twice within a single rule, keep only
+    // the last occurrence (element-kind defaults are written before
+    // user attributes, so a user [list-style disc] correctly overrides the
+    // default list-style:none, and we don't need to ship both).
+    let base = dedupe_declarations(&base);
+    let pseudo: Vec<(String, String)> = pseudo
+        .into_iter()
+        .map(|(sel, css)| (sel, dedupe_declarations(&css)))
+        .collect();
+    let responsive: Vec<(String, String)> = responsive
+        .into_iter()
+        .map(|(bp, css)| (bp, dedupe_declarations(&css)))
+        .collect();
+    let dark = dedupe_declarations(&dark);
+    let print = dedupe_declarations(&print);
+    let motion_safe = dedupe_declarations(&motion_safe);
+    let motion_reduce = dedupe_declarations(&motion_reduce);
+    let landscape = dedupe_declarations(&landscape);
+    let portrait = dedupe_declarations(&portrait);
+    let container: Vec<(String, String)> = container
+        .into_iter()
+        .map(|(bp, css)| (bp, dedupe_declarations(&css)))
+        .collect();
+
     styles.get_class(
         base,
         pseudo,
@@ -2269,6 +2312,80 @@ fn compute_class(
         portrait,
         container,
     )
+}
+
+/// Dedupe CSS declarations within a single rule body: for any property
+/// declared more than once, keep only the last occurrence. Unparseable
+/// segments (no `:`) are preserved as-is. Semicolons inside parentheses are
+/// treated as part of a value, not as declaration separators.
+fn dedupe_declarations(css: &str) -> String {
+    if css.is_empty() {
+        return String::new();
+    }
+    // Quick path: no chance of duplicates if there's fewer than 2 declarations.
+    if css.matches(';').count() < 2 {
+        return css.to_string();
+    }
+
+    // Split into (property_name_opt, full_decl_with_semi) preserving whatever
+    // terminator the input used. We split on `;` at depth 0 (ignoring parens).
+    let mut decls: Vec<(Option<String>, String)> = Vec::new();
+    let mut current = String::new();
+    let mut depth: i32 = 0;
+    for ch in css.chars() {
+        if ch == '(' {
+            depth += 1;
+            current.push(ch);
+        } else if ch == ')' {
+            depth -= 1;
+            current.push(ch);
+        } else if ch == ';' && depth == 0 {
+            current.push(';');
+            let trimmed = current.trim();
+            if !trimmed.is_empty() && trimmed != ";" {
+                let prop = trimmed
+                    .trim_end_matches(';')
+                    .split_once(':')
+                    .map(|(p, _)| p.trim().to_ascii_lowercase());
+                decls.push((prop, std::mem::take(&mut current)));
+            } else {
+                current.clear();
+            }
+        } else {
+            current.push(ch);
+        }
+    }
+    if !current.trim().is_empty() {
+        let prop = current
+            .split_once(':')
+            .map(|(p, _)| p.trim().to_ascii_lowercase());
+        decls.push((prop, std::mem::take(&mut current)));
+    }
+
+    if decls.len() < 2 {
+        return css.to_string();
+    }
+
+    // Find index of last occurrence of each property.
+    use std::collections::HashMap;
+    let mut last: HashMap<String, usize> = HashMap::new();
+    for (i, (prop, _)) in decls.iter().enumerate() {
+        if let Some(p) = prop {
+            last.insert(p.clone(), i);
+        }
+    }
+
+    let mut out = String::with_capacity(css.len());
+    for (i, (prop, raw)) in decls.iter().enumerate() {
+        let keep = match prop {
+            Some(p) => last.get(p) == Some(&i),
+            None => true,
+        };
+        if keep {
+            out.push_str(raw);
+        }
+    }
+    out
 }
 
 fn emit_class_attr(out: &mut String, gen_class: Option<&str>, user_class: Option<&str>) {
@@ -2618,7 +2735,7 @@ fn attrs_to_css(
             }
             "line-height" => {
                 if let Some(v) = val {
-                    push_css(&mut css, "line-height", v);
+                    push_css(&mut css, "line-height", &css_line_height(v));
                 }
             }
             "letter-spacing" => {
@@ -3528,6 +3645,110 @@ fn css_px(value: &str) -> String {
         return v.to_string();
     }
     format!("{}px", v)
+}
+
+/// Rewrite literal values that match a declared CSS custom property (from
+/// `@theme` or `@let --name value`) to `var(--name)` references. Matches are
+/// anchored to CSS value boundaries so e.g. `#3b82f6` inside a longer hex or
+/// inside an identifier is not replaced. The `:root` block is emitted before
+/// this call runs, so its declarations are not affected.
+fn substitute_css_vars(css: &str, vars: &[(String, String)]) -> String {
+    if css.is_empty() || vars.is_empty() {
+        return css.to_string();
+    }
+    // Prefer longer values first so that if two vars share a prefix, the
+    // longer (more specific) match wins.
+    let mut pairs: Vec<(&str, String)> = vars
+        .iter()
+        .filter(|(name, value)| name.starts_with("--") && !value.is_empty())
+        .map(|(name, value)| (value.as_str(), format!("var({})", name)))
+        .collect();
+    pairs.sort_by_key(|(v, _)| std::cmp::Reverse(v.len()));
+    if pairs.is_empty() {
+        return css.to_string();
+    }
+
+    let is_boundary_before = |b: Option<u8>| match b {
+        None => true,
+        Some(c) => matches!(
+            c,
+            b':' | b' ' | b',' | b'(' | b';' | b'{' | b'\n' | b'\t'
+        ),
+    };
+    let is_boundary_after = |b: Option<u8>| match b {
+        None => true,
+        Some(c) => matches!(
+            c,
+            b';' | b'}' | b',' | b' ' | b')' | b'\n' | b'\t'
+        ),
+    };
+
+    let bytes = css.as_bytes();
+    let mut out = String::with_capacity(css.len());
+    let mut i = 0;
+    let mut prev: Option<u8> = None;
+    while i < bytes.len() {
+        if is_boundary_before(prev) {
+            let mut matched = false;
+            for (val, repl) in &pairs {
+                let vb = val.as_bytes();
+                if i + vb.len() <= bytes.len() && &bytes[i..i + vb.len()] == vb {
+                    let next = bytes.get(i + vb.len()).copied();
+                    if is_boundary_after(next) {
+                        out.push_str(repl);
+                        prev = repl.as_bytes().last().copied();
+                        i += vb.len();
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+            if matched {
+                continue;
+            }
+        }
+        // Advance by one UTF-8 code point.
+        let start = i;
+        i += 1;
+        while i < bytes.len() && (bytes[i] & 0xC0) == 0x80 {
+            i += 1;
+        }
+        out.push_str(&css[start..i]);
+        prev = bytes.get(i - 1).copied();
+    }
+    out
+}
+
+/// Format a `line-height` value. CSS accepts either a unitless multiplier
+/// (e.g. `1.5`) or a length (e.g. `24px`). Plain integers in htmlang source
+/// are ambiguous: `[line-height 24]` was historically emitted as `24` (which
+/// CSS interprets as 24× font-size — almost never what anyone wants). Treat
+/// integers ≥ 2 as pixel lengths; anything with a decimal, an existing unit,
+/// or the value `0`/`1` passes through unchanged.
+fn css_line_height(value: &str) -> String {
+    let v = value.trim();
+    if v == "0" || v == "1" {
+        return v.to_string();
+    }
+    if v.contains('.') {
+        return v.to_string();
+    }
+    if CSS_UNITS.iter().any(|u| v.ends_with(u)) || v.ends_with("px") {
+        return v.to_string();
+    }
+    if v.starts_with("var(")
+        || v.starts_with("calc(")
+        || v.starts_with("clamp(")
+        || v.starts_with("min(")
+        || v.starts_with("max(")
+    {
+        return v.to_string();
+    }
+    // Plain integer — treat as pixel length.
+    if v.chars().all(|c| c.is_ascii_digit()) {
+        return format!("{}px", v);
+    }
+    v.to_string()
 }
 
 /// Format multiple space-separated values, each getting px if needed.
