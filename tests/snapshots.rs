@@ -5095,3 +5095,89 @@ fn error_invalid_json_in_data_directive() {
         result.diagnostics
     );
 }
+
+// ---------------------------------------------------------------------------
+// @markdown file embedding tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn markdown_file_renders_content() {
+    let dir = std::env::temp_dir().join("htmlang_test_markdown_file");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let md_path = dir.join("article.md");
+    std::fs::write(&md_path, "# Hello\n\nThis is **bold** text.\n").unwrap();
+
+    let input = "@markdown article.md\n";
+    let result = htmlang::parser::parse_with_base(input, Some(&dir));
+    let html = htmlang::codegen::generate(&result.document);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != htmlang::parser::Severity::Error),
+        "no errors expected, got: {:?}",
+        result.diagnostics
+    );
+    assert!(
+        html.contains("<h1>Hello</h1>"),
+        "should render heading from md file, got: {}",
+        html
+    );
+    assert!(
+        html.contains("<strong>bold</strong>"),
+        "should render bold from md file, got: {}",
+        html
+    );
+}
+
+#[test]
+fn markdown_file_with_variable_path() {
+    let dir = std::env::temp_dir().join("htmlang_test_markdown_var");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let md_path = dir.join("post.md");
+    std::fs::write(&md_path, "# Post Title\n").unwrap();
+
+    let input = "@let file post.md\n@markdown $file\n";
+    let result = htmlang::parser::parse_with_base(input, Some(&dir));
+    let html = htmlang::codegen::generate(&result.document);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != htmlang::parser::Severity::Error),
+        "no errors expected, got: {:?}",
+        result.diagnostics
+    );
+    assert!(
+        html.contains("<h1>Post Title</h1>"),
+        "should resolve variable path for markdown file, got: {}",
+        html
+    );
+}
+
+#[test]
+fn markdown_file_missing_reports_error() {
+    let dir = std::env::temp_dir().join("htmlang_test_markdown_missing");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let input = "@markdown nonexistent.md\n";
+    let result = htmlang::parser::parse_with_base(input, Some(&dir));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let has_err = result.diagnostics.iter().any(|d| {
+        d.severity == htmlang::parser::Severity::Error
+            && d.message.contains("cannot read markdown")
+    });
+    assert!(
+        has_err,
+        "expected missing file error, got: {:?}",
+        result.diagnostics
+    );
+}

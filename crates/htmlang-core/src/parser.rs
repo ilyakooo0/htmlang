@@ -628,18 +628,53 @@ impl Parser {
             return Ok(None);
         }
 
-        // --- @markdown block (convert markdown to HTML) ---
-        if content.trim() == "@markdown" {
-            let mut md_lines = Vec::new();
-            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
-                match &self.lines[self.pos].content {
-                    LineContent::Normal(s) => md_lines.push(s.clone()),
-                    LineContent::Raw(s) => md_lines.push(s.clone()),
+        // --- @markdown block or file (convert markdown to HTML) ---
+        if content.trim() == "@markdown" || content.trim().starts_with("@markdown ") {
+            let arg = content.trim().strip_prefix("@markdown").unwrap().trim();
+            if arg.is_empty() {
+                // Inline markdown block: indented children
+                let mut md_lines = Vec::new();
+                while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
+                    match &self.lines[self.pos].content {
+                        LineContent::Normal(s) => md_lines.push(s.clone()),
+                        LineContent::Raw(s) => md_lines.push(s.clone()),
+                    }
+                    self.pos += 1;
                 }
-                self.pos += 1;
+                let html = markdown_to_html(&md_lines);
+                return Ok(Some(vec![Node::Raw(html)]));
+            } else {
+                // External markdown file: @markdown file.md
+                let filename = substitute_vars(arg, &ctx.variables);
+                let resolved = match &ctx.base_path {
+                    Some(base) => base.join(&filename),
+                    None => PathBuf::from(&filename),
+                };
+                let md_text = if let Some(cached) = ctx.file_cache.get(&resolved) {
+                    cached.clone()
+                } else {
+                    match std::fs::read_to_string(&resolved) {
+                        Ok(text) => {
+                            ctx.file_cache.insert(resolved.clone(), text.clone());
+                            text
+                        }
+                        Err(e) => {
+                            ctx.diagnostics.push(Diagnostic {
+                                line: line_num,
+                                column: None,
+                                message: format!("cannot read markdown '{}': {}", filename, e),
+                                severity: Severity::Error,
+                                source_line: Some(content.clone()),
+                            });
+                            return Ok(None);
+                        }
+                    }
+                };
+                ctx.included_files.push(resolved);
+                let md_lines: Vec<String> = md_text.lines().map(|l| l.to_string()).collect();
+                let html = markdown_to_html(&md_lines);
+                return Ok(Some(vec![Node::Raw(html)]));
             }
-            let html = markdown_to_html(&md_lines);
-            return Ok(Some(vec![Node::Raw(html)]));
         }
 
         // --- @manifest (PWA web manifest) ---
