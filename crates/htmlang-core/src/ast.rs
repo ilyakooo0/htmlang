@@ -138,6 +138,13 @@ pub enum ElementKind {
     Iframe,
     Output,
     Canvas,
+    // Heading elements
+    H1,
+    H2,
+    H3,
+    H4,
+    H5,
+    H6,
     // New convenience elements
     Grid,
     Stack,

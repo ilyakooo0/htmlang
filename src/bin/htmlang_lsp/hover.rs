@@ -228,6 +228,12 @@ fn hover_builtin(word: &str) -> Option<String> {
         "@paragraph" | "@p" => {
             "**@paragraph** \u{2014} Text block\n\nRenders as `<p>`.\n\nSupports inline elements: `{@text [bold] word}`"
         }
+        "@h1" => "**@h1** \u{2014} Heading level 1\n\nRenders as `<h1>`.\n\nUsage: `@h1 Page Title`",
+        "@h2" => "**@h2** \u{2014} Heading level 2\n\nRenders as `<h2>`.\n\nUsage: `@h2 Section Title`",
+        "@h3" => "**@h3** \u{2014} Heading level 3\n\nRenders as `<h3>`.\n\nUsage: `@h3 Subsection`",
+        "@h4" => "**@h4** \u{2014} Heading level 4\n\nRenders as `<h4>`.",
+        "@h5" => "**@h5** \u{2014} Heading level 5\n\nRenders as `<h5>`.",
+        "@h6" => "**@h6** \u{2014} Heading level 6\n\nRenders as `<h6>`.",
         "@image" | "@img" => {
             "**@image** \u{2014} Image\n\nRenders as `<img>`.\n\nUsage: `@image [width 200] https://example.com/photo.jpg`"
         }

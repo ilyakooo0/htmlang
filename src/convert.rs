@@ -863,7 +863,12 @@ fn emit_element(
         "time" => "@time",
         "progress" => "@progress",
         "meter" => "@meter",
-        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => "@paragraph",
+        "h1" => "@h1",
+        "h2" => "@h2",
+        "h3" => "@h3",
+        "h4" => "@h4",
+        "h5" => "@h5",
+        "h6" => "@h6",
         "b" | "strong" => "@text",
         "i" | "em" => "@text",
         "u" => "@text",
@@ -896,17 +901,6 @@ fn emit_element(
     // Add id if present
     if let Some(id) = &id_str {
         hl_attrs.insert(0, ("id".into(), Some(id.clone())));
-    }
-
-    // Special handling for heading sizes
-    match tag {
-        "h1" => hl_attrs.push(("size".into(), Some("32".into()))),
-        "h2" => hl_attrs.push(("size".into(), Some("24".into()))),
-        "h3" => hl_attrs.push(("size".into(), Some("20".into()))),
-        "h4" => hl_attrs.push(("size".into(), Some("18".into()))),
-        "h5" => hl_attrs.push(("size".into(), Some("16".into()))),
-        "h6" => hl_attrs.push(("size".into(), Some("14".into()))),
-        _ => {}
     }
 
     // Bold/italic for strong/em/b/i/u
@@ -1226,11 +1220,11 @@ mod tests {
     }
 
     #[test]
-    fn heading_sizes() {
+    fn heading_elements() {
         let h1 = convert("<h1>Title</h1>");
-        assert!(h1.contains("@paragraph [size 32]"));
+        assert!(h1.contains("@h1"));
         let h3 = convert("<h3>Sub</h3>");
-        assert!(h3.contains("@paragraph [size 20]"));
+        assert!(h3.contains("@h3"));
     }
 
     #[test]

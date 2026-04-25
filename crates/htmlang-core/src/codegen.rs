@@ -1768,6 +1768,13 @@ fn generate_element(
         ElementKind::Noscript => "noscript",
         ElementKind::Address => "address",
         ElementKind::Search => "search",
+        // Heading elements
+        ElementKind::H1 => "h1",
+        ElementKind::H2 => "h2",
+        ElementKind::H3 => "h3",
+        ElementKind::H4 => "h4",
+        ElementKind::H5 => "h5",
+        ElementKind::H6 => "h6",
         ElementKind::Image
         | ElementKind::Input
         | ElementKind::HorizontalRule
@@ -1845,6 +1852,12 @@ fn generate_element(
         ElementKind::Noscript => "noscript",
         ElementKind::Address => "address",
         ElementKind::Search => "search",
+        ElementKind::H1 => "h1",
+        ElementKind::H2 => "h2",
+        ElementKind::H3 => "h3",
+        ElementKind::H4 => "h4",
+        ElementKind::H5 => "h5",
+        ElementKind::H6 => "h6",
         _ => "",
     };
 
@@ -2000,6 +2013,12 @@ fn generate_element(
             | ElementKind::Tooltip
             | ElementKind::Chip
             | ElementKind::Tag
+            | ElementKind::H1
+            | ElementKind::H2
+            | ElementKind::H3
+            | ElementKind::H4
+            | ElementKind::H5
+            | ElementKind::H6
     ) && let Some(text) = &elem.argument
     {
         out.push_str(&html_escape(text));
@@ -2007,7 +2026,16 @@ fn generate_element(
 
     // Children
     ctx.depth += 1;
-    let is_paragraph = elem.kind == ElementKind::Paragraph;
+    let is_paragraph = matches!(
+        elem.kind,
+        ElementKind::Paragraph
+            | ElementKind::H1
+            | ElementKind::H2
+            | ElementKind::H3
+            | ElementKind::H4
+            | ElementKind::H5
+            | ElementKind::H6
+    );
     for (i, child) in elem.children.iter().enumerate() {
         generate_node(child, Some(&elem.kind), out, styles, ctx);
         if is_paragraph && i < elem.children.len() - 1 {
@@ -2537,7 +2565,13 @@ fn attrs_to_css(
             | ElementKind::Form
             | ElementKind::Details
             | ElementKind::Dialog => css.push_str(FLEX_COLUMN),
-            ElementKind::Paragraph => css.push_str("margin:0;"),
+            ElementKind::Paragraph
+            | ElementKind::H1
+            | ElementKind::H2
+            | ElementKind::H3
+            | ElementKind::H4
+            | ElementKind::H5
+            | ElementKind::H6 => css.push_str("margin:0;"),
             // Lists: reset browser defaults
             ElementKind::List => css.push_str("margin:0;padding-left:0;list-style:none;"),
             // Figure / Blockquote: flex column with browser margin reset
