@@ -290,15 +290,29 @@ fn base64_encode(data: &[u8]) -> String {
 }
 
 fn copy_non_hl_files(src_dir: &Path, out_dir: &Path) {
-    copy_non_hl_recursive(src_dir, src_dir, out_dir);
+    let skip = out_dir.canonicalize().ok();
+    copy_non_hl_recursive(src_dir, src_dir, out_dir, skip.as_deref());
 }
 
-fn copy_non_hl_recursive(base: &Path, dir: &Path, out_dir: &Path) {
+fn copy_non_hl_recursive(base: &Path, dir: &Path, out_dir: &Path, skip_canonical: Option<&Path>) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                copy_non_hl_recursive(base, &path, out_dir);
+                // Skip hidden directories (.htmlang-cache, .git, etc.)
+                if path
+                    .file_name()
+                    .is_some_and(|n| n.to_str().is_some_and(|s| s.starts_with('.')))
+                {
+                    continue;
+                }
+                // Skip the output directory to avoid copying it into itself
+                if let Some(skip) = skip_canonical {
+                    if path.canonicalize().ok().as_deref() == Some(skip) {
+                        continue;
+                    }
+                }
+                copy_non_hl_recursive(base, &path, out_dir, skip_canonical);
             } else if path.is_file() && path.extension().is_none_or(|e| e != "hl") {
                 let rel = path.strip_prefix(base).unwrap_or(&path);
                 let dest = out_dir.join(rel);
@@ -518,6 +532,13 @@ fn collect_hl_recursive_inner(dir: &Path, files: &mut Vec<PathBuf>) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
+                // Skip hidden directories (.htmlang-cache, .git, etc.)
+                if path
+                    .file_name()
+                    .is_some_and(|n| n.to_str().is_some_and(|s| s.starts_with('.')))
+                {
+                    continue;
+                }
                 collect_hl_recursive_inner(&path, files);
             } else if path.is_file() && path.extension().is_some_and(|e| e == "hl") {
                 files.push(path);
@@ -1220,7 +1241,7 @@ fn main() {
         let build_minify = build_minify || config.minify.unwrap_or(false);
         let build_compat = build_compat || config.compat.unwrap_or(false);
         let build_strict = build_strict || config.strict.unwrap_or(false);
-        let out_dir = out_dir.or(config.output.as_deref());
+        let out_dir = out_dir.or(config.output.as_deref()).or(Some("out"));
         let hl_files = collect_hl_files_recursive(dir);
         if hl_files.is_empty() {
             eprintln!("no .hl files found in {}", src);

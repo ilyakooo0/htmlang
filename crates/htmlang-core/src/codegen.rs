@@ -2661,6 +2661,26 @@ fn attrs_to_css(
                     push_css(&mut css, "padding-block", &css_px(v));
                 }
             }
+            "padding-top" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "padding-top", &css_px(v));
+                }
+            }
+            "padding-bottom" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "padding-bottom", &css_px(v));
+                }
+            }
+            "padding-left" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "padding-left", &css_px(v));
+                }
+            }
+            "padding-right" => {
+                if let Some(v) = val {
+                    push_css(&mut css, "padding-right", &css_px(v));
+                }
+            }
 
             // Sizing
             "width" => {
