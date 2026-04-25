@@ -1461,6 +1461,7 @@ const HTML_PASSTHROUGH_ATTRS: &[&str] = &[
     "autoplay",
     "loop",
     "muted",
+    "playsinline",
     "poster",
     "preload",
     // Image optimization
@@ -1515,6 +1516,7 @@ const BOOLEAN_HTML_ATTRS: &[&str] = &[
     "autoplay",
     "loop",
     "muted",
+    "playsinline",
     "open",
     "novalidate",
     "autofocus",
@@ -3667,7 +3669,7 @@ fn attrs_to_css(
             "type" | "placeholder" | "name" | "value" | "disabled" | "required" | "checked"
             | "for" | "action" | "method" | "autocomplete" | "min" | "max" | "step" | "pattern"
             | "maxlength" | "rows" | "cols" | "multiple" | "alt" | "role" | "tabindex"
-            | "title" | "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload"
+            | "title" | "controls" | "autoplay" | "loop" | "muted" | "playsinline" | "poster" | "preload"
             | "loading" | "decoding" | "ordered" | "src" | "open" | "novalidate" | "low"
             | "high" | "optimum" | "colspan" | "rowspan" | "scope" | "inline" | "responsive"
             | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list" | "sandbox" | "allow"

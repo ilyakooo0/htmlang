@@ -5209,7 +5209,7 @@ fn validate_tree(
                 // Media-specific attributes only on @video/@audio
                 if matches!(
                     base,
-                    "controls" | "autoplay" | "loop" | "muted" | "poster" | "preload"
+                    "controls" | "autoplay" | "loop" | "muted" | "playsinline" | "poster" | "preload"
                 ) && !matches!(elem.kind, ElementKind::Video | ElementKind::Audio)
                 {
                     diagnostics.push(Diagnostic {
