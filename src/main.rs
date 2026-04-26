@@ -1918,6 +1918,7 @@ fn main() {
                 );
                 all_included.extend(included);
             }
+            copy_non_hl_files(target_path, Path::new(out_dir));
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
             let serve_dir = PathBuf::from(out_dir);
             let index_path = serve_dir.join("index.html");
