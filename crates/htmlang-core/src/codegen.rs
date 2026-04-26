@@ -3886,11 +3886,7 @@ fn auto_extract_repeats(
             while end < bytes.len() {
                 match bytes[end] {
                     b'(' => pdepth += 1,
-                    b')' => {
-                        if pdepth > 0 {
-                            pdepth -= 1;
-                        }
-                    }
+                    b')' if pdepth > 0 => pdepth -= 1,
                     b';' | b'}' if pdepth == 0 => break,
                     b'{' if pdepth == 0 => break,
                     _ => {}

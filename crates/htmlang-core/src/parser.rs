@@ -4414,21 +4414,21 @@ fn parse_attr_list(
         }
 
         // ...$name spread — expand define/attribute bundle
-        if let Some(name) = part.strip_prefix("...$") {
-            if let Some(define_attrs) = ctx.defines.get(name) {
-                ctx.used_defines.insert(name.to_string());
-                attrs.extend(define_attrs.clone());
-                continue;
-            }
+        if let Some(name) = part.strip_prefix("...$")
+            && let Some(define_attrs) = ctx.defines.get(name)
+        {
+            ctx.used_defines.insert(name.to_string());
+            attrs.extend(define_attrs.clone());
+            continue;
         }
 
         // $define reference — expand attribute bundle
-        if let Some(name) = part.strip_prefix('$') {
-            if let Some(define_attrs) = ctx.defines.get(name) {
-                ctx.used_defines.insert(name.to_string());
-                attrs.extend(define_attrs.clone());
-                continue;
-            }
+        if let Some(name) = part.strip_prefix('$')
+            && let Some(define_attrs) = ctx.defines.get(name)
+        {
+            ctx.used_defines.insert(name.to_string());
+            attrs.extend(define_attrs.clone());
+            continue;
         }
 
         // Substitute variables in value
@@ -4837,13 +4837,7 @@ fn evaluate_arithmetic(input: &str) -> String {
                     '+' => l + r,
                     '-' => l - r,
                     '*' => l * r,
-                    '/' => {
-                        if r != 0.0 {
-                            l / r
-                        } else {
-                            return input.to_string();
-                        }
-                    }
+                    '/' if r != 0.0 => l / r,
                     _ => return input.to_string(),
                 };
                 if result == result.floor() && result.abs() < i64::MAX as f64 {
