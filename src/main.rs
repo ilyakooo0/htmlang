@@ -1896,6 +1896,7 @@ fn main() {
         // Do initial compile
         if target_path.is_dir() {
             let hl_files = collect_hl_files_recursive(target_path);
+            let mut all_included: Vec<PathBuf> = Vec::new();
             for file in &hl_files {
                 let path_str = file.to_string_lossy().to_string();
                 let effective_out = config.output.as_ref().map(|o| {
@@ -1906,7 +1907,7 @@ fn main() {
                     }
                     out_p.to_string_lossy().to_string()
                 });
-                compile(
+                let (_, included) = compile(
                     &path_str,
                     &CompileConfig {
                         dev: true,
@@ -1915,6 +1916,7 @@ fn main() {
                         ..Default::default()
                     },
                 );
+                all_included.extend(included);
             }
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
             let serve_dir = config
@@ -1943,7 +1945,7 @@ fn main() {
             watch_loop(
                 target_path,
                 &hl_files,
-                &[],
+                &all_included,
                 true,
                 true,
                 Some(tx),
