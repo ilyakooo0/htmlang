@@ -1218,6 +1218,7 @@ fn generate_full_inner(doc: &Document, dev: bool) -> String {
 *, *::before, *::after {{ box-sizing: border-box; }}
 body {{ margin: 0; font-family: system-ui, -apple-system, sans-serif; }}
 img {{ display: block; }}
+a {{ text-decoration: none; color: inherit; }}
 {focus_visible_css}{skip_link_css}{element_css}\
 </style>
 {noscript_html}\
@@ -1248,7 +1249,7 @@ img {{ display: block; }}
                 )
             } else {
                 format!(
-                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{theme_color_html}{base_html}{canonical_html}{manifest_html}{preload_html}{dns_prefetch_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}{focus_visible_css}{skip_link_css}{element_css}</style>{noscript_html}</head><body>{body}</body></html>",
+                    "<!DOCTYPE html><html{lang_attr}><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title>{theme_color_html}{base_html}{canonical_html}{manifest_html}{preload_html}{dns_prefetch_html}{meta_html}{og_html}{favicon_html}{json_ld_html}{head_html}<style>*,*::before,*::after{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,sans-serif}}img{{display:block}}a{{text-decoration:none;color:inherit}}{focus_visible_css}{skip_link_css}{element_css}</style>{noscript_html}</head><body>{body}</body></html>",
                     title = html_escape(title),
                     lang_attr = lang_attr,
                     theme_color_html = theme_color_html,
