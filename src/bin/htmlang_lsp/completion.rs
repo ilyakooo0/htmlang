@@ -272,7 +272,11 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@meta", "Add a <meta> tag to <head>", "@meta "),
         ("@head", "Add raw content to <head>", "@head"),
         ("@style", "Add raw CSS to stylesheet", "@style"),
-        ("@slot", "Named slot in component for caller content", "@slot "),
+        (
+            "@slot",
+            "Named slot in component for caller content",
+            "@slot ",
+        ),
         ("@match", "Pattern matching on a value", "@match "),
         ("@case", "Match case (inside @match)", "@case "),
         ("@default", "Default case (inside @match)", "@default"),
@@ -308,7 +312,11 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
             "Define design tokens (colors, spacing, fonts)",
             "@theme",
         ),
-        ("@deprecated", "Mark next @let component as deprecated", "@deprecated "),
+        (
+            "@deprecated",
+            "Mark next @let component as deprecated",
+            "@deprecated ",
+        ),
         (
             "@extends",
             "Inherit a layout template and fill @slot blocks",

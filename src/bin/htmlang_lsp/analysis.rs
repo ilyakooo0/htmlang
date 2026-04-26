@@ -28,9 +28,7 @@ pub(crate) fn document_symbols(text: &str) -> Vec<SymbolInformation> {
                     .map(|l| l.starts_with("  ") || l.starts_with('\t'))
                     .unwrap_or(false);
 
-                if has_body
-                    && (value_part.is_empty() || value_part.starts_with('$'))
-                {
+                if has_body && (value_part.is_empty() || value_part.starts_with('$')) {
                     // Component/function definition
                     let params = parts[1..].join(" ");
                     let detail = if params.is_empty() {
@@ -1031,22 +1029,20 @@ pub(crate) fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
                 }
                 let word = &line[start..i];
                 let token_type = match word {
-                    "@page" | "@let" | "@if" | "@else" | "@each"
-                    | "@include" | "@import" | "@meta" | "@head" | "@style" | "@keyframes"
-                    | "@match" | "@case" | "@default" | "@slot" | "@children" | "@warn"
-                    | "@debug" | "@lang" | "@favicon" | "@fragment" | "@unless" | "@og"
-                    | "@breakpoint" | "@canonical" | "@base" | "@font-face" | "@json-ld"
-                    | "@assert" | "@theme" | "@deprecated" | "@extends" | "@use"
-                    | "@data" | "@env" | "@fetch" | "@svg" | "@css-property" => 0, // keyword
+                    "@page" | "@let" | "@if" | "@else" | "@each" | "@include" | "@import"
+                    | "@meta" | "@head" | "@style" | "@keyframes" | "@match" | "@case"
+                    | "@default" | "@slot" | "@children" | "@warn" | "@debug" | "@lang"
+                    | "@favicon" | "@fragment" | "@unless" | "@og" | "@breakpoint"
+                    | "@canonical" | "@base" | "@font-face" | "@json-ld" | "@assert" | "@theme"
+                    | "@deprecated" | "@extends" | "@use" | "@data" | "@env" | "@fetch"
+                    | "@svg" | "@css-property" => 0, // keyword
                     _ => {
                         // Check if it's a user function call (starts with @ but not a builtin element)
                         if is_builtin_element(word) { 0 } else { 2 } // function
                     }
                 };
                 // Mark unused definitions with deprecated modifier (dimmed)
-                let modifier = if trimmed.starts_with("@let ")
-                    && word != "@let"
-                {
+                let modifier = if trimmed.starts_with("@let ") && word != "@let" {
                     let name_part = &word[1..]; // strip @
                     if unused_vars.contains(&format!("@{}", name_part)) {
                         1

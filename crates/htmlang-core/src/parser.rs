@@ -420,8 +420,8 @@ impl Parser {
             let rest = rest.trim();
 
             // Check if next lines are indented (function/component definition)
-            let has_body = self.pos < self.lines.len()
-                && self.lines[self.pos].indent > current_indent;
+            let has_body =
+                self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent;
 
             if has_body {
                 // Function definition: @let name $param1 $param2=default
@@ -447,9 +447,7 @@ impl Parser {
 
                 // Collect body lines (all lines indented deeper than @let)
                 let mut body_lines = Vec::new();
-                while self.pos < self.lines.len()
-                    && self.lines[self.pos].indent > current_indent
-                {
+                while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
                     body_lines.push(self.lines[self.pos].clone());
                     self.pos += 1;
                 }
@@ -481,9 +479,7 @@ impl Parser {
                 if value.starts_with('[') {
                     let (attrs, _) = parse_attr_brackets(value, line_num, ctx)?;
                     ctx.defines.insert(name.to_string(), attrs);
-                    ctx.define_lines
-                        .entry(name.to_string())
-                        .or_insert(line_num);
+                    ctx.define_lines.entry(name.to_string()).or_insert(line_num);
                     return Ok(None);
                 }
 
@@ -5189,7 +5185,13 @@ fn validate_tree(
                 // Media-specific attributes only on @video/@audio
                 if matches!(
                     base,
-                    "controls" | "autoplay" | "loop" | "muted" | "playsinline" | "poster" | "preload"
+                    "controls"
+                        | "autoplay"
+                        | "loop"
+                        | "muted"
+                        | "playsinline"
+                        | "poster"
+                        | "preload"
                 ) && !matches!(elem.kind, ElementKind::Video | ElementKind::Audio)
                 {
                     diagnostics.push(Diagnostic {

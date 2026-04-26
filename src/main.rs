@@ -2238,8 +2238,8 @@ fn main() {
                             .map(|l| l.starts_with("  ") || l.starts_with('\t'))
                             .unwrap_or(false);
                         // Also include if it has $params (even without checking body)
-                        let has_params = parts.len() > 1
-                            && parts[1..].iter().any(|p| p.starts_with('$'));
+                        let has_params =
+                            parts.len() > 1 && parts[1..].iter().any(|p| p.starts_with('$'));
                         if is_fn || has_params {
                             let params: Vec<&str> = parts[1..]
                                 .iter()

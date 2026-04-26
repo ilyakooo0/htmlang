@@ -682,8 +682,7 @@ impl LanguageServer for Backend {
                         .unwrap_or(false);
                     let value_after_name = rest[name.len()..].trim_start();
                     if has_body
-                        && (value_after_name.is_empty()
-                            || value_after_name.starts_with('$'))
+                        && (value_after_name.is_empty() || value_after_name.starts_with('$'))
                     {
                         defs.push(Def {
                             line: i as u32,

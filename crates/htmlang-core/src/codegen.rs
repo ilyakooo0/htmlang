@@ -3724,12 +3724,12 @@ fn attrs_to_css(
             "type" | "placeholder" | "name" | "value" | "disabled" | "required" | "checked"
             | "for" | "action" | "method" | "autocomplete" | "min" | "max" | "step" | "pattern"
             | "maxlength" | "rows" | "cols" | "multiple" | "alt" | "role" | "tabindex"
-            | "title" | "controls" | "autoplay" | "loop" | "muted" | "playsinline" | "poster" | "preload"
-            | "loading" | "decoding" | "ordered" | "src" | "open" | "novalidate" | "low"
-            | "high" | "optimum" | "colspan" | "rowspan" | "scope" | "inline" | "responsive"
-            | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list" | "sandbox" | "allow"
-            | "allowfullscreen" | "referrerpolicy" | "formaction" | "formmethod" | "formtarget"
-            | "target" | "autofocus" => {}
+            | "title" | "controls" | "autoplay" | "loop" | "muted" | "playsinline" | "poster"
+            | "preload" | "loading" | "decoding" | "ordered" | "src" | "open" | "novalidate"
+            | "low" | "high" | "optimum" | "colspan" | "rowspan" | "scope" | "inline"
+            | "responsive" | "datetime" | "media" | "sizes" | "srcset" | "cite" | "list"
+            | "sandbox" | "allow" | "allowfullscreen" | "referrerpolicy" | "formaction"
+            | "formmethod" | "formtarget" | "target" | "autofocus" => {}
 
             _ => {}
         }
@@ -3795,17 +3795,11 @@ fn substitute_css_vars(css: &str, vars: &[(String, String)]) -> String {
 
     let is_boundary_before = |b: Option<u8>| match b {
         None => true,
-        Some(c) => matches!(
-            c,
-            b':' | b' ' | b',' | b'(' | b';' | b'{' | b'\n' | b'\t'
-        ),
+        Some(c) => matches!(c, b':' | b' ' | b',' | b'(' | b';' | b'{' | b'\n' | b'\t'),
     };
     let is_boundary_after = |b: Option<u8>| match b {
         None => true,
-        Some(c) => matches!(
-            c,
-            b';' | b'}' | b',' | b' ' | b')' | b'\n' | b'\t'
-        ),
+        Some(c) => matches!(c, b';' | b'}' | b',' | b' ' | b')' | b'\n' | b'\t'),
     };
 
     let bytes = css.as_bytes();
@@ -3920,16 +3914,10 @@ fn auto_extract_repeats(
     // two-digit indices, which only affects very large extraction counts.
     let existing: std::collections::HashSet<&str> =
         existing_vars.iter().map(|(n, _)| n.as_str()).collect();
-    let mut candidates: Vec<(String, usize)> = counts
-        .into_iter()
-        .filter(|(_, n)| *n >= 2)
-        .collect();
+    let mut candidates: Vec<(String, usize)> =
+        counts.into_iter().filter(|(_, n)| *n >= 2).collect();
     // Stable, deterministic ordering — longest values first, tiebreak by text.
-    candidates.sort_by(|a, b| {
-        b.0.len()
-            .cmp(&a.0.len())
-            .then_with(|| a.0.cmp(&b.0))
-    });
+    candidates.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.0.cmp(&b.0)));
 
     let mut extracted: Vec<(String, String)> = Vec::new();
     let mut next_idx: usize = 0;

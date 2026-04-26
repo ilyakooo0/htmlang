@@ -5180,8 +5180,7 @@ fn markdown_file_missing_reports_error() {
     let _ = std::fs::remove_dir_all(&dir);
 
     let has_err = result.diagnostics.iter().any(|d| {
-        d.severity == htmlang::parser::Severity::Error
-            && d.message.contains("cannot read markdown")
+        d.severity == htmlang::parser::Severity::Error && d.message.contains("cannot read markdown")
     });
     assert!(
         has_err,
