@@ -77,10 +77,10 @@ pub(crate) fn find_definition(text: &str, name: &str) -> Option<(u32, u32, u32)>
                 for param in &parts[1..] {
                     let p = param.strip_prefix('$').unwrap_or(param);
                     let p = p.split('=').next().unwrap_or(p);
-                    if p == name {
-                        if let Some(pos) = line.find(param) {
-                            return Some((i as u32, pos as u32, param.len() as u32));
-                        }
+                    if p == name
+                        && let Some(pos) = line.find(param)
+                    {
+                        return Some((i as u32, pos as u32, param.len() as u32));
                     }
                 }
             } else if rest_trimmed == name {

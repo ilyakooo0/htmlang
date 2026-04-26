@@ -1371,28 +1371,28 @@ fn variable_completions(text: &str, range: Range) -> Vec<CompletionItem> {
 
     for line in text.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("@let ") {
-            if let Some((name, value)) = rest.trim().split_once(' ') {
-                let value = value.trim();
-                if value.starts_with('[') {
-                    // Attribute bundle
-                    items.push(item(
-                        &format!("${}", name),
-                        CompletionItemKind::CONSTANT,
-                        "Attribute bundle",
-                        &format!("${}", name),
-                        range,
-                    ));
-                } else if !value.starts_with('$') {
-                    // Scalar variable (skip function params like $param)
-                    items.push(item(
-                        &format!("${}", name),
-                        CompletionItemKind::VARIABLE,
-                        &format!("= {}", value),
-                        &format!("${}", name),
-                        range,
-                    ));
-                }
+        if let Some(rest) = trimmed.strip_prefix("@let ")
+            && let Some((name, value)) = rest.trim().split_once(' ')
+        {
+            let value = value.trim();
+            if value.starts_with('[') {
+                // Attribute bundle
+                items.push(item(
+                    &format!("${}", name),
+                    CompletionItemKind::CONSTANT,
+                    "Attribute bundle",
+                    &format!("${}", name),
+                    range,
+                ));
+            } else if !value.starts_with('$') {
+                // Scalar variable (skip function params like $param)
+                items.push(item(
+                    &format!("${}", name),
+                    CompletionItemKind::VARIABLE,
+                    &format!("= {}", value),
+                    &format!("${}", name),
+                    range,
+                ));
             }
         }
     }

@@ -307,10 +307,10 @@ fn copy_non_hl_recursive(base: &Path, dir: &Path, out_dir: &Path, skip_canonical
                     continue;
                 }
                 // Skip the output directory to avoid copying it into itself
-                if let Some(skip) = skip_canonical {
-                    if path.canonicalize().ok().as_deref() == Some(skip) {
-                        continue;
-                    }
+                if let Some(skip) = skip_canonical
+                    && path.canonicalize().ok().as_deref() == Some(skip)
+                {
+                    continue;
                 }
                 copy_non_hl_recursive(base, &path, out_dir, skip_canonical);
             } else if path.is_file() && path.extension().is_none_or(|e| e != "hl") {
