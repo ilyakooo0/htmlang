@@ -58,58 +58,60 @@ pub(crate) fn definition_at(
     }))
 }
 
-/// Find @let, @define, or @fn parameter definition for a $name reference.
+/// Find @let definition for a $name reference (variable, attribute bundle, or function param).
 pub(crate) fn find_definition(text: &str, name: &str) -> Option<(u32, u32, u32)> {
     for (i, line) in text.lines().enumerate() {
         let trimmed = line.trim();
         let offset = (line.len() - trimmed.len()) as u32;
 
-        if let Some(rest) = trimmed.strip_prefix("@let ")
-            && let Some((n, _)) = rest.trim().split_once(' ')
-            && n == name
-        {
-            let col = offset + "@let ".len() as u32;
-            return Some((i as u32, col, n.len() as u32));
-        }
-
-        if let Some(rest) = trimmed.strip_prefix("@define ") {
-            let rest = rest.trim();
-            if let Some(bracket) = rest.find('[') {
-                let n = rest[..bracket].trim();
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
+            let rest_trimmed = rest.trim();
+            // Match variable or attribute bundle: @let name value / @let name [...]
+            if let Some((n, _)) = rest_trimmed.split_once(' ') {
                 if n == name {
-                    let col = offset + "@define ".len() as u32;
+                    let col = offset + "@let ".len() as u32;
                     return Some((i as u32, col, n.len() as u32));
                 }
-            }
-        }
-
-        if let Some(rest) = trimmed.strip_prefix("@fn ") {
-            let parts: Vec<&str> = rest.split_whitespace().collect();
-            for param in &parts[1..] {
-                let p = param.strip_prefix('$').unwrap_or(param);
-                if p == name {
-                    // Find the param position in the line
-                    if let Some(pos) = line.find(param) {
-                        return Some((i as u32, pos as u32, param.len() as u32));
+                // Check function parameters
+                let parts: Vec<&str> = rest_trimmed.split_whitespace().collect();
+                for param in &parts[1..] {
+                    let p = param.strip_prefix('$').unwrap_or(param);
+                    let p = p.split('=').next().unwrap_or(p);
+                    if p == name {
+                        if let Some(pos) = line.find(param) {
+                            return Some((i as u32, pos as u32, param.len() as u32));
+                        }
                     }
                 }
+            } else if rest_trimmed == name {
+                // @let name (no value, function with no params)
+                let col = offset + "@let ".len() as u32;
+                return Some((i as u32, col, name.len() as u32));
             }
         }
     }
     None
 }
 
-/// Find @fn definition for an @name function call.
+/// Find @let function definition for an @name function call.
 pub(crate) fn find_fn_definition(text: &str, name: &str) -> Option<(u32, u32, u32)> {
-    for (i, line) in text.lines().enumerate() {
+    let lines: Vec<&str> = text.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         let offset = (line.len() - trimmed.len()) as u32;
 
-        if let Some(rest) = trimmed.strip_prefix("@fn ") {
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if parts.first() == Some(&name) {
-                let col = offset + "@fn ".len() as u32;
-                return Some((i as u32, col, name.len() as u32));
+                // Verify it's a function (has body or params)
+                let has_body = lines
+                    .get(i + 1)
+                    .map(|l| l.starts_with("  ") || l.starts_with('\t'))
+                    .unwrap_or(false);
+                if has_body {
+                    let col = offset + "@let ".len() as u32;
+                    return Some((i as u32, col, name.len() as u32));
+                }
             }
         }
     }
@@ -199,9 +201,10 @@ pub(crate) fn rename_at(
                 });
             }
 
-            // Rename @define definition
-            if let Some(rest) = trimmed.strip_prefix("@define ") {
+            // Rename @let attribute bundle or parameter definitions
+            if let Some(rest) = trimmed.strip_prefix("@let ") {
                 let rest_trimmed = rest.trim();
+                // Attribute bundle: @let name [...]
                 if let Some(bracket) = rest_trimmed.find('[') {
                     let n = rest_trimmed[..bracket].trim();
                     if n == name
@@ -217,13 +220,11 @@ pub(crate) fn rename_at(
                         continue; // Don't also match $ references on this line
                     }
                 }
-            }
-
-            // Rename @fn parameter definitions
-            if let Some(rest) = trimmed.strip_prefix("@fn ") {
-                let parts: Vec<&str> = rest.split_whitespace().collect();
+                // Function parameter definitions
+                let parts: Vec<&str> = rest_trimmed.split_whitespace().collect();
                 for param in &parts[1..] {
                     let p = param.strip_prefix('$').unwrap_or(param);
+                    let p = p.split('=').next().unwrap_or(p);
                     if p == name
                         && let Some(pos) = line.find(param)
                     {
@@ -263,13 +264,13 @@ pub(crate) fn rename_at(
                 offset = abs_pos + search.len();
             }
         } else {
-            // Rename @fn definition
-            if let Some(rest) = trimmed.strip_prefix("@fn ") {
+            // Rename @let function definition
+            if let Some(rest) = trimmed.strip_prefix("@let ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if parts.first() == Some(&name)
-                    && let Some(pos) = line.find(&format!("@fn {}", name))
+                    && let Some(pos) = line.find(&format!("@let {}", name))
                 {
-                    let start = pos + 4; // skip "@fn "
+                    let start = pos + 5; // skip "@let "
                     edits.push(TextEdit {
                         range: Range::new(
                             Position::new(line_num, start as u32),
@@ -286,8 +287,8 @@ pub(crate) fn rename_at(
             let mut offset = 0;
             while let Some(pos) = line[offset..].find(&search) {
                 let abs_pos = offset + pos;
-                // Don't match @fn definition (handled above)
-                if trimmed.starts_with("@fn ") {
+                // Don't match @let definition (handled above)
+                if trimmed.starts_with("@let ") {
                     offset = abs_pos + search.len();
                     continue;
                 }

@@ -1,7 +1,7 @@
 @page Mixin Test
 
-@mixin card-style [padding 20, rounded 8, background #f3f4f6]
-@mixin interactive [cursor pointer, hover:background #e5e7eb, transition all 0.15s ease]
+@let card-style [padding 20, rounded 8, background #f3f4f6]
+@let interactive [cursor pointer, hover:background #e5e7eb, transition all 0.15s ease]
 
 @el [...$card-style, ...$interactive]
   Hello mixin world

@@ -6,7 +6,7 @@
 @let muted #64748b
 @let bg-subtle #f8fafc
 
-@fn feature $title $body
+@let feature $title $body
   @column [padding 24, background white, rounded 12, border 1 #e2e8f0, spacing 8]
     @text [bold, size 18, color $ink] $title
     @paragraph [color $muted, line-height 1.6]

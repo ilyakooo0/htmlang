@@ -89,26 +89,20 @@ struct ParseContext {
     file_cache: HashMap<PathBuf, String>,
     /// Track which @let variables are referenced (for unused warnings)
     used_variables: HashSet<String>,
-    /// Track which @fn functions are called (for unused warnings)
+    /// Track which functions are called (for unused warnings)
     used_functions: HashSet<String>,
-    /// Track which @define bundles are referenced (for unused warnings)
+    /// Track which attribute bundles are referenced (for unused warnings)
     used_defines: HashSet<String>,
     /// Line numbers of @let definitions (name -> line)
     let_lines: HashMap<String, usize>,
-    /// Line numbers of @fn definitions (name -> line)
+    /// Line numbers of function definitions (name -> line)
     fn_lines: HashMap<String, usize>,
-    /// Line numbers of @define definitions (name -> line)
+    /// Line numbers of attribute bundle definitions (name -> line)
     define_lines: HashMap<String, usize>,
     /// Deprecated functions: name -> deprecation message
     deprecated_fns: HashMap<String, String>,
     /// Theme tokens: (name, value) pairs from @theme
     theme_tokens: Vec<(String, String)>,
-    /// Mixin definitions: name -> list of attributes
-    mixins: HashMap<String, Vec<Attribute>>,
-    /// Line numbers of @mixin definitions (name -> line)
-    mixin_lines: HashMap<String, usize>,
-    /// Track which @mixin definitions are referenced (for unused warnings)
-    used_mixins: HashSet<String>,
     /// Canonical URL
     canonical: Option<String>,
     /// Base URL for relative links
@@ -175,9 +169,6 @@ pub fn parse_with_base(input: &str, base_path: Option<&Path>) -> ParseResult {
         base_url: None,
         font_faces: Vec::new(),
         json_ld_blocks: Vec::new(),
-        mixins: HashMap::new(),
-        mixin_lines: HashMap::new(),
-        used_mixins: HashSet::new(),
         scope_blocks: Vec::new(),
         starting_style_blocks: Vec::new(),
         manifest: None,
@@ -427,6 +418,54 @@ impl Parser {
 
         if let Some(rest) = content.strip_prefix("@let ") {
             let rest = rest.trim();
+
+            // Check if next lines are indented (function/component definition)
+            let has_body = self.pos < self.lines.len()
+                && self.lines[self.pos].indent > current_indent;
+
+            if has_body {
+                // Function definition: @let name $param1 $param2=default
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.is_empty() {
+                    return Err(ParseError {
+                        line: line_num,
+                        message: "@let with body requires a name".to_string(),
+                    });
+                }
+                let name = parts[0].to_string();
+                let mut params = Vec::new();
+                let mut defaults = HashMap::new();
+                for part in &parts[1..] {
+                    let part = part.strip_prefix('$').unwrap_or(part);
+                    if let Some((param_name, default_val)) = part.split_once('=') {
+                        params.push(param_name.to_string());
+                        defaults.insert(param_name.to_string(), default_val.to_string());
+                    } else {
+                        params.push(part.to_string());
+                    }
+                }
+
+                // Collect body lines (all lines indented deeper than @let)
+                let mut body_lines = Vec::new();
+                while self.pos < self.lines.len()
+                    && self.lines[self.pos].indent > current_indent
+                {
+                    body_lines.push(self.lines[self.pos].clone());
+                    self.pos += 1;
+                }
+
+                ctx.fn_lines.entry(name.clone()).or_insert(line_num);
+                ctx.functions.insert(
+                    name,
+                    FnDef {
+                        params,
+                        defaults,
+                        body_lines,
+                    },
+                );
+                return Ok(None);
+            }
+
             if let Some((name, value)) = rest.split_once(' ') {
                 let value = value.trim();
                 // Support @let name = expr syntax (strip leading =)
@@ -437,6 +476,16 @@ impl Parser {
                 } else {
                     value
                 };
+
+                // Attribute bundle: @let name [attr1, attr2, ...]
+                if value.starts_with('[') {
+                    let (attrs, _) = parse_attr_brackets(value, line_num, ctx)?;
+                    ctx.defines.insert(name.to_string(), attrs);
+                    ctx.define_lines
+                        .entry(name.to_string())
+                        .or_insert(line_num);
+                    return Ok(None);
+                }
 
                 // Multi-line @let with triple quotes: @let name """..."""
                 let value_str;
@@ -763,32 +812,6 @@ impl Parser {
             });
         }
 
-        if let Some(rest) = content.strip_prefix("@define ") {
-            let rest = rest.trim();
-            if let Some(bracket_start) = rest.find('[') {
-                let name = rest[..bracket_start].trim();
-                let attrs_str = &rest[bracket_start..];
-                let (attrs, _) = parse_attr_brackets(attrs_str, line_num, ctx)?;
-                ctx.defines.insert(name.to_string(), attrs);
-                ctx.define_lines.entry(name.to_string()).or_insert(line_num);
-            }
-            return Ok(None);
-        }
-
-        // --- @mixin directive (composable style groups) ---
-
-        if let Some(rest) = content.strip_prefix("@mixin ") {
-            let rest = rest.trim();
-            if let Some(bracket_start) = rest.find('[') {
-                let name = rest[..bracket_start].trim();
-                let attrs_str = &rest[bracket_start..];
-                let (attrs, _) = parse_attr_brackets(attrs_str, line_num, ctx)?;
-                ctx.mixins.insert(name.to_string(), attrs);
-                ctx.mixin_lines.entry(name.to_string()).or_insert(line_num);
-            }
-            return Ok(None);
-        }
-
         // --- @assert directive (compile-time assertions) ---
 
         if let Some(rest) = content.strip_prefix("@assert ") {
@@ -1039,8 +1062,6 @@ impl Parser {
                     ctx.functions.keys().cloned().collect();
                 let define_keys_before: std::collections::HashSet<String> =
                     ctx.defines.keys().cloned().collect();
-                let mixin_keys_before: std::collections::HashSet<String> =
-                    ctx.mixins.keys().cloned().collect();
                 let var_keys_before: std::collections::HashSet<String> =
                     ctx.variables.keys().cloned().collect();
 
@@ -1072,17 +1093,6 @@ impl Parser {
                 for name in new_define_keys {
                     if let Some(attrs) = ctx.defines.remove(&name) {
                         ctx.defines.insert(format!("{}.{}", prefix, name), attrs);
-                    }
-                }
-                let new_mixin_keys: Vec<String> = ctx
-                    .mixins
-                    .keys()
-                    .filter(|k| !mixin_keys_before.contains(*k))
-                    .cloned()
-                    .collect();
-                for name in new_mixin_keys {
-                    if let Some(attrs) = ctx.mixins.remove(&name) {
-                        ctx.mixins.insert(format!("{}.{}", prefix, name), attrs);
                     }
                 }
                 let new_var_keys: Vec<String> = ctx
@@ -2615,7 +2625,7 @@ impl Parser {
             // Peek at the next line to get the function name
             if self.pos < self.lines.len()
                 && let LineContent::Normal(ref s) = self.lines[self.pos].content
-                && let Some(fn_rest) = s.trim().strip_prefix("@fn ")
+                && let Some(fn_rest) = s.trim().strip_prefix("@let ")
             {
                 let parts: Vec<&str> = fn_rest.split_whitespace().collect();
                 if let Some(&fn_name) = parts.first() {
@@ -2880,48 +2890,6 @@ impl Parser {
             ctx.variables.insert(
                 format!("__component_scope_{}", name),
                 format!("hl-{}", name),
-            );
-            return Ok(None);
-        }
-
-        // --- Function definition ---
-
-        if let Some(rest) = content.strip_prefix("@fn ") {
-            let parts: Vec<&str> = rest.split_whitespace().collect();
-            if parts.is_empty() {
-                return Err(ParseError {
-                    line: line_num,
-                    message: "@fn requires a name".to_string(),
-                });
-            }
-            let name = parts[0].to_string();
-            let mut params = Vec::new();
-            let mut defaults = HashMap::new();
-            for part in &parts[1..] {
-                let part = part.strip_prefix('$').unwrap_or(part);
-                if let Some((param_name, default_val)) = part.split_once('=') {
-                    params.push(param_name.to_string());
-                    defaults.insert(param_name.to_string(), default_val.to_string());
-                } else {
-                    params.push(part.to_string());
-                }
-            }
-
-            // Collect body lines (all lines indented deeper than @fn)
-            let mut body_lines = Vec::new();
-            while self.pos < self.lines.len() && self.lines[self.pos].indent > current_indent {
-                body_lines.push(self.lines[self.pos].clone());
-                self.pos += 1;
-            }
-
-            ctx.fn_lines.entry(name.clone()).or_insert(line_num);
-            ctx.functions.insert(
-                name,
-                FnDef {
-                    params,
-                    defaults,
-                    body_lines,
-                },
             );
             return Ok(None);
         }
@@ -3362,8 +3330,6 @@ const KNOWN_ELEMENTS: &[&str] = &[
 const KNOWN_DIRECTIVES: &[&str] = &[
     "page",
     "let",
-    "define",
-    "fn",
     "include",
     "import",
     "raw",
@@ -3392,7 +3358,6 @@ const KNOWN_DIRECTIVES: &[&str] = &[
     "base",
     "font-face",
     "json-ld",
-    "mixin",
     "assert",
     "for",
     "component",
@@ -4452,13 +4417,8 @@ fn parse_attr_list(
             continue;
         }
 
-        // ...$name spread — expand mixin or define attributes
+        // ...$name spread — expand define/attribute bundle
         if let Some(name) = part.strip_prefix("...$") {
-            if let Some(mixin_attrs) = ctx.mixins.get(name) {
-                ctx.used_mixins.insert(name.to_string());
-                attrs.extend(mixin_attrs.clone());
-                continue;
-            }
             if let Some(define_attrs) = ctx.defines.get(name) {
                 ctx.used_defines.insert(name.to_string());
                 attrs.extend(define_attrs.clone());
@@ -4466,17 +4426,11 @@ fn parse_attr_list(
             }
         }
 
-        // $define reference — expand
+        // $define reference — expand attribute bundle
         if let Some(name) = part.strip_prefix('$') {
             if let Some(define_attrs) = ctx.defines.get(name) {
                 ctx.used_defines.insert(name.to_string());
                 attrs.extend(define_attrs.clone());
-                continue;
-            }
-            // Also try mixin expansion with $name syntax
-            if let Some(mixin_attrs) = ctx.mixins.get(name) {
-                ctx.used_mixins.insert(name.to_string());
-                attrs.extend(mixin_attrs.clone());
                 continue;
             }
         }
@@ -5757,39 +5711,29 @@ fn check_unused(ctx: &mut ParseContext) {
         }
     }
 
-    // Check unused @define bundles
+    // Check unused attribute bundles (@let name [...])
     for (name, &line) in &ctx.define_lines {
         if !ctx.used_defines.contains(name) {
             ctx.diagnostics.push(Diagnostic {
                 line,
                 column: None,
-                message: format!("unused define '${}' (defined but never referenced)", name),
+                message: format!(
+                    "unused attribute bundle '${}' (defined but never referenced)",
+                    name
+                ),
                 severity: Severity::Warning,
                 source_line: None,
             });
         }
     }
 
-    // Check unused @fn functions
+    // Check unused functions (@let name ... with body)
     for (name, &line) in &ctx.fn_lines {
         if !ctx.used_functions.contains(name) {
             ctx.diagnostics.push(Diagnostic {
                 line,
                 column: None,
                 message: format!("unused function '@{}' (defined but never called)", name),
-                severity: Severity::Warning,
-                source_line: None,
-            });
-        }
-    }
-
-    // Check unused @mixin definitions
-    for (name, &line) in &ctx.mixin_lines {
-        if !ctx.used_mixins.contains(name) {
-            ctx.diagnostics.push(Diagnostic {
-                line,
-                column: None,
-                message: format!("unused mixin '{}' (defined but never referenced)", name),
                 severity: Severity::Warning,
                 source_line: None,
             });

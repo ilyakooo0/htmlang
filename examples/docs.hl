@@ -6,7 +6,7 @@
 @let primary #3b82f6
 @let code-bg #f1f5f9
 
-@fn nav-link $label $href
+@let nav-link $label $href
   @link [
     padding 8, padding-x 12, rounded 6, color $ink,
     hover:background #f1f5f9, transition all 0.1s ease

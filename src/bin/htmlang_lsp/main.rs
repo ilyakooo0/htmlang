@@ -199,7 +199,7 @@ impl LanguageServer for Backend {
                     return Ok(Some(CompletionResponse::Array(items)));
                 }
             }
-            // @use "file.hl" fn1, fn2 -- after the filename, suggest exported @fn names
+            // @use "file.hl" fn1, fn2 -- after the filename, suggest exported names
             if let Some(after_use) = trimmed.strip_prefix("@use ") {
                 // If we already have a filename (quoted or unquoted), suggest symbols from that file
                 let has_file = after_use.contains(".hl");
@@ -658,8 +658,7 @@ impl LanguageServer for Backend {
         drop(docs);
 
         // Build a simple usage counter by scanning the whole document. For each
-        // definition (@fn name / @let name / @define name) we emit a lens that
-        // reports how many bare `@name` or `$name` call sites exist.
+        // @let definition we emit a lens that reports how many call/ref sites exist.
         let lines: Vec<&str> = text.lines().collect();
 
         #[derive(Clone)]
@@ -672,40 +671,46 @@ impl LanguageServer for Backend {
 
         for (i, line) in lines.iter().enumerate() {
             let trimmed = line.trim_start();
-            if let Some(rest) = trimmed.strip_prefix("@fn ") {
-                if let Some(n) = rest.split_whitespace().next() {
-                    defs.push(Def {
-                        line: i as u32,
-                        name: n.to_string(),
-                        kind: "fn",
-                    });
-                }
-            } else if let Some(rest) = trimmed.strip_prefix("@let ") {
-                if let Some((n, _)) = rest.trim().split_once(' ') {
-                    defs.push(Def {
-                        line: i as u32,
-                        name: n.to_string(),
-                        kind: "let",
-                    });
-                }
-            } else if let Some(rest) = trimmed.strip_prefix("@define ")
-                && let Some(bracket) = rest.find('[')
-            {
-                let n = rest[..bracket].trim();
-                if !n.is_empty() {
-                    defs.push(Def {
-                        line: i as u32,
-                        name: n.to_string(),
-                        kind: "define",
-                    });
+            if let Some(rest) = trimmed.strip_prefix("@let ") {
+                let rest = rest.trim();
+                // Determine the kind based on the value
+                if let Some(name) = rest.split_whitespace().next() {
+                    // Check for indented body (function)
+                    let has_body = lines
+                        .get(i + 1)
+                        .map(|l| l.starts_with("  ") || l.starts_with('\t'))
+                        .unwrap_or(false);
+                    let value_after_name = rest[name.len()..].trim_start();
+                    if has_body
+                        && (value_after_name.is_empty()
+                            || value_after_name.starts_with('$'))
+                    {
+                        defs.push(Def {
+                            line: i as u32,
+                            name: name.to_string(),
+                            kind: "fn",
+                        });
+                    } else if value_after_name.starts_with('[') {
+                        defs.push(Def {
+                            line: i as u32,
+                            name: name.to_string(),
+                            kind: "define",
+                        });
+                    } else {
+                        defs.push(Def {
+                            line: i as u32,
+                            name: name.to_string(),
+                            kind: "let",
+                        });
+                    }
                 }
             }
         }
 
         let mut lenses = Vec::with_capacity(defs.len());
         for def in &defs {
-            // Count references: for @fn, look for `@name` at start-of-token;
-            // for @let / @define, look for `$name`.
+            // Count references: for functions, look for `@name` at start-of-token;
+            // for variables / attribute bundles, look for `$name`.
             let mut count: usize = 0;
             let needle = match def.kind {
                 "fn" => format!("@{}", def.name),

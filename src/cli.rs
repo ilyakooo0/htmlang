@@ -27,9 +27,9 @@ Commands:
   export <dir> [-o f]   Compile and bundle into an archive
   repl                  Interactive REPL (type .hl, get HTML)
   feed <dir> [-b URL]   Generate RSS feed from @page metadata
-  components <dir>      List all @fn definitions across a project
+  components <dir>      List all component definitions across a project
   deps <dir>            Show file dependency graph (@include/@import)
-  dead-code <dir>       Find unused @fn, @define, @let across project
+  dead-code <dir>       Find unused @let definitions across project
   deploy <dir> [--provider github-pages|netlify|vercel|cloudflare]
                         Build and deploy
   playground [out.html] Generate a self-contained HTML playground
@@ -192,7 +192,7 @@ _htmlang() {{
         'export:Bundle into archive'
         'repl:Interactive REPL'
         'feed:Generate RSS feed'
-        'components:List @fn definitions'
+        'components:List component definitions'
         'deps:Show dependency graph'
         'dead-code:Find unused definitions'
         'deploy:Build and deploy'
@@ -266,7 +266,7 @@ fn print_fish_completions() {
         ("export", "Bundle into archive"),
         ("repl", "Interactive REPL"),
         ("feed", "Generate RSS feed"),
-        ("components", "List @fn definitions"),
+        ("components", "List component definitions"),
         ("deps", "Show dependency graph"),
         ("dead-code", "Find unused definitions"),
         ("deploy", "Build and deploy"),

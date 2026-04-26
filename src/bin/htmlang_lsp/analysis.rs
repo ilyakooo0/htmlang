@@ -16,72 +16,76 @@ pub(crate) fn document_symbols(text: &str) -> Vec<SymbolInformation> {
         let trimmed = line.trim();
         let line_num = i as u32;
 
-        // @fn definitions
-        if let Some(rest) = trimmed.strip_prefix("@fn ") {
-            let parts: Vec<&str> = rest.split_whitespace().collect();
-            if let Some(name) = parts.first() {
-                let params = parts[1..].join(" ");
-                let detail = if params.is_empty() {
-                    None
-                } else {
-                    Some(format!("({})", params))
-                };
-                symbols.push(SymbolInformation {
-                    name: format!("@{}", name),
-                    kind: SymbolKind::FUNCTION,
-                    tags: None,
-                    deprecated: None,
-                    location: Location {
-                        uri: Url::parse("file:///").unwrap(), // replaced by caller
-                        range: Range::new(
-                            Position::new(line_num, 0),
-                            Position::new(line_num, line.len() as u32),
-                        ),
-                    },
-                    container_name: detail,
-                });
+        // @let definitions (variables, attribute bundles, and components)
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
+            let rest_trimmed = rest.trim();
+            let parts: Vec<&str> = rest_trimmed.split_whitespace().collect();
+            if let Some(&name) = parts.first() {
+                let value_part = rest_trimmed.get(name.len()..).unwrap_or("").trim_start();
+                let has_body = text
+                    .lines()
+                    .nth(i + 1)
+                    .map(|l| l.starts_with("  ") || l.starts_with('\t'))
+                    .unwrap_or(false);
+
+                if has_body
+                    && (value_part.is_empty() || value_part.starts_with('$'))
+                {
+                    // Component/function definition
+                    let params = parts[1..].join(" ");
+                    let detail = if params.is_empty() {
+                        None
+                    } else {
+                        Some(format!("({})", params))
+                    };
+                    symbols.push(SymbolInformation {
+                        name: format!("@{}", name),
+                        kind: SymbolKind::FUNCTION,
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: Url::parse("file:///").unwrap(), // replaced by caller
+                            range: Range::new(
+                                Position::new(line_num, 0),
+                                Position::new(line_num, line.len() as u32),
+                            ),
+                        },
+                        container_name: detail,
+                    });
+                } else if value_part.starts_with('[') {
+                    // Attribute bundle
+                    symbols.push(SymbolInformation {
+                        name: format!("${}", name),
+                        kind: SymbolKind::CONSTANT,
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: Url::parse("file:///").unwrap(),
+                            range: Range::new(
+                                Position::new(line_num, 0),
+                                Position::new(line_num, line.len() as u32),
+                            ),
+                        },
+                        container_name: Some("attribute bundle".to_string()),
+                    });
+                } else if !value_part.is_empty() {
+                    // Scalar variable
+                    symbols.push(SymbolInformation {
+                        name: format!("${}", name),
+                        kind: SymbolKind::VARIABLE,
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: Url::parse("file:///").unwrap(),
+                            range: Range::new(
+                                Position::new(line_num, 0),
+                                Position::new(line_num, line.len() as u32),
+                            ),
+                        },
+                        container_name: Some(format!("= {}", value_part)),
+                    });
+                }
             }
-        }
-
-        // @let definitions
-        if let Some(rest) = trimmed.strip_prefix("@let ")
-            && let Some((name, value)) = rest.trim().split_once(' ')
-        {
-            symbols.push(SymbolInformation {
-                name: format!("${}", name),
-                kind: SymbolKind::VARIABLE,
-                tags: None,
-                deprecated: None,
-                location: Location {
-                    uri: Url::parse("file:///").unwrap(),
-                    range: Range::new(
-                        Position::new(line_num, 0),
-                        Position::new(line_num, line.len() as u32),
-                    ),
-                },
-                container_name: Some(format!("= {}", value.trim())),
-            });
-        }
-
-        // @define definitions
-        if let Some(rest) = trimmed.strip_prefix("@define ")
-            && let Some(bracket) = rest.find('[')
-        {
-            let name = rest[..bracket].trim();
-            symbols.push(SymbolInformation {
-                name: format!("${}", name),
-                kind: SymbolKind::CONSTANT,
-                tags: None,
-                deprecated: None,
-                location: Location {
-                    uri: Url::parse("file:///").unwrap(),
-                    range: Range::new(
-                        Position::new(line_num, 0),
-                        Position::new(line_num, line.len() as u32),
-                    ),
-                },
-                container_name: Some("attribute bundle".to_string()),
-            });
         }
 
         // @keyframes definitions
@@ -211,15 +215,15 @@ pub(crate) fn code_actions(
             }
         }
 
-        // Quick-fix: remove unused @define
-        if msg.contains("unused define") {
+        // Quick-fix: remove unused attribute bundle (@let name [...])
+        if msg.contains("unused attribute bundle") {
             let line = diag.range.start.line as usize;
             let lines: Vec<&str> = text.lines().collect();
             if let Some(source_line) = lines.get(line) {
                 let trimmed = source_line.trim_start();
-                if trimmed.starts_with("@define ") {
+                if trimmed.starts_with("@let ") {
                     let def_name = trimmed
-                        .strip_prefix("@define ")
+                        .strip_prefix("@let ")
                         .and_then(|r| {
                             let r = r.trim();
                             r.find('[')
@@ -237,7 +241,7 @@ pub(crate) fn code_actions(
                     let mut changes = HashMap::new();
                     changes.insert(uri.clone(), vec![edit]);
                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: format!("Remove unused define '${}'", def_name),
+                        title: format!("Remove unused attribute bundle '${}'", def_name),
                         kind: Some(CodeActionKind::QUICKFIX),
                         diagnostics: Some(vec![diag.clone()]),
                         edit: Some(WorkspaceEdit {
@@ -250,15 +254,15 @@ pub(crate) fn code_actions(
             }
         }
 
-        // Quick-fix: remove unused @fn function (remove definition and its body)
+        // Quick-fix: remove unused function (@let name ... with body)
         if msg.contains("unused function") {
             let line = diag.range.start.line as usize;
             let lines: Vec<&str> = text.lines().collect();
             if let Some(source_line) = lines.get(line) {
                 let trimmed = source_line.trim_start();
-                if trimmed.starts_with("@fn ") {
+                if trimmed.starts_with("@let ") {
                     let fn_name = trimmed
-                        .strip_prefix("@fn ")
+                        .strip_prefix("@let ")
                         .and_then(|r| r.split_whitespace().next())
                         .unwrap_or("?");
                     // Find the end of the function body (indented lines below)
@@ -289,45 +293,6 @@ pub(crate) fn code_actions(
                     changes.insert(uri.clone(), vec![edit]);
                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                         title: format!("Remove unused function '@{}'", fn_name),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        diagnostics: Some(vec![diag.clone()]),
-                        edit: Some(WorkspaceEdit {
-                            changes: Some(changes),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }));
-                }
-            }
-        }
-
-        // Quick-fix: remove unused @mixin
-        if msg.contains("unused mixin") {
-            let line = diag.range.start.line as usize;
-            let lines: Vec<&str> = text.lines().collect();
-            if let Some(source_line) = lines.get(line) {
-                let trimmed = source_line.trim_start();
-                if trimmed.starts_with("@mixin ") {
-                    let mixin_name = trimmed
-                        .strip_prefix("@mixin ")
-                        .and_then(|r| {
-                            let r = r.trim();
-                            r.find('[')
-                                .map(|b| r[..b].trim())
-                                .or_else(|| r.split_whitespace().next())
-                        })
-                        .unwrap_or("?");
-                    let edit = TextEdit {
-                        range: Range::new(
-                            Position::new(diag.range.start.line, 0),
-                            Position::new(diag.range.start.line + 1, 0),
-                        ),
-                        new_text: String::new(),
-                    };
-                    let mut changes = HashMap::new();
-                    changes.insert(uri.clone(), vec![edit]);
-                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: format!("Remove unused mixin '{}'", mixin_name),
                         kind: Some(CodeActionKind::QUICKFIX),
                         diagnostics: Some(vec![diag.clone()]),
                         edit: Some(WorkspaceEdit {
@@ -459,7 +424,7 @@ pub(crate) fn code_actions(
         }
 
         // Quick-fix: auto-import suggestion for unknown element @name
-        // Searches current directory and subdirectories for @fn definitions
+        // Searches current directory and subdirectories for component definitions
         if msg.contains("unknown element @")
             && let Some(fn_name) = extract_between(msg, "unknown element @", ",")
                 .or_else(|| extract_between(msg, "unknown element @", ""))
@@ -495,7 +460,7 @@ pub(crate) fn code_actions(
                             if let Ok(content) = std::fs::read_to_string(&path) {
                                 let defines_fn = content.lines().any(|l| {
                                     let t = l.trim();
-                                    if let Some(rest) = t.strip_prefix("@fn ") {
+                                    if let Some(rest) = t.strip_prefix("@let ") {
                                         rest.split_whitespace().next() == Some(fn_name)
                                     } else {
                                         false
@@ -577,7 +542,7 @@ pub(crate) fn code_actions(
         }
     }
 
-    // Refactoring: extract selection to @fn
+    // Refactoring: extract selection to @let component
     if selection.start.line != selection.end.line {
         let lines: Vec<&str> = text.lines().collect();
         let start_line = selection.start.line as usize;
@@ -594,7 +559,7 @@ pub(crate) fn code_actions(
                     .min()
                     .unwrap_or(0);
 
-                // Build the function body with two-space indentation relative to @fn
+                // Build the function body with two-space indentation relative to @let
                 let fn_body: String = selected
                     .iter()
                     .map(|l| {
@@ -611,11 +576,11 @@ pub(crate) fn code_actions(
                     })
                     .collect();
 
-                let fn_def = format!("@fn extracted\n{}", fn_body);
+                let fn_def = format!("@let extracted\n{}", fn_body);
                 let indent = " ".repeat(min_indent);
                 let fn_call = format!("{}@extracted", indent);
 
-                // Build edits: replace selected lines with @extracted call, and insert @fn definition at top
+                // Build edits: replace selected lines with @extracted call, and insert @let definition at top
                 let replace_edit = TextEdit {
                     range: Range::new(
                         Position::new(selection.start.line, 0),
@@ -630,7 +595,7 @@ pub(crate) fn code_actions(
                 let mut changes = HashMap::new();
                 changes.insert(uri.clone(), vec![insert_edit, replace_edit]);
                 actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                    title: "Extract to @fn".into(),
+                    title: "Extract to @let component".into(),
                     kind: Some(CodeActionKind::REFACTOR_EXTRACT),
                     diagnostics: None,
                     edit: Some(WorkspaceEdit {
@@ -643,8 +608,8 @@ pub(crate) fn code_actions(
         }
     }
 
-    // Refactoring: extract attributes to @define
-    // Works on a single line with [attrs] — extracts attrs into a @define
+    // Refactoring: extract attributes to @let attribute bundle
+    // Works on a single line with [attrs] — extracts attrs into a @let
     {
         let lines: Vec<&str> = text.lines().collect();
         let line_idx = selection.start.line as usize;
@@ -658,7 +623,7 @@ pub(crate) fn code_actions(
                 let attr_count = attrs_str.split(',').count();
                 if attr_count >= 2 {
                     let define_name = "extracted-style";
-                    let define_line = format!("@define {} [{}]\n", define_name, attrs_str.trim());
+                    let define_line = format!("@let {} [{}]\n", define_name, attrs_str.trim());
                     let indent = " ".repeat(line.len() - line.trim_start().len());
 
                     // Replace [attrs] with [$extracted-style]
@@ -684,7 +649,7 @@ pub(crate) fn code_actions(
                     let mut changes = HashMap::new();
                     changes.insert(uri.clone(), vec![insert_edit, replace_edit]);
                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                        title: "Extract to @define".into(),
+                        title: "Extract to @let attribute bundle".into(),
                         kind: Some(CodeActionKind::REFACTOR_EXTRACT),
                         diagnostics: None,
                         edit: Some(WorkspaceEdit {
@@ -921,8 +886,8 @@ pub(crate) fn folding_ranges(text: &str) -> Vec<FoldingRange> {
     let mut i = 0;
     while i < lines.len() {
         let trimmed = lines[i].trim();
-        // Fold blocks that start with @fn, @if, @else, @each, @match, @style, @head, @keyframes, @define
-        if trimmed.starts_with("@fn ")
+        // Fold blocks that start with @let (with body), @if, @else, @each, @match, @style, @head, @keyframes
+        if trimmed.starts_with("@let ")
             || trimmed.starts_with("@if ")
             || trimmed == "@else"
             || trimmed.starts_with("@else if ")
@@ -1066,25 +1031,21 @@ pub(crate) fn semantic_tokens(text: &str) -> Vec<SemanticToken> {
                 }
                 let word = &line[start..i];
                 let token_type = match word {
-                    "@page" | "@let" | "@define" | "@fn" | "@if" | "@else" | "@each"
+                    "@page" | "@let" | "@if" | "@else" | "@each"
                     | "@include" | "@import" | "@meta" | "@head" | "@style" | "@keyframes"
                     | "@match" | "@case" | "@default" | "@slot" | "@children" | "@warn"
                     | "@debug" | "@lang" | "@favicon" | "@fragment" | "@unless" | "@og"
                     | "@breakpoint" | "@canonical" | "@base" | "@font-face" | "@json-ld"
-                    | "@mixin" | "@assert" | "@theme" | "@deprecated" | "@extends" | "@use"
+                    | "@assert" | "@theme" | "@deprecated" | "@extends" | "@use"
                     | "@data" | "@env" | "@fetch" | "@svg" | "@css-property" => 0, // keyword
                     _ => {
                         // Check if it's a user function call (starts with @ but not a builtin element)
                         if is_builtin_element(word) { 0 } else { 2 } // function
                     }
                 };
-                // Mark unused @fn definitions with deprecated modifier (dimmed)
-                let modifier = if (trimmed.starts_with("@fn ")
-                    || trimmed.starts_with("@define ")
-                    || trimmed.starts_with("@mixin "))
-                    && word != "@fn"
-                    && word != "@define"
-                    && word != "@mixin"
+                // Mark unused definitions with deprecated modifier (dimmed)
+                let modifier = if trimmed.starts_with("@let ")
+                    && word != "@let"
                 {
                     let name_part = &word[1..]; // strip @
                     if unused_vars.contains(&format!("@{}", name_part)) {
@@ -1333,10 +1294,10 @@ pub(crate) fn get_signature_help(text: &str, position: Position) -> Option<Signa
     }
     let inside_args = in_brackets(before);
 
-    // Find the @fn definition
+    // Find the @let component definition
     for (line_idx, line_text) in text.lines().enumerate() {
         let t = line_text.trim_start();
-        if let Some(rest) = t.strip_prefix("@fn ") {
+        if let Some(rest) = t.strip_prefix("@let ") {
             let rest = rest.trim();
             let def_name_end = rest
                 .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')

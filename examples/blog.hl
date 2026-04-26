@@ -5,7 +5,7 @@
 @let ink #1f2937
 @let muted #6b7280
 
-@define card [
+@let card [
   padding 24,
   background white,
   rounded 10,
@@ -14,7 +14,7 @@
   transition all 0.15s ease
 ]
 
-@fn post $title $date $excerpt
+@let post $title $date $excerpt
   @article [$card, spacing 8]
     @text [bold, size 20, color $ink] $title
     @text [size 13, color $muted] $date

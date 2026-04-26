@@ -2228,19 +2228,31 @@ fn main() {
             let mut found = Vec::new();
             for (line_num, line) in input.lines().enumerate() {
                 let trimmed = line.trim();
-                if let Some(rest) = trimmed.strip_prefix("@fn ") {
+                if let Some(rest) = trimmed.strip_prefix("@let ") {
+                    // Detect function definitions: @let name with indented body
                     let parts: Vec<&str> = rest.split_whitespace().collect();
                     if let Some(&name) = parts.first() {
-                        let params: Vec<&str> = parts[1..]
-                            .iter()
-                            .map(|p| p.strip_prefix('$').unwrap_or(p))
-                            .collect();
-                        let param_str = if params.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" ({})", params.join(", "))
-                        };
-                        found.push((line_num + 1, name.to_string(), param_str));
+                        // Check if next line is indented (indicating a function body)
+                        let next_line = input.lines().nth(line_num + 1);
+                        let is_fn = next_line
+                            .map(|l| l.starts_with("  ") || l.starts_with('\t'))
+                            .unwrap_or(false);
+                        // Also include if it has $params (even without checking body)
+                        let has_params = parts.len() > 1
+                            && parts[1..].iter().any(|p| p.starts_with('$'));
+                        if is_fn || has_params {
+                            let params: Vec<&str> = parts[1..]
+                                .iter()
+                                .filter(|p| p.starts_with('$'))
+                                .map(|p| p.strip_prefix('$').unwrap_or(p))
+                                .collect();
+                            let param_str = if params.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" ({})", params.join(", "))
+                            };
+                            found.push((line_num + 1, name.to_string(), param_str));
+                        }
                     }
                 }
             }
@@ -2253,7 +2265,7 @@ fn main() {
             }
         }
         if total == 0 {
-            eprintln!("no @fn definitions found");
+            eprintln!("no component definitions found");
         } else {
             eprintln!("\n{} component(s) found", total);
         }
@@ -2343,9 +2355,7 @@ fn main() {
             process::exit(1);
         }
         // Pass 1: collect all definitions and usages across all files
-        let mut all_fn_defs: Vec<(String, String, usize)> = Vec::new(); // (name, file, line)
-        let mut all_def_defs: Vec<(String, String, usize)> = Vec::new();
-        let mut all_let_defs: Vec<(String, String, usize)> = Vec::new();
+        let mut all_let_defs: Vec<(String, String, usize)> = Vec::new(); // (name, file, line)
         let mut all_refs: std::collections::HashSet<String> = std::collections::HashSet::new();
         for file in &hl_files {
             let input = match fs::read_to_string(file) {
@@ -2359,25 +2369,15 @@ fn main() {
                 .to_string();
             for (line_num, line) in input.lines().enumerate() {
                 let trimmed = line.trim();
-                if let Some(rest) = trimmed.strip_prefix("@fn ") {
-                    if let Some(name) = rest.split_whitespace().next() {
-                        all_fn_defs.push((name.to_string(), rel.clone(), line_num + 1));
-                    }
-                } else if let Some(rest) = trimmed.strip_prefix("@define ") {
-                    if let Some(name) = rest.split_whitespace().next() {
-                        let name = name.trim_end_matches('[');
-                        all_def_defs.push((name.to_string(), rel.clone(), line_num + 1));
-                    }
-                } else if let Some(rest) = trimmed.strip_prefix("@let ")
+                if let Some(rest) = trimmed.strip_prefix("@let ")
                     && let Some(name) = rest.split_whitespace().next()
                 {
+                    let name = name.trim_end_matches('[');
                     all_let_defs.push((name.to_string(), rel.clone(), line_num + 1));
                 }
                 // Collect references: @name calls and $name usages
                 if trimmed.starts_with('@')
-                    && !trimmed.starts_with("@fn ")
                     && !trimmed.starts_with("@let ")
-                    && !trimmed.starts_with("@define ")
                     && !trimmed.starts_with("@include ")
                     && !trimmed.starts_with("@import ")
                     && !trimmed.starts_with("@extends ")
@@ -2415,16 +2415,6 @@ fn main() {
         }
         // Pass 2: report unused
         let mut unused: Vec<(String, String, String, usize)> = Vec::new(); // (kind, name, file, line)
-        for (name, file, line) in &all_fn_defs {
-            if !all_refs.contains(name) {
-                unused.push(("@fn".to_string(), name.clone(), file.clone(), *line));
-            }
-        }
-        for (name, file, line) in &all_def_defs {
-            if !all_refs.contains(name) {
-                unused.push(("@define".to_string(), name.clone(), file.clone(), *line));
-            }
-        }
         for (name, file, line) in &all_let_defs {
             if !all_refs.contains(name) && !name.starts_with("--") {
                 unused.push(("@let".to_string(), name.clone(), file.clone(), *line));
@@ -3552,8 +3542,8 @@ compile();
         template.push('\n');
         template.push('\n');
 
-        // Generate @fn definition
-        template.push_str("@fn ");
+        // Generate @let component definition
+        template.push_str("@let ");
         template.push_str(comp_name);
         for p in &params {
             template.push(' ');

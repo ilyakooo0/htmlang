@@ -18,7 +18,7 @@
 @let gutter = $gap + $base
 
 -- Reusable attribute bundle
-@define card [
+@let card [
   padding $gap,
   background white,
   rounded $base,
@@ -27,7 +27,7 @@
 ]
 
 -- Composable style group (used with spread)
-@mixin interactive [
+@let interactive [
   cursor pointer,
   hover:shadow 0 4px 12px rgba(0,0,0,0.08),
   transition all 0.2s ease
@@ -44,7 +44,7 @@
 """
 
 -- Component with default parameter + @children slot
-@fn card $title $icon=◆
+@let card $title $icon=◆
   @article [$card, ...$interactive, animate fade-up 0.3s ease]
     @row [spacing 10, align-items center]
       @text [size 20, color $primary] $icon
@@ -52,7 +52,7 @@
     @children
 
 -- Component that wraps children in a titled section (function + slot)
-@fn titled $title
+@let titled $title
   @section [spacing 12, padding-y $base]
     @text [bold, size 22, color $ink] $title
     @children
@@ -124,7 +124,7 @@
       overflow-x auto
     ]
       @raw """
-@fn button $label
+@let button $label
   @el [padding 12, background blue]
     @text $label
 """

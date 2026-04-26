@@ -156,8 +156,8 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
         ("@opt", "Option (short for @option)"),
         ("@label", "Label element"),
         ("@raw", "Raw HTML escape hatch"),
-        ("@children", "Slot for caller's children (inside @fn)"),
-        ("@slot", "Named slot inside @fn (e.g., @slot header)"),
+        ("@children", "Slot for caller's children (inside component)"),
+        ("@slot", "Named slot inside component (e.g., @slot header)"),
         // Semantic elements
         ("@nav", "Navigation container (nav)"),
         ("@header", "Page/section header (header)"),
@@ -245,12 +245,10 @@ fn element_completions(range: Range) -> Vec<CompletionItem> {
 fn directive_completions(range: Range) -> Vec<CompletionItem> {
     [
         ("@page", "Set HTML page title", "@page "),
-        ("@let", "Define a variable", "@let "),
-        ("@define", "Define an attribute bundle", "@define "),
         (
-            "@fn",
-            "Define a reusable function (supports $param=default)",
-            "@fn ",
+            "@let",
+            "Define a variable, attribute bundle, or component",
+            "@let ",
         ),
         ("@keyframes", "Define a CSS animation", "@keyframes "),
         ("@if", "Conditional rendering", "@if "),
@@ -274,7 +272,7 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
         ("@meta", "Add a <meta> tag to <head>", "@meta "),
         ("@head", "Add raw content to <head>", "@head"),
         ("@style", "Add raw CSS to stylesheet", "@style"),
-        ("@slot", "Named slot in @fn for caller content", "@slot "),
+        ("@slot", "Named slot in component for caller content", "@slot "),
         ("@match", "Pattern matching on a value", "@match "),
         ("@case", "Match case (inside @match)", "@case "),
         ("@default", "Default case (inside @match)", "@default"),
@@ -310,7 +308,7 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
             "Define design tokens (colors, spacing, fonts)",
             "@theme",
         ),
-        ("@deprecated", "Mark next @fn as deprecated", "@deprecated "),
+        ("@deprecated", "Mark next @let component as deprecated", "@deprecated "),
         (
             "@extends",
             "Inherit a layout template and fill @slot blocks",
@@ -332,11 +330,6 @@ fn directive_completions(range: Range) -> Vec<CompletionItem> {
             "@json-ld",
             "Add JSON-LD structured data to head",
             "@json-ld",
-        ),
-        (
-            "@mixin",
-            "Define a composable style group (use with ...$name)",
-            "@mixin ",
         ),
         (
             "@assert",
@@ -367,7 +360,7 @@ fn snippet_completions(range: Range) -> Vec<CompletionItem> {
         (
             "card component",
             "Reusable card with title and content",
-            "@fn card \\$title\n  @el [padding 20, background white, rounded 8]\n    @text [bold] \\$title\n    @children",
+            "@let card \\$title\n  @el [padding 20, background white, rounded 8]\n    @text [bold] \\$title\n    @children",
         ),
         (
             "responsive layout",
@@ -430,9 +423,9 @@ fn snippet_completions(range: Range) -> Vec<CompletionItem> {
             "@text [max-width ${1:200}, truncate] ${2:Long text that will be truncated...}",
         ),
         (
-            "@fn definition",
-            "Define a reusable function/component",
-            "@fn ${1:name} \\$${2:param}\n  @el [${3:padding 16}]\n    @children",
+            "@let component",
+            "Define a reusable component",
+            "@let ${1:name} \\$${2:param}\n  @el [${3:padding 16}]\n    @children",
         ),
         (
             "@each loop",
@@ -529,7 +522,7 @@ pub(crate) fn path_completions(uri: &Url, position: Position) -> Vec<CompletionI
     items
 }
 
-/// Suggest exported @fn and @define names from a file referenced in @use
+/// Suggest exported names from a file referenced in @use
 pub(crate) fn use_symbol_completions(
     uri: &Url,
     line: &str,
@@ -573,32 +566,34 @@ pub(crate) fn use_symbol_completions(
 
     for target_line in target_content.lines() {
         let trimmed = target_line.trim();
-        if let Some(rest) = trimmed.strip_prefix("@fn ") {
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
             if let Some(name) = rest.split_whitespace().next() {
-                let params: Vec<&str> = rest.split_whitespace().skip(1).collect();
-                let detail = if params.is_empty() {
-                    format!("@fn {} (from {})", name, filename)
+                let name = name.trim_end_matches('[');
+                let params: Vec<&str> = rest
+                    .split_whitespace()
+                    .skip(1)
+                    .filter(|p| p.starts_with('$'))
+                    .collect();
+                let (kind, detail) = if !params.is_empty() {
+                    (
+                        CompletionItemKind::FUNCTION,
+                        format!("@let {} {} (from {})", name, params.join(" "), filename),
+                    )
+                } else if rest[name.len()..].trim_start().starts_with('[') {
+                    (
+                        CompletionItemKind::VARIABLE,
+                        format!("@let {} [...] (from {})", name, filename),
+                    )
                 } else {
-                    format!("@fn {} {} (from {})", name, params.join(" "), filename)
+                    (
+                        CompletionItemKind::VARIABLE,
+                        format!("@let {} (from {})", name, filename),
+                    )
                 };
                 items.push(CompletionItem {
                     label: name.to_string(),
-                    kind: Some(CompletionItemKind::FUNCTION),
+                    kind: Some(kind),
                     detail: Some(detail),
-                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                        range: edit_range,
-                        new_text: name.to_string(),
-                    })),
-                    ..Default::default()
-                });
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("@define ") {
-            if let Some(name) = rest.split_whitespace().next() {
-                let name = name.trim_end_matches('[');
-                items.push(CompletionItem {
-                    label: name.to_string(),
-                    kind: Some(CompletionItemKind::VARIABLE),
-                    detail: Some(format!("@define {} (from {})", name, filename)),
                     text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                         range: edit_range,
                         new_text: name.to_string(),
@@ -1370,25 +1365,27 @@ fn variable_completions(text: &str, range: Range) -> Vec<CompletionItem> {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("@let ") {
             if let Some((name, value)) = rest.trim().split_once(' ') {
-                items.push(item(
-                    &format!("${}", name),
-                    CompletionItemKind::VARIABLE,
-                    &format!("= {}", value.trim()),
-                    &format!("${}", name),
-                    range,
-                ));
+                let value = value.trim();
+                if value.starts_with('[') {
+                    // Attribute bundle
+                    items.push(item(
+                        &format!("${}", name),
+                        CompletionItemKind::CONSTANT,
+                        "Attribute bundle",
+                        &format!("${}", name),
+                        range,
+                    ));
+                } else if !value.starts_with('$') {
+                    // Scalar variable (skip function params like $param)
+                    items.push(item(
+                        &format!("${}", name),
+                        CompletionItemKind::VARIABLE,
+                        &format!("= {}", value),
+                        &format!("${}", name),
+                        range,
+                    ));
+                }
             }
-        } else if let Some(rest) = trimmed.strip_prefix("@define ")
-            && let Some(bracket) = rest.find('[')
-        {
-            let name = rest[..bracket].trim();
-            items.push(item(
-                &format!("${}", name),
-                CompletionItemKind::CONSTANT,
-                "Attribute bundle",
-                &format!("${}", name),
-                range,
-            ));
         }
     }
 
@@ -1397,12 +1394,22 @@ fn variable_completions(text: &str, range: Range) -> Vec<CompletionItem> {
 
 fn function_completions(text: &str, range: Range) -> Vec<CompletionItem> {
     let mut items = Vec::new();
+    let all_lines: Vec<&str> = text.lines().collect();
 
-    for line in text.lines() {
+    for (idx, line) in all_lines.iter().enumerate() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("@fn ") {
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if let Some(name) = parts.first() {
+                // Only suggest as function if it has params or an indented body
+                let has_params = parts.len() > 1 && parts[1..].iter().any(|p| p.starts_with('$'));
+                let has_body = all_lines
+                    .get(idx + 1)
+                    .map(|l| l.starts_with("  ") || l.starts_with('\t'))
+                    .unwrap_or(false);
+                if !has_params && !has_body {
+                    continue;
+                }
                 let params: Vec<&str> = parts[1..]
                     .iter()
                     .map(|p| p.strip_prefix('$').unwrap_or(p))

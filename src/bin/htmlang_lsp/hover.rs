@@ -56,22 +56,19 @@ fn hover_variable(text: &str, name: &str) -> Option<String> {
 
     for line in text.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("@define ") {
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
             let rest = rest.trim();
-            if let Some(bracket) = rest.find('[')
-                && rest[..bracket].trim() == name
-            {
-                return Some(format!(
-                    "**${}** \u{2014} Attribute bundle\n\n`{}`",
-                    name, trimmed
-                ));
+            // Attribute bundle: @let name [...]
+            if let Some(bracket) = rest.find('[') {
+                let def_name = rest[..bracket].trim();
+                if def_name == name {
+                    return Some(format!(
+                        "**${}** \u{2014} Attribute bundle\n\n`{}`",
+                        name, trimmed
+                    ));
+                }
             }
-        }
-    }
-
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("@fn ") {
+            // Function parameter: @let fn-name $param (with body)
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if let Some(fn_name) = parts.first() {
                 for param in &parts[1..] {
@@ -94,12 +91,12 @@ fn hover_user_fn(text: &str, name: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("@fn ") {
+        if let Some(rest) = trimmed.strip_prefix("@let ") {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if parts.first() == Some(&name) {
                 let params = &parts[1..];
 
-                // Collect doc-comment lines above the @fn (lines starting with --)
+                // Collect doc-comment lines above the definition (lines starting with --)
                 let mut doc_lines: Vec<&str> = Vec::new();
                 let mut j = i;
                 while j > 0 {
@@ -247,19 +244,13 @@ fn hover_builtin(word: &str) -> Option<String> {
             "**@page** \u{2014} Page title\n\nSets the HTML `<title>` and wraps output in a full document.\n\nUsage: `@page My Page Title`"
         }
         "@let" => {
-            "**@let** \u{2014} Variable\n\nDefines a variable for `$name` substitution.\n\nUsage: `@let primary #3b82f6`"
-        }
-        "@define" => {
-            "**@define** \u{2014} Attribute bundle\n\nDefines a reusable set of attributes.\n\nUsage: `@define card-style [padding 20, rounded 8]`\n\nApply with `$card-style` in attribute lists."
-        }
-        "@fn" => {
-            "**@fn** \u{2014} Function\n\nDefines a reusable component.\n\n```\n@fn card $title\n  @el [padding 20]\n    @text [bold] $title\n    @children\n```"
+            "**@let** \u{2014} Definition\n\nDefines a variable, attribute bundle, or component.\n\n- Variable: `@let primary #3b82f6`\n- Attribute bundle: `@let card-style [padding 20, rounded 8]`\n- Component:\n```\n@let card $title\n  @el [padding 20]\n    @text [bold] $title\n    @children\n```"
         }
         "@keyframes" => {
             "**@keyframes** \u{2014} CSS Animation\n\nDefines keyframes for CSS animations.\n\n```\n@keyframes fade-in\n  from{opacity:0}to{opacity:1}\n```\n\nUse with `animation` attribute: `[animation fade-in 0.3s ease]`"
         }
         "@children" => {
-            "**@children** \u{2014} Children slot\n\nPlaceholder inside `@fn` body replaced with the caller's children."
+            "**@children** \u{2014} Children slot\n\nPlaceholder inside a component body replaced with the caller's children."
         }
         "@input" => {
             "**@input** \u{2014} Form input\n\nRenders as self-closing `<input>`.\n\nUsage: `@input [type text, placeholder Name, name user]`"
@@ -289,7 +280,7 @@ fn hover_builtin(word: &str) -> Option<String> {
             "**@include** \u{2014} Include file\n\nIncludes another .hl file (DOM nodes + definitions).\n\nUsage: `@include header.hl`"
         }
         "@import" => {
-            "**@import** \u{2014} Import definitions\n\nImports `@let`, `@define`, `@fn` from another .hl file without emitting DOM nodes.\n\nUsage: `@import theme.hl`"
+            "**@import** \u{2014} Import definitions\n\nImports `@let` definitions from another .hl file without emitting DOM nodes.\n\nUsage: `@import theme.hl`"
         }
         "@meta" => {
             "**@meta** \u{2014} Meta tag\n\nAdds a `<meta>` tag to `<head>`.\n\nUsage: `@meta description A portfolio site`"
@@ -301,7 +292,7 @@ fn hover_builtin(word: &str) -> Option<String> {
             "**@style** \u{2014} Custom CSS\n\nAdds raw CSS to the stylesheet.\n\n```\n@style\n  .custom { border: 1px solid red; }\n  @container sidebar (min-width: 400px) { ... }\n```"
         }
         "@slot" => {
-            "**@slot** \u{2014} Named slot\n\nDefines a named insertion point inside `@fn`. Callers fill it with `@slot name` + children.\n\n```\n@fn layout\n  @slot header\n  @children\n  @slot footer\n```"
+            "**@slot** \u{2014} Named slot\n\nDefines a named insertion point inside a component. Callers fill it with `@slot name` + children.\n\n```\n@let layout\n  @slot header\n  @children\n  @slot footer\n```"
         }
         // Semantic elements
         "@nav" => {
@@ -461,13 +452,13 @@ fn hover_builtin(word: &str) -> Option<String> {
             "**@theme** \u{2014} Design tokens\n\nDefines centralized design tokens (colors, spacing, fonts).\nEach token becomes both a `$variable` and a `--css-custom-property`.\n\n```\n@theme\n  primary #3b82f6\n  spacing-md 16\n  font-body system-ui, sans-serif\n```"
         }
         "@deprecated" => {
-            "**@deprecated** `<message>`\n\nMarks the next `@fn` as deprecated. Callers get a compile-time warning.\n\n```\n@deprecated Use @new-card instead\n@fn old-card $title\n  ...\n```"
+            "**@deprecated** `<message>`\n\nMarks the next `@let` component as deprecated. Callers get a compile-time warning.\n\n```\n@deprecated Use @new-card instead\n@let old-card $title\n  ...\n```"
         }
         "@extends" => {
             "**@extends** `<file.hl>`\n\nInherit a layout template. Fill named `@slot` blocks.\n\n```\n@extends layout.hl\n@slot content\n  My page content\n@slot sidebar\n  Sidebar content\n```"
         }
         "@use" => {
-            "**@use** `<file.hl> name1, name2`\n\nSelective import: only imports named `@fn`/`@define` definitions.\n\n```\n@use components.hl card, button\n```"
+            "**@use** `<file.hl> name1, name2`\n\nSelective import: only imports named `@let` definitions.\n\n```\n@use components.hl card, button\n```"
         }
         "@canonical" => {
             "**@canonical** `<url>`\n\nSets the canonical URL for the page. Adds `<link rel=\"canonical\">` to `<head>`.\n\nUsage: `@canonical https://example.com/page`"

@@ -4,12 +4,12 @@
 @let --border #e2e8f0
 @let --radius 8
 
-@fn deep-card $title
+@let deep-card $title
   @el [background white, dark:background #1e293b, rounded $--radius, padding 16, border 1 $--border]
     @text [bold, size 16] $title
     @children
 
-@fn inner-panel $label
+@let inner-panel $label
   @el [background #f8fafc, dark:background #0f172a, rounded 6, padding 12, margin-top 8]
     @text [size 13, color #64748b] $label
     @children
