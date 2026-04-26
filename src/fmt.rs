@@ -175,13 +175,14 @@ fn split_trailing_comment(line: &str) -> (&str, Option<&str>) {
                 b'"' | b'\'' => in_str = Some(c),
                 b'[' => bracket_depth += 1,
                 b']' => bracket_depth -= 1,
-                b'-' if bytes[i + 1] == b'-' && bracket_depth == 0 => {
+                b'-' if bytes[i + 1] == b'-'
+                    && bracket_depth == 0
                     // Require a space (or start-of-line) before the `--` so we
                     // don't split inside identifiers or CSS values like `a--b`.
-                    if i == 0 || bytes[i - 1] == b' ' || bytes[i - 1] == b'\t' {
-                        let (before, after) = line.split_at(i);
-                        return (before.trim_end(), Some(after));
-                    }
+                    && (i == 0 || bytes[i - 1] == b' ' || bytes[i - 1] == b'\t') =>
+                {
+                    let (before, after) = line.split_at(i);
+                    return (before.trim_end(), Some(after));
                 }
                 _ => {}
             },

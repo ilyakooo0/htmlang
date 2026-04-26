@@ -905,20 +905,14 @@ fn emit_element(
 
     // Bold/italic for strong/em/b/i/u
     match tag {
-        "b" | "strong" => {
-            if !hl_attrs.iter().any(|(k, _)| k == "bold") {
-                hl_attrs.push(("bold".into(), None));
-            }
+        "b" | "strong" if !hl_attrs.iter().any(|(k, _)| k == "bold") => {
+            hl_attrs.push(("bold".into(), None));
         }
-        "i" | "em" => {
-            if !hl_attrs.iter().any(|(k, _)| k == "italic") {
-                hl_attrs.push(("italic".into(), None));
-            }
+        "i" | "em" if !hl_attrs.iter().any(|(k, _)| k == "italic") => {
+            hl_attrs.push(("italic".into(), None));
         }
-        "u" => {
-            if !hl_attrs.iter().any(|(k, _)| k == "underline") {
-                hl_attrs.push(("underline".into(), None));
-            }
+        "u" if !hl_attrs.iter().any(|(k, _)| k == "underline") => {
+            hl_attrs.push(("underline".into(), None));
         }
         _ => {}
     }
