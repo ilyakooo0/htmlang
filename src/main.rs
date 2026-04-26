@@ -1896,34 +1896,30 @@ fn main() {
         // Do initial compile
         if target_path.is_dir() {
             let hl_files = collect_hl_files_recursive(target_path);
+            let out_dir = config.output.as_deref().unwrap_or("out");
+            let _ = fs::create_dir_all(out_dir);
             let mut all_included: Vec<PathBuf> = Vec::new();
             for file in &hl_files {
                 let path_str = file.to_string_lossy().to_string();
-                let effective_out = config.output.as_ref().map(|o| {
-                    let rel = file.strip_prefix(target_path).unwrap_or(file);
-                    let out_p = Path::new(o).join(rel).with_extension("html");
-                    if let Some(parent) = out_p.parent() {
-                        let _ = fs::create_dir_all(parent);
-                    }
-                    out_p.to_string_lossy().to_string()
-                });
+                let rel = file.strip_prefix(target_path).unwrap_or(file);
+                let out_p = Path::new(out_dir).join(rel).with_extension("html");
+                if let Some(parent) = out_p.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                let effective_out = out_p.to_string_lossy().to_string();
                 let (_, included) = compile(
                     &path_str,
                     &CompileConfig {
                         dev: true,
                         error_overlay: true,
-                        output_path: effective_out.as_deref(),
+                        output_path: Some(&effective_out),
                         ..Default::default()
                     },
                 );
                 all_included.extend(included);
             }
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
-            let serve_dir = config
-                .output
-                .as_ref()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| target_path.to_path_buf());
+            let serve_dir = PathBuf::from(out_dir);
             let index_path = serve_dir.join("index.html");
             let server_tx = tx.clone();
             let tls_for_thread = tls_config;
@@ -1953,16 +1949,24 @@ fn main() {
                 config.debounce_ms,
             );
         } else {
+            let out_dir = config.output.as_deref().unwrap_or("out");
+            let _ = fs::create_dir_all(out_dir);
+            let file_stem = Path::new(&target)
+                .file_stem()
+                .map(|s| s.to_os_string())
+                .unwrap_or_default();
+            let out_path = Path::new(out_dir).join(&file_stem).with_extension("html");
+            let out_path_str = out_path.to_string_lossy().to_string();
             let (_, included) = compile(
                 &target,
                 &CompileConfig {
                     dev: true,
                     error_overlay: true,
+                    output_path: Some(&out_path_str),
                     ..Default::default()
                 },
             );
             let (tx, _) = tokio::sync::broadcast::channel::<()>(16);
-            let out_path = Path::new(&target).with_extension("html");
             let server_tx = tx.clone();
             let tls_for_thread = tls_config;
             std::thread::spawn(move || {
