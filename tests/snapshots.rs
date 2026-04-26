@@ -257,7 +257,7 @@ fn error_unclosed_bracket() {
 
 #[test]
 fn error_recursive_function() {
-    let input = "@fn loop\n  @loop\n@loop";
+    let input = "@let loop\n  @loop\n@loop";
     let diags = parse_diagnostics(input);
     assert!(
         diags
@@ -348,13 +348,13 @@ fn else_if_chain() {
 
 #[test]
 fn fn_default_used() {
-    let output = compile("@fn test $x=hello\n  @text $x\n@test");
+    let output = compile("@let test $x=hello\n  @text $x\n@test");
     assert!(output.contains("hello"));
 }
 
 #[test]
 fn fn_default_overridden() {
-    let output = compile("@fn test $x=hello\n  @text $x\n@test [x world]");
+    let output = compile("@let test $x=hello\n  @text $x\n@test [x world]");
     assert!(output.contains("world"));
     assert!(!output.contains("hello"));
 }
@@ -446,7 +446,7 @@ fn no_warning_used_variable() {
 
 #[test]
 fn warning_unused_function() {
-    let diags = parse_diagnostics("@fn card\n  @el [padding 10]\n@el");
+    let diags = parse_diagnostics("@let card\n  @el [padding 10]\n@el");
     assert!(
         diags
             .iter()
@@ -458,7 +458,7 @@ fn warning_unused_function() {
 
 #[test]
 fn no_warning_used_function() {
-    let diags = parse_diagnostics("@fn card\n  @el [padding 10]\n@card");
+    let diags = parse_diagnostics("@let card\n  @el [padding 10]\n@card");
     assert!(
         !diags.iter().any(|d| d.message.contains("unused function")),
         "should not warn about used function, got: {:?}",
@@ -468,19 +468,23 @@ fn no_warning_used_function() {
 
 #[test]
 fn warning_unused_define() {
-    let diags = parse_diagnostics("@define card-style [padding 10]\n@el");
+    let diags = parse_diagnostics("@let card-style [padding 10]\n@el");
     assert!(
-        diags.iter().any(|d| d.message.contains("unused define")),
-        "expected unused define warning, got: {:?}",
+        diags
+            .iter()
+            .any(|d| d.message.contains("unused attribute bundle")),
+        "expected unused attribute bundle warning, got: {:?}",
         diags
     );
 }
 
 #[test]
 fn no_warning_used_define() {
-    let diags = parse_diagnostics("@define card-style [padding 10]\n@el [$card-style]");
+    let diags = parse_diagnostics("@let card-style [padding 10]\n@el [$card-style]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("unused define")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unused attribute bundle")),
         "should not warn about used define, got: {:?}",
         diags
     );
@@ -559,7 +563,7 @@ fn each_range_with_index() {
 #[test]
 fn named_slot_basic() {
     let output = compile(
-        "@fn card\n  @el\n    @slot header\n    @children\n@card\n  @slot header\n    @text Title\n  @text Body",
+        "@let card\n  @el\n    @slot header\n    @children\n@card\n  @slot header\n    @text Title\n  @text Body",
     );
     assert!(output.contains("Title"));
     assert!(output.contains("Body"));
@@ -568,7 +572,7 @@ fn named_slot_basic() {
 #[test]
 fn named_slot_default_content() {
     let output = compile(
-        "@fn card\n  @el\n    @slot header\n      @text Default\n    @children\n@card\n  @text Body",
+        "@let card\n  @el\n    @slot header\n      @text Default\n    @children\n@card\n  @text Body",
     );
     assert!(output.contains("Default"));
     assert!(output.contains("Body"));
@@ -3094,7 +3098,7 @@ fn test_theme_directive() {
 #[test]
 fn test_deprecated_fn() {
     let result = htmlang::parser::parse(
-        "@deprecated Use @new-card instead\n@fn old-card $title\n  @text $title\n\n@old-card [title Hello]",
+        "@deprecated Use @new-card instead\n@let old-card $title\n  @text $title\n\n@old-card [title Hello]",
     );
     let warnings: Vec<_> = result
         .diagnostics
@@ -3214,7 +3218,7 @@ fn test_autofocus_attribute() {
 fn test_repl_components_feed_subcommands_recognized() {
     // Just verify that the parser and codegen work for content that these commands would process
     let result = htmlang::parser::parse(
-        "@page Test Site\n@meta description A test\n@fn card $title\n  @text $title",
+        "@page Test Site\n@meta description A test\n@let card $title\n  @text $title",
     );
     assert!(
         !result
@@ -3357,12 +3361,12 @@ fn output_contains_layer_wrapping() {
     );
 }
 
-// --- Named slots in @fn assertions ---
+// --- Named slots in @let assertions ---
 
 #[test]
 fn fn_named_slots() {
     let output = compile(
-        "@fn layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot header\n    Custom Header\n  @slot content\n    Page body",
+        "@let layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot header\n    Custom Header\n  @slot content\n    Page body",
     );
     assert!(
         output.contains("Custom Header"),
@@ -3384,7 +3388,7 @@ fn fn_named_slots() {
 #[test]
 fn fn_named_slot_default() {
     let output = compile(
-        "@fn layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot content\n    Only content",
+        "@let layout\n  @column\n    @slot header\n      Default Header\n    @slot content\n@layout\n  @slot content\n    Only content",
     );
     assert!(
         output.contains("Default Header"),
@@ -3628,7 +3632,7 @@ fn no_warning_script_attrs() {
 }
 
 // ---------------------------------------------------------------------------
-// @mixin and spread attributes
+// @let attribute bundles (spread attributes)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -3638,7 +3642,7 @@ fn snapshot_mixin_spread() {
 
 #[test]
 fn mixin_expands_in_attrs() {
-    let output = compile("@mixin card [padding 20, rounded 8]\n@el [...$card]\n  Hi");
+    let output = compile("@let card [padding 20, rounded 8]\n@el [...$card]\n  Hi");
     assert!(
         output.contains("padding:20px"),
         "mixin should expand padding: {}",
@@ -3653,7 +3657,7 @@ fn mixin_expands_in_attrs() {
 
 #[test]
 fn mixin_with_dollar_syntax() {
-    let output = compile("@mixin card [padding 20, rounded 8]\n@el [$card]\n  Hi");
+    let output = compile("@let card [padding 20, rounded 8]\n@el [$card]\n  Hi");
     assert!(
         output.contains("padding:20px"),
         "mixin with $ syntax should expand: {}",
@@ -3663,7 +3667,7 @@ fn mixin_with_dollar_syntax() {
 
 #[test]
 fn mixin_compose_with_extra_attrs() {
-    let output = compile("@mixin base [padding 10]\n@el [...$base, background red]\n  Hi");
+    let output = compile("@let base [padding 10]\n@el [...$base, background red]\n  Hi");
     assert!(
         output.contains("padding:10px"),
         "mixin should expand: {}",
@@ -3678,19 +3682,23 @@ fn mixin_compose_with_extra_attrs() {
 
 #[test]
 fn warning_unused_mixin() {
-    let diags = parse_diagnostics("@mixin card [padding 10]\n@el [background red]");
+    let diags = parse_diagnostics("@let card [padding 10]\n@el [background red]");
     assert!(
-        diags.iter().any(|d| d.message.contains("unused mixin")),
-        "expected unused mixin warning, got: {:?}",
+        diags
+            .iter()
+            .any(|d| d.message.contains("unused attribute bundle")),
+        "expected unused attribute bundle warning, got: {:?}",
         diags
     );
 }
 
 #[test]
 fn no_warning_used_mixin() {
-    let diags = parse_diagnostics("@mixin card [padding 10]\n@el [...$card]");
+    let diags = parse_diagnostics("@let card [padding 10]\n@el [...$card]");
     assert!(
-        !diags.iter().any(|d| d.message.contains("unused mixin")),
+        !diags
+            .iter()
+            .any(|d| d.message.contains("unused attribute bundle")),
         "should not warn about used mixin, got: {:?}",
         diags
     );
@@ -4182,7 +4190,7 @@ fn test_error_for_missing_range() {
 fn test_error_circular_include() {
     // A file including itself would be circular, but we test via in-memory parse
     // by testing that the parser detects self-referential definitions
-    let diags = parse_diagnostics("@fn recursive $x\n  @recursive [$x]\n\n@recursive [hello]");
+    let diags = parse_diagnostics("@let recursive $x\n  @recursive [$x]\n\n@recursive [hello]");
     assert!(
         diags.iter().any(|d| d.message.contains("recursive")),
         "should report recursive function call"
@@ -4222,7 +4230,7 @@ fn test_warning_unused_variable() {
 
 #[test]
 fn test_warning_unused_function() {
-    let diags = parse_diagnostics("@fn unused_fn\n  @text Hello\n\n@text World");
+    let diags = parse_diagnostics("@let unused_fn\n  @text Hello\n\n@text World");
     assert!(
         diags.iter().any(|d| d.message.contains("unused function")
             && d.severity == htmlang::parser::Severity::Warning),
@@ -4245,7 +4253,7 @@ fn test_each_index_variable() {
 #[test]
 fn test_children_fallback_content() {
     let html = compile(
-        "@fn wrapper\n  @el [padding 10]\n    @children\n      @text Default content\n\n@wrapper",
+        "@let wrapper\n  @el [padding 10]\n    @children\n      @text Default content\n\n@wrapper",
     );
     assert!(
         html.contains("Default content"),
@@ -4255,7 +4263,7 @@ fn test_children_fallback_content() {
 
 #[test]
 fn test_spread_define() {
-    let html = compile("@define btn [padding 12, bold]\n@el [...$btn]\n  Click");
+    let html = compile("@let btn [padding 12, bold]\n@el [...$btn]\n  Click");
     assert!(
         html.contains("padding:12px"),
         "spread define should apply padding"
@@ -5053,7 +5061,7 @@ fn import_with_alias_prefixes_definitions() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let lib_path = dir.join("lib.hl");
-    std::fs::write(&lib_path, "@fn card\n  @el\n    @text card-body\n").unwrap();
+    std::fs::write(&lib_path, "@let card\n  @el\n    @text card-body\n").unwrap();
 
     let input = "@import lib.hl as ui\n@ui.card\n";
     let result = htmlang::parser::parse_with_base(input, Some(&dir));
